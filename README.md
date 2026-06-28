@@ -39,6 +39,10 @@ Frontend conventions are documented in
 status colors, progress components, and completion-reward hook established by
 the current Roadmap, Resources, and Exams views.
 
+The complete legacy-parity and improvement inventory is maintained in
+`../features/react_migration_checklist.md`. Update its statuses whenever a
+feature slice is implemented or deliberately deferred.
+
 ## Backend
 
 The backend is a lightweight Python skeleton using only the standard library for
@@ -63,6 +67,11 @@ python3 -m tracker_api.import_dump "/Users/eugene/Downloads/study-tracker-2026-0
 The first importer stores exact raw plan snapshots in SQLite. That gives the
 React app a safe migration bridge before we normalize every note, resource,
 exam, and discussion into dedicated tables.
+
+The target relational model, invariants, import identity rules, and phased
+migration order are documented in `../features/db_schema.md`. The current
+`tracker_api/db.py` schema is only a bootstrap and must not be treated as the
+final domain model.
 
 ## Migration Rule
 
