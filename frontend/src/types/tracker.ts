@@ -40,6 +40,7 @@ export type StudyDay = {
   purpose: string;
   progress: number;
   closed: boolean;
+  noteHtml?: string;
   tasks: Task[];
 };
 

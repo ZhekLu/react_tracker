@@ -1,6 +1,9 @@
-import { BookOpen, CalendarDays, FileQuestion, Layers3 } from "lucide-react";
+import { BookOpen, CalendarDays, FileQuestion, Layers3, Sparkles } from "lucide-react";
 import type { ComponentType, CSSProperties, ReactNode } from "react";
+import { percent } from "../lib/progress";
 import type { Course, TrackerView } from "../types/tracker";
+import { ProgressBar } from "./ProgressBar";
+import { ProgressRing } from "./ui/ProgressRing";
 
 type AppShellProps = {
   course: Course;
@@ -18,26 +21,43 @@ const navItems: Array<{ view: TrackerView; label: string; icon: ComponentType<{ 
 ];
 
 export function AppShell({ course, courses, view, onViewChange, onCourseChange, children }: AppShellProps) {
+  const courseProgress = course.days.length
+    ? course.days.reduce((total, day) => total + day.progress, 0) / course.days.length
+    : 0;
+  const questionCount =
+    course.resources.filter((resource) => resource.hasQuestion).length +
+    course.exams.flatMap((exam) => exam.questions).filter((question) => question.status === "question").length;
+  const completedTasks = course.days.flatMap((day) => day.tasks).filter((task) => task.status === "done").length;
+  const totalTasks = course.days.flatMap((day) => day.tasks).length;
+  const activeView = navItems.find((item) => item.view === view);
+  const ActiveViewIcon = activeView?.icon;
+
   return (
-    <div className="appShell">
+    <div className="appShell" style={{ "--course-accent": course.accent } as CSSProperties}>
       <aside className="sideNav">
         <div className="brandMark">
-          <Layers3 size={22} />
+          <span className="brandGlyph">
+            <Layers3 size={20} />
+          </span>
           <div>
             <strong>Study Tracker</strong>
-            <span>React workspace</span>
+            <span>Local workspace</span>
           </div>
         </div>
 
         <div className="courseSwitcher" aria-label="Course">
           {courses.map((item) => (
             <button
-              className={item.id === course.id ? "coursePill active" : "coursePill"}
+              className={item.id === course.id ? "courseButton active" : "courseButton"}
               key={item.id}
               onClick={() => onCourseChange(item.id)}
               style={{ "--course-accent": item.accent } as CSSProperties}
             >
-              {item.shortCode}
+              <span className="courseInitial">{item.shortCode.slice(0, 2).toUpperCase()}</span>
+              <span className="courseButtonText">
+                <strong>{item.shortCode}</strong>
+                <small>{item.days.length} days</small>
+              </span>
             </button>
           ))}
         </div>
@@ -57,18 +77,46 @@ export function AppShell({ course, courses, view, onViewChange, onCourseChange, 
             );
           })}
         </nav>
+
+        <section className="sideProgress" aria-label="Course progress">
+          <div className="sideProgressHead">
+            <span>Course progress</span>
+            <strong>{percent(courseProgress)}</strong>
+          </div>
+          <ProgressBar accent={course.accent} value={courseProgress} />
+          <dl>
+            <div>
+              <dt>Done</dt>
+              <dd>{completedTasks}/{totalTasks}</dd>
+            </div>
+            <div>
+              <dt>Questions</dt>
+              <dd>{questionCount}</dd>
+            </div>
+          </dl>
+        </section>
       </aside>
 
       <div className="mainArea">
-        <header className="topHeader" style={{ "--course-accent": course.accent } as CSSProperties}>
-          <div>
-            <p className="eyebrow">{course.shortCode}</p>
-            <h1>{course.title}</h1>
+        <header className="topHeader">
+          <div className="headerIdentity">
+            <span className="headerViewIcon">{ActiveViewIcon ? <ActiveViewIcon size={18} /> : null}</span>
+            <div>
+              <p className="eyebrow">{activeView?.label ?? course.shortCode}</p>
+              <h1>{course.title}</h1>
+            </div>
           </div>
-          <div className="headerStats">
-            <span>{course.days.length} days</span>
-            <span>{course.resources.length} resources</span>
-            <span>{course.skills.length} skills</span>
+          <div className="headerProgress">
+            <div className="headerStats">
+              <span><strong>{course.days.length}</strong> days</span>
+              <span><strong>{course.resources.length}</strong> resources</span>
+              <span><strong>{course.skills.filter((skill) => skill.covered).length}</strong> skills covered</span>
+            </div>
+            <div className="headerScore">
+              <Sparkles size={15} />
+              <span>{percent(courseProgress)}</span>
+            </div>
+            <ProgressRing accent={course.accent} label="Course progress" size="small" value={courseProgress} />
           </div>
         </header>
         <main className="contentArea">{children}</main>

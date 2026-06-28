@@ -34,6 +34,11 @@ Editor choice: Tiptap, which is built on ProseMirror. It gives us a stable edito
 foundation for highlights, rich notes, task lists, tables, code blocks, formulas,
 and future image/PDF annotation workflows.
 
+Frontend conventions are documented in
+`docs/frontend-conventions.md`. New screens should reuse the design tokens,
+status colors, progress components, and completion-reward hook established by
+the current Roadmap, Resources, and Exams views.
+
 ## Backend
 
 The backend is a lightweight Python skeleton using only the standard library for
