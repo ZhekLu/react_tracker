@@ -489,8 +489,10 @@ def list_courses(connection: Connection) -> CourseListResponse:
             resource_stats AS (
               SELECT
                 course_id,
-                COUNT(id) AS resource_count,
-                COUNT(id) FILTER (WHERE status IN ('read', 'review')) AS read_resource_count,
+                COUNT(id) FILTER (WHERE kind <> 'exam_question') AS resource_count,
+                COUNT(id) FILTER (
+                  WHERE kind <> 'exam_question' AND status IN ('read', 'review')
+                ) AS read_resource_count,
                 COUNT(id) FILTER (WHERE kind = 'exam_question') AS exam_question_count
               FROM resources
               WHERE deleted_at IS NULL
@@ -864,8 +866,10 @@ def _exams(
         """
         SELECT id, title, category
         FROM resources
-        WHERE course_id = :course_id AND kind = 'exam' AND deleted_at IS NULL
-        ORDER BY title
+        WHERE course_id = :course_id
+          AND kind IN ('exam', 'exercise')
+          AND deleted_at IS NULL
+        ORDER BY CASE kind WHEN 'exam' THEN 0 ELSE 1 END, title
         """,
         {"course_id": course_id},
     ):
@@ -1000,14 +1004,17 @@ def _workspace_stats(
 ) -> CourseStats:
     tasks = [task for day in days for section in day.sections for task in section.tasks]
     questions = [question for exam in exams for question in exam.questions]
+    library_resources = [
+        resource for resource in resources if resource.kind != "exam_question"
+    ]
     read_resource_count = sum(
-        1 for resource in resources if resource.status in {"read", "review"}
+        1 for resource in library_resources if resource.status in {"read", "review"}
     )
     return CourseStats(
         day_count=len(days),
         task_count=len(tasks),
         completed_task_count=sum(1 for task in tasks if task.status == "done"),
-        resource_count=len(resources),
+        resource_count=len(library_resources),
         read_resource_count=read_resource_count,
         exam_question_count=len(questions),
         solved_exam_question_count=sum(

@@ -58,18 +58,23 @@ It creates `../data/tracker_v2.db`, applies SQL migrations on startup, and serve
 typed FastAPI endpoints for courses, complete course workspaces, status updates,
 and note upserts.
 
-Import the frozen normalized dump and then enrich names/resources from the stable
-generated tracker:
+Import the frozen normalized dump once, then load the current Markdown plans:
 
 ```sh
 cd /Users/eugene/Documents/Thesis/Tracker
 make react-import-v2
-make react-enrich-plan
+make react-sync-plans
 ```
 
 Raw static tracker exports must be converted first with
 `dump/convert_tracker_dump_to_v2.py`; the backend importer expects the normalized
 v2 bundle shape.
+
+For normal plan edits, run only `make react-sync-plans`. It rebuilds the stable
+generated source and upserts every current task/resource into SQLite with
+deterministic IDs. Existing completion state is preserved, new rows start open,
+and unmatched dump-only tasks are soft-deleted from the active workspace while
+remaining recoverable in SQLite.
 
 The target relational model, invariants, import identity rules, and phased
 migration order are documented in `../features/db_schema.md`.
@@ -84,6 +89,5 @@ make react-build
 
 ## Migration Rule
 
-Do not edit generated `../tracker.html` to support this app. Shared parsing logic
-should first be extracted from `../build_tracker.py` into reusable modules, then
-called by the SQLite importer.
+Do not edit generated `../tracker.html` by hand. Edit the Markdown plan,
+registry, or parser source, then run `make react-sync-plans`.

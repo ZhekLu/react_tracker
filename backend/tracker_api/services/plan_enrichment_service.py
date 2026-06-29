@@ -95,6 +95,76 @@ def _binding_map(connection: Connection, entity_type: str) -> dict[str, str]:
     }
 
 
+def _source_binding_context(connection: Connection) -> tuple[str, dict[str, str]]:
+    plan_source_id = connection.execute(
+        text("SELECT id FROM plan_sources ORDER BY created_at LIMIT 1")
+    ).scalar_one()
+    import_runs = {
+        str(row["course_id"]): str(row["id"])
+        for row in connection.execute(
+            text(
+                """
+                SELECT ir.id, ir.course_id
+                FROM import_runs ir
+                JOIN (
+                  SELECT course_id, MAX(started_at) AS started_at
+                  FROM import_runs
+                  WHERE status = 'completed'
+                  GROUP BY course_id
+                ) latest
+                  ON latest.course_id = ir.course_id
+                 AND latest.started_at = ir.started_at
+                """
+            )
+        ).mappings()
+    }
+    return str(plan_source_id), import_runs
+
+
+def _insert_source_binding(
+    connection: Connection,
+    *,
+    plan_source_id: str,
+    import_run_id: str,
+    source_key: str,
+    entity_type: str,
+    entity_id: str,
+    timestamp: str,
+) -> None:
+    connection.execute(
+        text(
+            """
+            INSERT INTO source_bindings (
+              id, plan_source_id, source_key, entity_type, entity_id,
+              source_hash, source_payload_json, first_seen_import_run_id,
+              last_seen_import_run_id, missing_since_import_run_id,
+              created_at, updated_at
+            )
+            VALUES (
+              :id, :plan_source_id, :source_key, :entity_type, :entity_id,
+              NULL, NULL, :import_run_id,
+              :import_run_id, NULL,
+              :timestamp, :timestamp
+            )
+            ON CONFLICT(plan_source_id, source_key, entity_type) DO UPDATE SET
+              entity_id = excluded.entity_id,
+              last_seen_import_run_id = excluded.last_seen_import_run_id,
+              missing_since_import_run_id = NULL,
+              updated_at = excluded.updated_at
+            """
+        ),
+        {
+            "id": stable_id("source-binding", plan_source_id, entity_type, source_key),
+            "plan_source_id": plan_source_id,
+            "source_key": source_key,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "import_run_id": import_run_id,
+            "timestamp": timestamp,
+        },
+    )
+
+
 def _legacy_resource_map(connection: Connection) -> dict[tuple[str, str], str]:
     result: dict[tuple[str, str], str] = {}
     course_legacy_ids = {
@@ -189,15 +259,6 @@ def _task_type(section_name: str, text_value: str) -> str:
         if token in searchable:
             return task_type
     return "other"
-
-
-def _legacy_task_title(source_key: str) -> str:
-    token = source_key.rsplit(":", maxsplit=1)[-1]
-    match = re.search(r"-(reading|thinking|deliverable)-(\d+)$", token)
-    if match is not None:
-        category, number = match.groups()
-        return f"Imported {category} item {number}"
-    return f"Imported task: {token}"
 
 
 def _resource_kind(value: str) -> str:
@@ -348,6 +409,7 @@ def enrich_from_tracker_html(path: Path) -> dict[str, int]:
         task_bindings = _binding_map(active_connection, "task")
         legacy_resources = _legacy_resource_map(active_connection)
         legacy_exam_questions = _legacy_exam_question_map(active_connection)
+        plan_source_id, import_runs_by_course = _source_binding_context(active_connection)
 
         for raw_plan in payload["plans"]:
             if not isinstance(raw_plan, dict):
@@ -357,6 +419,11 @@ def enrich_from_tracker_html(path: Path) -> dict[str, int]:
             if course is None:
                 raise PlanEnrichmentError(f"No imported course matches plan {plan_id!r}")
             course_id = str(course["id"])
+            import_run_id = import_runs_by_course.get(course_id)
+            if import_run_id is None:
+                raise PlanEnrichmentError(
+                    f"No completed import run is available for course {course_id}"
+                )
             active_connection.execute(
                 text(
                     """
@@ -438,6 +505,16 @@ def enrich_from_tracker_html(path: Path) -> dict[str, int]:
                     ),
                     {"day_id": day_id},
                 )
+                active_connection.execute(
+                    text(
+                        """
+                        UPDATE day_sections
+                        SET order_index = order_index + 1000000
+                        WHERE day_id = :day_id
+                        """
+                    ),
+                    {"day_id": day_id},
+                )
 
                 section_ids: dict[str, str] = {}
                 section_order = day.get("section_order")
@@ -477,13 +554,52 @@ def enrich_from_tracker_html(path: Path) -> dict[str, int]:
                     )
                     counts["sections"] += 1
 
-                assigned_task_count = 0
                 for task_order, (section_name, task) in enumerate(_iter_tasks(day), start=1):
                     legacy_task_id = str(task.get("id") or "")
-                    task_id = task_bindings.get(f"{plan_id}:{legacy_task_id}")
+                    source_key = f"{plan_id}:{legacy_task_id}"
+                    task_id = task_bindings.get(source_key)
                     if task_id is None:
-                        continue
-                    assigned_task_count = task_order
+                        task_id = stable_id("task", course_id, legacy_task_id)
+                        active_connection.execute(
+                            text(
+                                """
+                                INSERT INTO tasks (
+                                  id, day_id, section_id, title,
+                                  description_document_id, rationale_document_id,
+                                  status_note_document_id, task_type, is_optional,
+                                  order_index, estimated_minutes, status, defer_until,
+                                  started_at, completed_at, deferred_at, skipped_at,
+                                  created_at, updated_at, deleted_at, revision
+                                )
+                                VALUES (
+                                  :id, :day_id, NULL, :title,
+                                  NULL, NULL,
+                                  NULL, 'other', 0,
+                                  :order_index, NULL, 'todo', NULL,
+                                  NULL, NULL, NULL, NULL,
+                                  :timestamp, :timestamp, NULL, 1
+                                )
+                                ON CONFLICT(id) DO NOTHING
+                                """
+                            ),
+                            {
+                                "id": task_id,
+                                "day_id": day_id,
+                                "title": str(task.get("text") or legacy_task_id),
+                                "order_index": task_order,
+                                "timestamp": timestamp,
+                            },
+                        )
+                        _insert_source_binding(
+                            active_connection,
+                            plan_source_id=plan_source_id,
+                            import_run_id=import_run_id,
+                            source_key=source_key,
+                            entity_type="task",
+                            entity_id=task_id,
+                            timestamp=timestamp,
+                        )
+                        task_bindings[source_key] = task_id
                     task_ids_by_legacy[legacy_task_id] = task_id
                     task_text = str(task.get("text") or legacy_task_id)
                     rationale = str(task.get("why_this") or "").strip()
@@ -508,6 +624,7 @@ def enrich_from_tracker_html(path: Path) -> dict[str, int]:
                                 is_optional = :is_optional,
                                 order_index = :order_index,
                                 updated_at = :timestamp,
+                                deleted_at = NULL,
                                 revision = revision + 1
                             WHERE id = :task_id
                             """
@@ -525,73 +642,29 @@ def enrich_from_tracker_html(path: Path) -> dict[str, int]:
                     )
                     counts["tasks"] += 1
 
-                legacy_rows = active_connection.execute(
+                active_connection.execute(
                     text(
                         """
-                        SELECT t.id, sb.source_key
-                        FROM tasks t
-                        LEFT JOIN source_bindings sb
-                          ON sb.entity_id = t.id AND sb.entity_type = 'task'
-                        WHERE t.day_id = :day_id AND t.order_index >= 800000
-                        ORDER BY t.order_index
+                        UPDATE tasks
+                        SET deleted_at = :timestamp,
+                            updated_at = :timestamp,
+                            revision = revision + 1
+                        WHERE day_id = :day_id AND order_index >= 800000
                         """
                     ),
-                    {"day_id": day_id},
-                ).mappings()
-                legacy_tasks = list(legacy_rows)
-                if legacy_tasks:
-                    section_name = "Imported legacy tasks"
-                    section_id = stable_id("section", course_id, day_id, section_name)
-                    active_connection.execute(
-                        text(
-                            """
-                            INSERT INTO day_sections (
-                              id, day_id, title, order_index, default_collapsed,
-                              created_at, updated_at, deleted_at
-                            )
-                            VALUES (
-                              :id, :day_id, :title, :order_index, 1,
-                              :timestamp, :timestamp, NULL
-                            )
-                            ON CONFLICT(id) DO UPDATE SET
-                              order_index = excluded.order_index,
-                              default_collapsed = 1,
-                              updated_at = excluded.updated_at,
-                              deleted_at = NULL
-                            """
-                        ),
-                        {
-                            "id": section_id,
-                            "day_id": day_id,
-                            "title": section_name,
-                            "order_index": len(section_order) + 1,
-                            "timestamp": timestamp,
-                        },
-                    )
-                    counts["sections"] += 1
-                    for legacy_index, legacy_task in enumerate(legacy_tasks, start=1):
-                        source_key = str(legacy_task["source_key"] or legacy_task["id"])
-                        active_connection.execute(
-                            text(
-                                """
-                                UPDATE tasks
-                                SET section_id = :section_id,
-                                    title = :title,
-                                    order_index = :order_index,
-                                    updated_at = :timestamp,
-                                    revision = revision + 1
-                                WHERE id = :task_id
-                                """
-                            ),
-                            {
-                                "section_id": section_id,
-                                "title": _legacy_task_title(source_key),
-                                "order_index": assigned_task_count + legacy_index,
-                                "timestamp": timestamp,
-                                "task_id": legacy_task["id"],
-                            },
-                        )
-                        counts["tasks"] += 1
+                    {"day_id": day_id, "timestamp": timestamp},
+                )
+                active_connection.execute(
+                    text(
+                        """
+                        UPDATE day_sections
+                        SET deleted_at = :timestamp,
+                            updated_at = :timestamp
+                        WHERE day_id = :day_id AND order_index >= 800000
+                        """
+                    ),
+                    {"day_id": day_id, "timestamp": timestamp},
+                )
 
             plan_resources = raw_plan.get("resources")
             if not isinstance(plan_resources, list):
@@ -602,7 +675,49 @@ def enrich_from_tracker_html(path: Path) -> dict[str, int]:
                 legacy_resource_id = str(resource.get("id") or "")
                 resource_id = legacy_resources.get((plan_id, legacy_resource_id))
                 if resource_id is None:
-                    continue
+                    resource_id = stable_id("resource", course_id, legacy_resource_id)
+                    active_connection.execute(
+                        text(
+                            """
+                            INSERT INTO resources (
+                              id, course_id, parent_resource_id, current_version_id,
+                              content_document_id, title, kind, format, source_type,
+                              category, authors_json, publication_year, canonical_url,
+                              status, first_opened_at, last_opened_at, completed_at,
+                              metadata_json, created_at, updated_at, deleted_at, revision
+                            )
+                            VALUES (
+                              :id, :course_id, NULL, NULL,
+                              NULL, :title, 'other', 'other', 'virtual',
+                              :category, '[]', NULL, NULL,
+                              'unread', NULL, NULL, NULL,
+                              :metadata_json, :timestamp, :timestamp, NULL, 1
+                            )
+                            ON CONFLICT(id) DO NOTHING
+                            """
+                        ),
+                        {
+                            "id": resource_id,
+                            "course_id": course_id,
+                            "title": resource.get("title") or legacy_resource_id,
+                            "category": resource.get("category"),
+                            "metadata_json": _json(
+                                {"legacy_resource_id": legacy_resource_id}
+                            ),
+                            "timestamp": timestamp,
+                        },
+                    )
+                    source_key = f"{plan_id}:{legacy_resource_id}"
+                    _insert_source_binding(
+                        active_connection,
+                        plan_source_id=plan_source_id,
+                        import_run_id=import_run_id,
+                        source_key=source_key,
+                        entity_type="resource",
+                        entity_id=resource_id,
+                        timestamp=timestamp,
+                    )
+                    legacy_resources[(plan_id, legacy_resource_id)] = resource_id
                 local_path, href, format_value = _resource_location(resource)
                 source_type = "local_file" if local_path else "external_url" if href else "virtual"
                 canonical_url = href if href and not href.startswith("file:") else None

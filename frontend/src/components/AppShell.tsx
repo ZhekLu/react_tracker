@@ -1,11 +1,17 @@
-import { BookOpen, CalendarDays, FileQuestion, Layers3, Sparkles } from "lucide-react";
-import type { ComponentType, CSSProperties, ReactNode } from "react";
+import { BookOpen, CalendarDays, FileQuestion, Sparkles } from "lucide-react";
+import type { CSSProperties, ReactNode } from "react";
+import {
+  dayDisplayTopic,
+  formatTrackedTime,
+} from "../features/roadmap/dayPresentation";
 import { percent } from "../lib/progress";
 import type { Course, CourseSummary, TrackerView } from "../types/tracker";
 import { ProgressBar } from "./ProgressBar";
 import { ProgressRing } from "./ui/ProgressRing";
+import { WorkspaceSidebar } from "./WorkspaceSidebar";
 
 type AppShellProps = {
+  activeDayId: string;
   course: Course;
   courses: CourseSummary[];
   view: TrackerView;
@@ -14,92 +20,56 @@ type AppShellProps = {
   children: ReactNode;
 };
 
-const navItems: Array<{ view: TrackerView; label: string; icon: ComponentType<{ size?: number }> }> = [
-  { view: "roadmap", label: "Roadmap", icon: CalendarDays },
-  { view: "resources", label: "Resources", icon: BookOpen },
-  { view: "exams", label: "Exams", icon: FileQuestion },
-];
+const viewMeta = {
+  roadmap: { label: "Roadmap", icon: CalendarDays },
+  resources: { label: "Resources", icon: BookOpen },
+  exams: { label: "Exams", icon: FileQuestion },
+} satisfies Record<TrackerView, { label: string; icon: typeof CalendarDays }>;
 
-export function AppShell({ course, courses, view, onViewChange, onCourseChange, children }: AppShellProps) {
+export function AppShell({
+  activeDayId,
+  course,
+  courses,
+  view,
+  onViewChange,
+  onCourseChange,
+  children,
+}: AppShellProps) {
   const courseProgress = course.stats.progressRatio;
-  const questionCount = course.stats.openQuestionCount;
-  const completedTasks = course.stats.completedTaskCount;
-  const totalTasks = course.stats.taskCount;
-  const activeView = navItems.find((item) => item.view === view);
-  const ActiveViewIcon = activeView?.icon;
+  const activeView = viewMeta[view];
+  const ActiveViewIcon = activeView.icon;
+  const activeDay = course.days.find((day) => day.id === activeDayId) ?? course.days[0];
+  const activeDayTasks = activeDay?.sections.flatMap((section) => section.tasks) ?? [];
+  const activeDayDone = activeDayTasks.filter((task) => task.status === "done").length;
+  const headerProgress = view === "roadmap" && activeDay ? activeDay.progress.ratio : courseProgress;
 
   return (
     <div className="appShell" style={{ "--course-accent": course.accent } as CSSProperties}>
-      <aside className="sideNav">
-        <div className="brandMark">
-          <span className="brandGlyph">
-            <Layers3 size={20} />
-          </span>
-          <div>
-            <strong>Study Tracker</strong>
-            <span>Local workspace</span>
-          </div>
-        </div>
-
-        <div className="courseSwitcher" aria-label="Course">
-          {courses.map((item) => (
-            <button
-              className={item.id === course.id ? "courseButton active" : "courseButton"}
-              key={item.id}
-              onClick={() => onCourseChange(item.id)}
-              style={{ "--course-accent": item.accent } as CSSProperties}
-            >
-              <span className="courseInitial">{item.shortCode.slice(0, 2).toUpperCase()}</span>
-              <span className="courseButtonText">
-                <strong>{item.shortCode}</strong>
-                <small>{item.stats.dayCount} days</small>
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <nav className="navList" aria-label="Main navigation">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                className={item.view === view ? "navButton active" : "navButton"}
-                key={item.view}
-                onClick={() => onViewChange(item.view)}
-              >
-                <Icon size={18} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <section className="sideProgress" aria-label="Course progress">
-          <div className="sideProgressHead">
-            <span>Course progress</span>
-            <strong>{percent(courseProgress)}</strong>
-          </div>
-          <ProgressBar accent={course.accent} value={courseProgress} />
-          <dl>
-            <div>
-              <dt>Done</dt>
-              <dd>{completedTasks}/{totalTasks}</dd>
-            </div>
-            <div>
-              <dt>Questions</dt>
-              <dd>{questionCount}</dd>
-            </div>
-          </dl>
-        </section>
-      </aside>
+      <WorkspaceSidebar
+        activeDayId={activeDay?.id ?? ""}
+        course={course}
+        courses={courses}
+        onCourseChange={onCourseChange}
+        onViewChange={onViewChange}
+        view={view}
+      />
 
       <div className="mainArea">
         <header className="topHeader">
           <div className="headerIdentity">
-            <span className="headerViewIcon">{ActiveViewIcon ? <ActiveViewIcon size={18} /> : null}</span>
+            <span className="headerViewIcon"><ActiveViewIcon size={18} /></span>
             <div>
-              <p className="eyebrow">{activeView?.label ?? course.shortCode}</p>
-              <h1>{course.title}</h1>
+              <p className="eyebrow">{course.title}</p>
+              <h1>{activeView.label}</h1>
+              {view === "roadmap" && activeDay ? (
+                <p className="headerDayContext">
+                  <strong>Day {activeDay.number}: {dayDisplayTopic(activeDay)}</strong>
+                  <span>{activeDayDone}/{activeDayTasks.length} tasks</span>
+                  {activeDay.openQuestionCount ? <span>{activeDay.openQuestionCount} questions</span> : null}
+                  {activeDay.progress.later ? <span>{activeDay.progress.later} later</span> : null}
+                  {activeDay.trackedSeconds ? <span>{formatTrackedTime(activeDay.trackedSeconds)}</span> : null}
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="headerProgress">
@@ -113,6 +83,14 @@ export function AppShell({ course, courses, view, onViewChange, onCourseChange, 
               <span>{percent(courseProgress)}</span>
             </div>
             <ProgressRing accent={course.accent} label="Course progress" size="small" value={courseProgress} />
+          </div>
+          <div className="topHeaderProgress">
+            <ProgressBar
+              accent={course.accent}
+              label={view === "roadmap" ? "Current day progress" : "Course progress"}
+              showValue
+              value={headerProgress}
+            />
           </div>
         </header>
         <main className="contentArea">{children}</main>

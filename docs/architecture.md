@@ -27,9 +27,10 @@ Reasons:
 2. Add SQLite tables for courses, days, tasks, resources, notes, discussions,
    exams, and time entries. Done via SQL migrations.
 3. Import the frozen normalized dump into SQLite. Done.
-4. Enrich imported rows from stable `tracker.html` while preserving IDs. Done.
-5. Replace mock/local-only progress with API persistence. In progress; Roadmap,
-   Resources, Exams, and day notes now use the API.
+4. Enrich imported rows from current plans while preserving known IDs and
+   creating unseen tasks/resources. Done through `make react-sync-plans`.
+5. Replace mock/local-only progress with API persistence. Done for Roadmap,
+   Resources, Exams, and day notes.
 6. Move plan parsing from `build_tracker.py` into shared import modules.
 7. Migrate annotation wrappers to post into the Python API.
 

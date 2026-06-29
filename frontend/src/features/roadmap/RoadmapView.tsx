@@ -1,5 +1,6 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
+  BookOpen,
   Check,
   CheckCircle2,
   CheckCheck,
@@ -7,20 +8,39 @@ import {
   CircleDashed,
   CircleHelp,
   Clock3,
+  FileQuestion,
+  Flag,
+  Info,
   NotebookPen,
   RotateCcw,
+  Timer,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { ProgressBar } from "../../components/ProgressBar";
-import { ProgressRing } from "../../components/ui/ProgressRing";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import { statusTone } from "../../lib/progress";
-import type { Course, StudyDay, Task, TaskStatus } from "../../types/tracker";
+import type {
+  Course,
+  ExamQuestion,
+  Resource,
+  Skill,
+  StudyDay,
+  Task,
+  TaskStatus,
+} from "../../types/tracker";
+import {
+  dayTasks,
+  dayTone,
+  dayToneLabel,
+  formatTrackedTime,
+  isDayClosed,
+} from "./dayPresentation";
 
 type RoadmapViewProps = {
   course: Course;
+  onActiveDayChange: (dayId: string) => void;
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
@@ -42,13 +62,32 @@ const RichNoteEditor = lazy(() =>
 
 type TaskRowProps = {
   dayId: string;
+  examQuestionById: Map<string, ExamQuestion>;
+  resourceById: Map<string, Resource>;
+  skillById: Map<string, Skill>;
   task: Task;
   onStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
 
-function TaskRow({ dayId, task, onStatusChange }: TaskRowProps) {
+function TaskRow({
+  dayId,
+  examQuestionById,
+  resourceById,
+  skillById,
+  task,
+  onStatusChange,
+}: TaskRowProps) {
   const reward = useCompletionReward();
   const Icon = statusIcon[task.status];
+  const linkedResources = task.resourceIds
+    .map((resourceId) => resourceById.get(resourceId))
+    .filter((resource): resource is Resource => Boolean(resource));
+  const linkedQuestions = task.examQuestionIds
+    .map((questionId) => examQuestionById.get(questionId))
+    .filter((question): question is ExamQuestion => Boolean(question));
+  const linkedSkills = task.skillIds
+    .map((skillId) => skillById.get(skillId))
+    .filter((skill): skill is Skill => Boolean(skill));
 
   function toggleDone() {
     const nextStatus = task.status === "done" ? "todo" : "done";
@@ -56,8 +95,15 @@ function TaskRow({ dayId, task, onStatusChange }: TaskRowProps) {
     onStatusChange(dayId, task.id, nextStatus);
   }
 
+  function toggleLater() {
+    onStatusChange(dayId, task.id, task.status === "later" ? "todo" : "later");
+  }
+
   return (
-    <article className={`taskRow tone-${statusTone(task.status)}`} data-status={task.status}>
+    <article
+      className={`taskRow tone-${statusTone(task.status)} ${task.openQuestionCount ? "hasQuestions" : ""}`}
+      data-status={task.status}
+    >
       <button
         className="taskStatus"
         aria-label={task.status === "done" ? "Mark task incomplete" : "Mark task complete"}
@@ -71,16 +117,56 @@ function TaskRow({ dayId, task, onStatusChange }: TaskRowProps) {
       <div className="taskBody">
         <div className="taskTitleRow">
           <h3>{task.title}</h3>
-          <StatusBadge compact status={task.status} />
+          <div className="taskBadges">
+            {task.isOptional ? <span className="taskMetaBadge">Optional</span> : null}
+            {task.taskType ? <span className="taskMetaBadge">{task.taskType}</span> : null}
+            {task.estimatedMinutes ? (
+              <span className="taskMetaBadge"><Timer size={11} /> {task.estimatedMinutes}m</span>
+            ) : null}
+            {task.openQuestionCount ? (
+              <span className="taskMetaBadge question">
+                <CircleHelp size={11} /> {task.openQuestionCount}
+              </span>
+            ) : null}
+            {task.status !== "todo" ? <StatusBadge status={task.status} /> : null}
+          </div>
         </div>
-        {task.rationale?.plainText ? <p>{task.rationale.plainText}</p> : null}
-        <div className="tagRow">
-          {task.skillIds.map((skillId) => (
-            <span className="tag" key={skillId}>
-              {skillId}
-            </span>
-          ))}
-        </div>
+        {task.rationale?.plainText ? (
+          <details className="taskRationale">
+            <summary><Info size={12} /> Why this</summary>
+            <p>{task.rationale.plainText}</p>
+          </details>
+        ) : null}
+        {linkedResources.length || linkedQuestions.length || linkedSkills.length ? (
+          <div className="taskLinks">
+            {linkedResources.map((resource) => (
+              <span className={`taskLink resource-${resource.status}`} key={resource.id} title={resource.version?.localPath ?? resource.title}>
+                <BookOpen size={12} />
+                {resource.title}
+              </span>
+            ))}
+            {linkedQuestions.map((question) => (
+              <span className="taskLink exam" key={question.id}>
+                <FileQuestion size={12} />
+                {question.label}{question.topic ? ` · ${question.topic}` : ""}
+              </span>
+            ))}
+            {linkedSkills.map((skill) => (
+              <span className="taskLink skill" key={skill.id}>{skill.name}</span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="taskActions">
+        <button
+          className={task.status === "later" ? "taskActionButton active" : "taskActionButton"}
+          onClick={toggleLater}
+          title={task.status === "later" ? "Return task to open work" : "Save task for later"}
+          type="button"
+        >
+          <Clock3 size={14} />
+          <span>{task.status === "later" ? "Later" : "Do later"}</span>
+        </button>
       </div>
     </article>
   );
@@ -89,15 +175,34 @@ function TaskRow({ dayId, task, onStatusChange }: TaskRowProps) {
 type DayCardProps = {
   accent: string;
   day: StudyDay;
+  examQuestionById: Map<string, ExamQuestion>;
+  resourceById: Map<string, Resource>;
+  skillById: Map<string, Skill>;
   onClosedChange: (day: StudyDay, closed: boolean) => void;
   onNoteSave: (day: StudyDay, noteHtml: string) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
 
-function DayCard({ accent, day, onClosedChange, onNoteSave, onTaskStatusChange }: DayCardProps) {
+function DayCard({
+  accent,
+  day,
+  examQuestionById,
+  resourceById,
+  skillById,
+  onClosedChange,
+  onNoteSave,
+  onTaskStatusChange,
+}: DayCardProps) {
   const reward = useCompletionReward();
-  const tasks = day.sections.flatMap((section) => section.tasks);
-  const isClosed = day.status === "closed" || day.status === "completed";
+  const tasks = dayTasks(day);
+  const isClosed = isDayClosed(day);
+  const tone = dayTone(day);
+  const stopWhen = day.sections
+    .filter((section) => section.title.toLowerCase() === "stop when")
+    .flatMap((section) => section.tasks);
+  const skills = day.skillIds
+    .map((skillId) => skillById.get(skillId))
+    .filter((skill): skill is Skill => Boolean(skill));
 
   function toggleClosed() {
     const nextClosed = !isClosed;
@@ -106,7 +211,11 @@ function DayCard({ accent, day, onClosedChange, onNoteSave, onTaskStatusChange }
   }
 
   return (
-    <article className={`dayCard ${reward.active ? "dayCelebrated" : ""}`} id={day.id}>
+    <article
+      className={`dayCard tone-${tone} ${reward.active ? "dayCelebrated" : ""}`}
+      data-day-id={day.id}
+      id={day.id}
+    >
       <CompletionBurst token={reward.token} variant="day" />
       <header className="dayHeader">
         <div className="dayHeaderMain">
@@ -118,7 +227,13 @@ function DayCard({ accent, day, onClosedChange, onNoteSave, onTaskStatusChange }
           </div>
         </div>
         <div className="dayHeaderActions">
-          <StatusBadge status={isClosed ? "done" : "todo"} />
+          <span className={`dayStatePill tone-${tone}`}>
+            {tone === "complete" ? <CheckCircle2 size={14} /> : null}
+            {tone === "question" ? <CircleHelp size={14} /> : null}
+            {tone === "later" ? <Clock3 size={14} /> : null}
+            {tone === "open" ? <Circle size={14} /> : null}
+            {dayToneLabel(day)}
+          </span>
           <button className={isClosed ? "commandButton subtle" : "commandButton"} onClick={toggleClosed} type="button">
             {isClosed ? <RotateCcw size={16} /> : <CheckCheck size={16} />}
             <span>{isClosed ? "Reopen" : "Close day"}</span>
@@ -127,22 +242,65 @@ function DayCard({ accent, day, onClosedChange, onNoteSave, onTaskStatusChange }
       </header>
       <ProgressBar accent={accent} label={`${day.title} progress`} showValue value={day.progress.ratio} />
       <div className="daySummary">
-        <span><Check size={14} /> {tasks.filter((task) => task.status === "done").length}/{tasks.length} tasks</span>
+        <span><Check size={14} /> {day.progress.done}/{day.progress.required} core</span>
         <span><CircleHelp size={14} /> {day.openQuestionCount} questions</span>
         <span><Clock3 size={14} /> {tasks.filter((task) => task.status === "later").length} later</span>
+        {day.trackedSeconds ? <span><Timer size={14} /> {formatTrackedTime(day.trackedSeconds)}</span> : null}
       </div>
-      <div className="taskList">
-        {day.sections.map((section) => (
-          <section className="taskSection" key={section.id}>
-            <header className="taskSectionHeader">
-              <h3>{section.title}</h3>
-              <span>{section.tasks.length}</span>
-            </header>
-            {section.tasks.map((task) => (
-              <TaskRow dayId={day.id} key={task.id} onStatusChange={onTaskStatusChange} task={task} />
-            ))}
+      <div className="dayBody">
+        <div className="taskList">
+          {day.sections.map((section) => {
+            const taskRows = section.tasks.map((task) => (
+              <TaskRow
+                dayId={day.id}
+                examQuestionById={examQuestionById}
+                key={task.id}
+                onStatusChange={onTaskStatusChange}
+                resourceById={resourceById}
+                skillById={skillById}
+                task={task}
+              />
+            ));
+            if (section.defaultCollapsed || section.title === "Imported legacy tasks") {
+              return (
+                <details className="taskSection taskSectionCollapsed" key={section.id}>
+                  <summary className="taskSectionHeader">
+                    <h3>{section.title}</h3>
+                    <span>{section.tasks.length}</span>
+                  </summary>
+                  <div className="taskSectionRows">{taskRows}</div>
+                </details>
+              );
+            }
+            return (
+              <section className="taskSection" key={section.id}>
+                <header className="taskSectionHeader">
+                  <h3>{section.title}</h3>
+                  <span>{section.tasks.length}</span>
+                </header>
+                <div className="taskSectionRows">{taskRows}</div>
+              </section>
+            );
+          })}
+        </div>
+        <aside className="dayFocusRail">
+          <section>
+            <h3>Purpose</h3>
+            <p>{day.purpose || day.topic || "No purpose recorded."}</p>
           </section>
-        ))}
+          <section>
+            <h3>Skills</h3>
+            <div className="dayFocusTags">
+              {skills.length ? skills.map((skill) => <span key={skill.id}>{skill.name}</span>) : <em>No linked skills</em>}
+            </div>
+          </section>
+          {stopWhen.length ? (
+            <section>
+              <h3><Flag size={13} /> Stop when</h3>
+              {stopWhen.map((task) => <p className="stopWhenText" key={task.id}>{task.title}</p>)}
+            </section>
+          ) : null}
+        </aside>
       </div>
       <DayNotes
         content={day.notes[0]?.document.markdown ?? ""}
@@ -191,33 +349,77 @@ function DayNotes({
   );
 }
 
-export function RoadmapView({ course, onDayClosedChange, onDayNoteSave, onTaskStatusChange }: RoadmapViewProps) {
-  return (
-    <div className="roadmapLayout">
-      <aside className="dayRail" aria-label="Days">
-        {course.days.map((day) => (
-          <a className="dayRailItem" href={`#${day.id}`} key={day.id}>
-            <ProgressRing accent={course.accent} label={`Day ${day.number}`} size="small" value={day.progress.ratio} />
-            <span className="dayRailText">
-              <strong>Day {day.number}</strong>
-              <small>{day.title}</small>
-            </span>
-          </a>
-        ))}
-      </aside>
+export function RoadmapView({
+  course,
+  onActiveDayChange,
+  onDayClosedChange,
+  onDayNoteSave,
+  onTaskStatusChange,
+}: RoadmapViewProps) {
+  const resourceById = useMemo(
+    () => new Map(course.resources.map((resource) => [resource.id, resource])),
+    [course.resources],
+  );
+  const skillById = useMemo(
+    () => new Map(course.skills.map((skill) => [skill.id, skill])),
+    [course.skills],
+  );
+  const examQuestionById = useMemo(
+    () =>
+      new Map(
+        course.exams.flatMap((exam) =>
+          exam.questions.map((question) => [question.id, question] as const),
+        ),
+      ),
+    [course.exams],
+  );
 
-      <section className="dayStack">
-        {course.days.map((day) => (
-          <DayCard
-            accent={course.accent}
-            day={day}
-            key={day.id}
-            onClosedChange={onDayClosedChange}
-            onNoteSave={onDayNoteSave}
-            onTaskStatusChange={onTaskStatusChange}
-          />
-        ))}
-      </section>
-    </div>
+  useEffect(() => {
+    const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-day-id]"));
+    if (!cards.length) return;
+    let frame = 0;
+
+    function updateActiveDay() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const anchor = 118;
+        const visibleCards = cards.filter((card) => card.getBoundingClientRect().bottom > anchor);
+        const activeCard = (visibleCards.length ? visibleCards : cards).reduce((closest, card) =>
+          Math.abs(card.getBoundingClientRect().top - anchor) <
+          Math.abs(closest.getBoundingClientRect().top - anchor)
+            ? card
+            : closest,
+        );
+        const dayId = activeCard.dataset.dayId;
+        if (dayId) onActiveDayChange(dayId);
+      });
+    }
+
+    updateActiveDay();
+    window.addEventListener("scroll", updateActiveDay, { passive: true });
+    window.addEventListener("resize", updateActiveDay);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", updateActiveDay);
+      window.removeEventListener("resize", updateActiveDay);
+    };
+  }, [course.id, course.days.length, onActiveDayChange]);
+
+  return (
+    <section className="dayStack">
+      {course.days.map((day) => (
+        <DayCard
+          accent={course.accent}
+          day={day}
+          examQuestionById={examQuestionById}
+          key={day.id}
+          onClosedChange={onDayClosedChange}
+          onNoteSave={onDayNoteSave}
+          onTaskStatusChange={onTaskStatusChange}
+          resourceById={resourceById}
+          skillById={skillById}
+        />
+      ))}
+    </section>
   );
 }

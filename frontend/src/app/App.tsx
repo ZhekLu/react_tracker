@@ -42,6 +42,7 @@ export function App() {
   const [courseId, setCourseId] = useState("");
   const [workspace, setWorkspace] = useState<Course | null>(null);
   const [view, setView] = useState<TrackerView>("roadmap");
+  const [activeDayId, setActiveDayId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
@@ -63,6 +64,7 @@ export function App() {
     if (!nextCourseId) return;
     const nextWorkspace = await fetchCourseWorkspace(nextCourseId);
     setWorkspace(nextWorkspace);
+    setActiveDayId(nextWorkspace.days[0]?.id ?? "");
   }, []);
 
   useEffect(() => {
@@ -96,7 +98,14 @@ export function App() {
       setError(null);
       try {
         const nextWorkspace = await fetchCourseWorkspace(activeCourseId);
-        if (!cancelled) setWorkspace(nextWorkspace);
+        if (!cancelled) {
+          setWorkspace(nextWorkspace);
+          setActiveDayId((current) =>
+            nextWorkspace.days.some((day) => day.id === current)
+              ? current
+              : (nextWorkspace.days[0]?.id ?? ""),
+          );
+        }
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Cannot load course.");
       } finally {
@@ -194,6 +203,7 @@ export function App() {
 
   return (
     <AppShell
+      activeDayId={activeDayId}
       course={workspace}
       courses={courses}
       onCourseChange={setCourseId}
@@ -205,6 +215,7 @@ export function App() {
       {view === "roadmap" ? (
         <RoadmapView
           course={workspace}
+          onActiveDayChange={setActiveDayId}
           onDayClosedChange={handleDayClosedChange}
           onDayNoteSave={handleDayNoteSave}
           onTaskStatusChange={handleTaskStatusChange}

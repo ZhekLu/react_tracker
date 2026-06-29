@@ -28,11 +28,14 @@ Database workflow from `/Users/eugene/Documents/Thesis/Tracker`:
 make react-backend-install
 make react-migrate
 make react-import-v2
-make react-enrich-plan
+make react-sync-plans
 ```
 
 The importer expects a normalized v2 bundle. Raw tracker exports should first be
 converted with `dump/convert_tracker_dump_to_v2.py`.
+
+`react-import-v2` is the one-time state migration. `react-sync-plans` is the
+repeatable workflow after Markdown plan, registry, or material-path changes.
 
 Checks:
 
