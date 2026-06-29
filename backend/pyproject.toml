@@ -1,0 +1,63 @@
+[project]
+name = "study-tracker-api"
+version = "0.1.0"
+description = "Local FastAPI and SQLite backend for the Study Tracker."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "alembic>=1.18,<2",
+  "fastapi>=0.138,<1",
+  "pydantic-settings>=2.13,<3",
+  "python-multipart>=0.0.22,<1",
+  "sqlalchemy>=2.0.51,<3",
+  "uvicorn[standard]>=0.49,<1",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1",
+  "mypy>=1.19,<2",
+  "pytest>=9.0,<10",
+  "pytest-cov>=7.0,<8",
+  "ruff>=0.15,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+  "B",
+  "C4",
+  "E",
+  "F",
+  "I",
+  "N",
+  "PERF",
+  "PIE",
+  "PTH",
+  "RUF",
+  "SIM",
+  "UP",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tracker_api/migrations/versions/*.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+exclude = ["tracker_api/migrations/versions/"]
+
+[[tool.mypy.overrides]]
+module = ["alembic.*"]
+ignore_missing_imports = true

@@ -12,26 +12,29 @@ Reasons:
 - Keeping the folders separate avoids accidental breakage while Big Data study
   work continues.
 
-## Proposed Runtime
+## Runtime
 
 - Frontend: Vite, React, TypeScript.
 - Rich editor: Tiptap/ProseMirror.
-- Backend: Python API with SQLite.
+- Backend: FastAPI, SQLAlchemy, Pydantic, SQLite.
+- Backend environment: dedicated `uv` project under `backend/`.
 - Plan input: Markdown files under `../study_plans/`.
 - Generated/imported state: SQLite, not hardcoded HTML.
 
 ## Migration Slices
 
-1. UI shell with mock course/day/resource data.
-2. Read parsed JSON from the existing generator or `resource_registry.json`.
-3. Add SQLite tables for courses, days, tasks, resources, notes, discussions,
-   exams, and time entries.
-4. Move plan parsing from `build_tracker.py` into shared import modules.
-5. Replace localStorage progress with API persistence.
-6. Migrate annotation wrappers to post into the Python API.
+1. UI shell with mock course/day/resource data. Done.
+2. Add SQLite tables for courses, days, tasks, resources, notes, discussions,
+   exams, and time entries. Done via SQL migrations.
+3. Import the frozen normalized dump into SQLite. Done.
+4. Enrich imported rows from stable `tracker.html` while preserving IDs. Done.
+5. Replace mock/local-only progress with API persistence. In progress; Roadmap,
+   Resources, Exams, and day notes now use the API.
+6. Move plan parsing from `build_tracker.py` into shared import modules.
+7. Migrate annotation wrappers to post into the Python API.
 
 ## Non-Goals For The First Slice
 
-- Recreating every current feature.
-- Moving real notes out of browser localStorage.
-- Replacing the existing static tracker entry point.
+- Recreating every current feature in one slice.
+- Removing the stable static tracker entry point before the React app is proven.
+- Editing `tracker.html` directly to support the React app.

@@ -1,5 +1,15 @@
 import { lazy, Suspense, useState } from "react";
-import { Check, CheckCircle2, CheckCheck, Circle, CircleHelp, Clock3, NotebookPen, RotateCcw } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  CheckCheck,
+  Circle,
+  CircleDashed,
+  CircleHelp,
+  Clock3,
+  NotebookPen,
+  RotateCcw,
+} from "lucide-react";
 import type { ComponentType } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { ProgressBar } from "../../components/ProgressBar";
@@ -11,20 +21,23 @@ import type { Course, StudyDay, Task, TaskStatus } from "../../types/tracker";
 
 type RoadmapViewProps = {
   course: Course;
-  onDayClosedChange: (dayId: string, closed: boolean) => void;
-  onDayNoteChange: (dayId: string, noteHtml: string) => void;
+  onDayClosedChange: (day: StudyDay, closed: boolean) => void;
+  onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
 
 const statusIcon: Record<TaskStatus, ComponentType<{ size?: number }>> = {
   done: CheckCircle2,
-  question: CircleHelp,
+  in_progress: CircleDashed,
   later: Clock3,
+  skipped: Circle,
   todo: Circle,
 };
 
 const RichNoteEditor = lazy(() =>
-  import("../../components/editor/RichNoteEditor").then((module) => ({ default: module.RichNoteEditor })),
+  import("../../components/editor/RichNoteEditor").then((module) => ({
+    default: module.RichNoteEditor,
+  })),
 );
 
 type TaskRowProps = {
@@ -60,7 +73,7 @@ function TaskRow({ dayId, task, onStatusChange }: TaskRowProps) {
           <h3>{task.title}</h3>
           <StatusBadge compact status={task.status} />
         </div>
-        {task.detail ? <p>{task.detail}</p> : null}
+        {task.rationale?.plainText ? <p>{task.rationale.plainText}</p> : null}
         <div className="tagRow">
           {task.skillIds.map((skillId) => (
             <span className="tag" key={skillId}>
@@ -76,18 +89,20 @@ function TaskRow({ dayId, task, onStatusChange }: TaskRowProps) {
 type DayCardProps = {
   accent: string;
   day: StudyDay;
-  onClosedChange: (dayId: string, closed: boolean) => void;
-  onNoteChange: (dayId: string, noteHtml: string) => void;
+  onClosedChange: (day: StudyDay, closed: boolean) => void;
+  onNoteSave: (day: StudyDay, noteHtml: string) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
 
-function DayCard({ accent, day, onClosedChange, onNoteChange, onTaskStatusChange }: DayCardProps) {
+function DayCard({ accent, day, onClosedChange, onNoteSave, onTaskStatusChange }: DayCardProps) {
   const reward = useCompletionReward();
+  const tasks = day.sections.flatMap((section) => section.tasks);
+  const isClosed = day.status === "closed" || day.status === "completed";
 
   function toggleClosed() {
-    const nextClosed = !day.closed;
+    const nextClosed = !isClosed;
     if (nextClosed) reward.celebrate(1100);
-    onClosedChange(day.id, nextClosed);
+    onClosedChange(day, nextClosed);
   }
 
   return (
@@ -103,28 +118,36 @@ function DayCard({ accent, day, onClosedChange, onNoteChange, onTaskStatusChange
           </div>
         </div>
         <div className="dayHeaderActions">
-          <StatusBadge status={day.closed ? "done" : "todo"} />
-          <button className={day.closed ? "commandButton subtle" : "commandButton"} onClick={toggleClosed} type="button">
-            {day.closed ? <RotateCcw size={16} /> : <CheckCheck size={16} />}
-            <span>{day.closed ? "Reopen" : "Close day"}</span>
+          <StatusBadge status={isClosed ? "done" : "todo"} />
+          <button className={isClosed ? "commandButton subtle" : "commandButton"} onClick={toggleClosed} type="button">
+            {isClosed ? <RotateCcw size={16} /> : <CheckCheck size={16} />}
+            <span>{isClosed ? "Reopen" : "Close day"}</span>
           </button>
         </div>
       </header>
-      <ProgressBar accent={accent} label={`${day.title} progress`} showValue value={day.progress} />
+      <ProgressBar accent={accent} label={`${day.title} progress`} showValue value={day.progress.ratio} />
       <div className="daySummary">
-        <span><Check size={14} /> {day.tasks.filter((task) => task.status === "done").length}/{day.tasks.length} tasks</span>
-        <span><CircleHelp size={14} /> {day.tasks.filter((task) => task.status === "question").length} questions</span>
-        <span><Clock3 size={14} /> {day.tasks.filter((task) => task.status === "later").length} later</span>
+        <span><Check size={14} /> {tasks.filter((task) => task.status === "done").length}/{tasks.length} tasks</span>
+        <span><CircleHelp size={14} /> {day.openQuestionCount} questions</span>
+        <span><Clock3 size={14} /> {tasks.filter((task) => task.status === "later").length} later</span>
       </div>
       <div className="taskList">
-        {day.tasks.map((task) => (
-          <TaskRow dayId={day.id} key={task.id} onStatusChange={onTaskStatusChange} task={task} />
+        {day.sections.map((section) => (
+          <section className="taskSection" key={section.id}>
+            <header className="taskSectionHeader">
+              <h3>{section.title}</h3>
+              <span>{section.tasks.length}</span>
+            </header>
+            {section.tasks.map((task) => (
+              <TaskRow dayId={day.id} key={task.id} onStatusChange={onTaskStatusChange} task={task} />
+            ))}
+          </section>
         ))}
       </div>
       <DayNotes
-        content={day.noteHtml ?? ""}
+        content={day.notes[0]?.document.markdown ?? ""}
         dayTitle={day.title}
-        onChange={(noteHtml) => onNoteChange(day.id, noteHtml)}
+        onSave={(noteHtml) => onNoteSave(day, noteHtml)}
       />
     </article>
   );
@@ -133,13 +156,18 @@ function DayCard({ accent, day, onClosedChange, onNoteChange, onTaskStatusChange
 function DayNotes({
   content,
   dayTitle,
-  onChange,
+  onSave,
 }: {
   content: string;
   dayTitle: string;
-  onChange: (noteHtml: string) => void;
+  onSave: (noteHtml: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(content);
+
+  function saveDraft() {
+    onSave(draft);
+  }
 
   return (
     <details className="dayNotes" onToggle={(event) => setOpen(event.currentTarget.open)}>
@@ -150,21 +178,26 @@ function DayNotes({
       {open ? (
         <div className="dayNotesBody">
           <Suspense fallback={<div className="editorLoading">Loading editor...</div>}>
-            <RichNoteEditor initialContent={content} onChange={onChange} placeholder={`Notes for ${dayTitle}`} />
+            <RichNoteEditor initialContent={draft} onChange={setDraft} placeholder={`Notes for ${dayTitle}`} />
           </Suspense>
+          <div className="noteActions">
+            <button className="commandButton subtle" onClick={saveDraft} type="button">
+              Save notes
+            </button>
+          </div>
         </div>
       ) : null}
     </details>
   );
 }
 
-export function RoadmapView({ course, onDayClosedChange, onDayNoteChange, onTaskStatusChange }: RoadmapViewProps) {
+export function RoadmapView({ course, onDayClosedChange, onDayNoteSave, onTaskStatusChange }: RoadmapViewProps) {
   return (
     <div className="roadmapLayout">
       <aside className="dayRail" aria-label="Days">
         {course.days.map((day) => (
           <a className="dayRailItem" href={`#${day.id}`} key={day.id}>
-            <ProgressRing accent={course.accent} label={`Day ${day.number}`} size="small" value={day.progress} />
+            <ProgressRing accent={course.accent} label={`Day ${day.number}`} size="small" value={day.progress.ratio} />
             <span className="dayRailText">
               <strong>Day {day.number}</strong>
               <small>{day.title}</small>
@@ -180,7 +213,7 @@ export function RoadmapView({ course, onDayClosedChange, onDayNoteChange, onTask
             day={day}
             key={day.id}
             onClosedChange={onDayClosedChange}
-            onNoteChange={onDayNoteChange}
+            onNoteSave={onDayNoteSave}
             onTaskStatusChange={onTaskStatusChange}
           />
         ))}

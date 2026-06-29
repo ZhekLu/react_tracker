@@ -1,107 +1,221 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  fetchCourses,
+  fetchCourseWorkspace,
+  updateDayStatus,
+  updateExamQuestionStatus,
+  updateResourceStatus,
+  updateTaskStatus,
+  upsertNote,
+} from "../api/trackerApi";
 import { AppShell } from "../components/AppShell";
 import { ExamsView } from "../features/exams/ExamsView";
 import { ResourcesView } from "../features/resources/ResourcesView";
 import { RoadmapView } from "../features/roadmap/RoadmapView";
-import { sampleCourses } from "../mocks/sampleData";
-import type { Course, TaskStatus, TrackerView } from "../types/tracker";
+import type {
+  Course,
+  CourseSummary,
+  DayStatus,
+  ExamQuestion,
+  ExamStatus,
+  ResourceStatus,
+  StudyDay,
+  TaskStatus,
+  TrackerView,
+} from "../types/tracker";
 
-function taskProgress(course: Course, dayId: string): number {
-  const day = course.days.find((item) => item.id === dayId);
-  if (!day?.tasks.length) return 0;
-  return day.tasks.filter((task) => task.status === "done").length / day.tasks.length;
+function htmlToPlainText(value: string): string {
+  const element = document.createElement("div");
+  element.innerHTML = value;
+  return element.textContent ?? value;
+}
+
+function findTask(course: Course, taskId: string) {
+  return course.days
+    .flatMap((day) => day.sections)
+    .flatMap((section) => section.tasks)
+    .find((task) => task.id === taskId);
 }
 
 export function App() {
-  const [courses, setCourses] = useState<Course[]>(() => structuredClone(sampleCourses));
-  const [courseId, setCourseId] = useState(courses[0]?.id ?? "");
+  const [courses, setCourses] = useState<CourseSummary[]>([]);
+  const [courseId, setCourseId] = useState("");
+  const [workspace, setWorkspace] = useState<Course | null>(null);
   const [view, setView] = useState<TrackerView>("roadmap");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [mutating, setMutating] = useState(false);
 
-  const course = useMemo(
-    () => courses.find((item) => item.id === courseId) ?? courses[0],
+  const activeCourseId = useMemo(
+    () => courseId || courses[0]?.id || "",
     [courseId, courses],
   );
 
-  function updateCourse(update: (current: Course) => Course) {
-    setCourses((currentCourses) =>
-      currentCourses.map((currentCourse) => (currentCourse.id === course.id ? update(currentCourse) : currentCourse)),
-    );
+  const loadCourses = useCallback(async () => {
+    const nextCourses = await fetchCourses();
+    setCourses(nextCourses);
+    if (!courseId && nextCourses[0]) {
+      setCourseId(nextCourses[0].id);
+    }
+  }, [courseId]);
+
+  const loadWorkspace = useCallback(async (nextCourseId: string) => {
+    if (!nextCourseId) return;
+    const nextWorkspace = await fetchCourseWorkspace(nextCourseId);
+    setWorkspace(nextWorkspace);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function boot() {
+      setLoading(true);
+      setError(null);
+      try {
+        const nextCourses = await fetchCourses();
+        if (cancelled) return;
+        setCourses(nextCourses);
+        const nextCourseId = nextCourses[0]?.id || "";
+        setCourseId(nextCourseId);
+      } catch (caught) {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Cannot load tracker data.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void boot();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeCourseId) return;
+    let cancelled = false;
+    async function refreshForCourse() {
+      setLoading(true);
+      setError(null);
+      try {
+        const nextWorkspace = await fetchCourseWorkspace(activeCourseId);
+        if (!cancelled) setWorkspace(nextWorkspace);
+      } catch (caught) {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : "Cannot load course.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void refreshForCourse();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCourseId]);
+
+  async function runMutation(action: () => Promise<void>) {
+    if (!workspace) return;
+    setMutating(true);
+    setError(null);
+    try {
+      await action();
+      await loadWorkspace(workspace.id);
+      await loadCourses();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Tracker update failed.");
+    } finally {
+      setMutating(false);
+    }
   }
 
-  function updateTask(dayId: string, taskId: string, status: TaskStatus) {
-    updateCourse((currentCourse) => {
-      const nextCourse = {
-        ...currentCourse,
-        days: currentCourse.days.map((day) =>
-          day.id === dayId
-            ? {
-                ...day,
-                tasks: day.tasks.map((task) => (task.id === taskId ? { ...task, status } : task)),
-              }
-            : day,
-        ),
-      };
-
-      return {
-        ...nextCourse,
-        days: nextCourse.days.map((day) =>
-          day.id === dayId ? { ...day, progress: taskProgress(nextCourse, dayId) } : day,
-        ),
-      };
+  function handleTaskStatusChange(_dayId: string, taskId: string, status: TaskStatus) {
+    if (!workspace) return;
+    const task = findTask(workspace, taskId);
+    if (!task) return;
+    void runMutation(async () => {
+      await updateTaskStatus(task.id, status, task.revision);
     });
   }
 
-  function updateDayClosed(dayId: string, closed: boolean) {
-    updateCourse((currentCourse) => ({
-      ...currentCourse,
-      days: currentCourse.days.map((day) => (day.id === dayId ? { ...day, closed } : day)),
-    }));
+  function handleDayClosedChange(day: StudyDay, closed: boolean) {
+    const status: DayStatus = closed ? "closed" : "open";
+    void runMutation(async () => {
+      await updateDayStatus(day.id, status, day.revision);
+    });
   }
 
-  function updateDayNote(dayId: string, noteHtml: string) {
-    updateCourse((currentCourse) => ({
-      ...currentCourse,
-      days: currentCourse.days.map((day) => (day.id === dayId ? { ...day, noteHtml } : day)),
-    }));
+  function handleDayNoteSave(day: StudyDay, noteHtml: string) {
+    if (!workspace) return;
+    const note = day.notes[0];
+    void runMutation(async () => {
+      await upsertNote({
+        courseId: workspace.id,
+        noteId: note?.id,
+        noteRevision: note?.revision,
+        documentRevision: note?.document.revision,
+        kind: "day",
+        entityType: "day",
+        entityId: day.id,
+        markdown: noteHtml,
+        plainText: htmlToPlainText(noteHtml),
+      });
+    });
   }
 
-  function markResourceRead(resourceId: string) {
-    updateCourse((currentCourse) => ({
-      ...currentCourse,
-      resources: currentCourse.resources.map((resource) =>
-        resource.id === resourceId ? { ...resource, progress: resource.progress === 1 ? 0 : 1 } : resource,
-      ),
-    }));
+  function handleResourceReadToggle(resourceId: string) {
+    if (!workspace) return;
+    const resource = workspace.resources.find((item) => item.id === resourceId);
+    if (!resource) return;
+    const nextStatus: ResourceStatus =
+      resource.status === "read" || resource.status === "review" ? "unread" : "read";
+    void runMutation(async () => {
+      await updateResourceStatus(resource.id, nextStatus, resource.revision);
+    });
   }
 
-  function updateExamQuestion(examId: string, questionId: string, status: TaskStatus) {
-    updateCourse((currentCourse) => ({
-      ...currentCourse,
-      exams: currentCourse.exams.map((exam) =>
-        exam.id === examId
-          ? {
-              ...exam,
-              questions: exam.questions.map((question) =>
-                question.id === questionId ? { ...question, status } : question,
-              ),
-            }
-          : exam,
-      ),
-    }));
+  function handleQuestionStatusChange(
+    _examId: string,
+    question: ExamQuestion,
+    status: ExamStatus,
+  ) {
+    void runMutation(async () => {
+      await updateExamQuestionStatus(question.id, status, question.revision);
+    });
+  }
+
+  if (loading && !workspace) {
+    return <div className="bootPanel">Loading tracker...</div>;
+  }
+
+  if (!workspace) {
+    return (
+      <div className="bootPanel">
+        <h1>Study Tracker</h1>
+        <p>{error ?? "No course data is available yet."}</p>
+      </div>
+    );
   }
 
   return (
-    <AppShell course={course} courses={courses} view={view} onCourseChange={setCourseId} onViewChange={setView}>
+    <AppShell
+      course={workspace}
+      courses={courses}
+      onCourseChange={setCourseId}
+      onViewChange={setView}
+      view={view}
+    >
+      {error ? <div className="inlineError">{error}</div> : null}
+      {mutating ? <div className="savingPill">Saving...</div> : null}
       {view === "roadmap" ? (
         <RoadmapView
-          course={course}
-          onDayClosedChange={updateDayClosed}
-          onDayNoteChange={updateDayNote}
-          onTaskStatusChange={updateTask}
+          course={workspace}
+          onDayClosedChange={handleDayClosedChange}
+          onDayNoteSave={handleDayNoteSave}
+          onTaskStatusChange={handleTaskStatusChange}
         />
       ) : null}
-      {view === "resources" ? <ResourcesView course={course} onResourceReadToggle={markResourceRead} /> : null}
-      {view === "exams" ? <ExamsView course={course} onQuestionStatusChange={updateExamQuestion} /> : null}
+      {view === "resources" ? (
+        <ResourcesView course={workspace} onResourceReadToggle={handleResourceReadToggle} />
+      ) : null}
+      {view === "exams" ? (
+        <ExamsView course={workspace} onQuestionStatusChange={handleQuestionStatusChange} />
+      ) : null}
     </AppShell>
   );
 }

@@ -2,8 +2,8 @@ import type { TaskStatus } from "../types/tracker";
 
 export function statusTone(status: TaskStatus): "green" | "amber" | "blue" | "muted" {
   if (status === "done") return "green";
-  if (status === "question") return "amber";
   if (status === "later") return "blue";
+  if (status === "in_progress") return "amber";
   return "muted";
 }
 

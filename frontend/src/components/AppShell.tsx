@@ -1,13 +1,13 @@
 import { BookOpen, CalendarDays, FileQuestion, Layers3, Sparkles } from "lucide-react";
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 import { percent } from "../lib/progress";
-import type { Course, TrackerView } from "../types/tracker";
+import type { Course, CourseSummary, TrackerView } from "../types/tracker";
 import { ProgressBar } from "./ProgressBar";
 import { ProgressRing } from "./ui/ProgressRing";
 
 type AppShellProps = {
   course: Course;
-  courses: Course[];
+  courses: CourseSummary[];
   view: TrackerView;
   onViewChange: (view: TrackerView) => void;
   onCourseChange: (courseId: string) => void;
@@ -21,14 +21,10 @@ const navItems: Array<{ view: TrackerView; label: string; icon: ComponentType<{ 
 ];
 
 export function AppShell({ course, courses, view, onViewChange, onCourseChange, children }: AppShellProps) {
-  const courseProgress = course.days.length
-    ? course.days.reduce((total, day) => total + day.progress, 0) / course.days.length
-    : 0;
-  const questionCount =
-    course.resources.filter((resource) => resource.hasQuestion).length +
-    course.exams.flatMap((exam) => exam.questions).filter((question) => question.status === "question").length;
-  const completedTasks = course.days.flatMap((day) => day.tasks).filter((task) => task.status === "done").length;
-  const totalTasks = course.days.flatMap((day) => day.tasks).length;
+  const courseProgress = course.stats.progressRatio;
+  const questionCount = course.stats.openQuestionCount;
+  const completedTasks = course.stats.completedTaskCount;
+  const totalTasks = course.stats.taskCount;
   const activeView = navItems.find((item) => item.view === view);
   const ActiveViewIcon = activeView?.icon;
 
@@ -56,7 +52,7 @@ export function AppShell({ course, courses, view, onViewChange, onCourseChange, 
               <span className="courseInitial">{item.shortCode.slice(0, 2).toUpperCase()}</span>
               <span className="courseButtonText">
                 <strong>{item.shortCode}</strong>
-                <small>{item.days.length} days</small>
+                <small>{item.stats.dayCount} days</small>
               </span>
             </button>
           ))}
@@ -108,8 +104,8 @@ export function AppShell({ course, courses, view, onViewChange, onCourseChange, 
           </div>
           <div className="headerProgress">
             <div className="headerStats">
-              <span><strong>{course.days.length}</strong> days</span>
-              <span><strong>{course.resources.length}</strong> resources</span>
+              <span><strong>{course.stats.dayCount}</strong> days</span>
+              <span><strong>{course.stats.resourceCount}</strong> resources</span>
               <span><strong>{course.skills.filter((skill) => skill.covered).length}</strong> skills covered</span>
             </div>
             <div className="headerScore">

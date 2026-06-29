@@ -2,19 +2,19 @@ import { CheckCircle2, CircleHelp, Clock3 } from "lucide-react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
-import type { Course, ExamQuestion, TaskStatus } from "../../types/tracker";
+import type { Course, ExamQuestion, ExamStatus } from "../../types/tracker";
 
 type ExamsViewProps = {
   course: Course;
-  onQuestionStatusChange: (examId: string, questionId: string, status: TaskStatus) => void;
+  onQuestionStatusChange: (examId: string, question: ExamQuestion, status: ExamStatus) => void;
 };
 
-const statusClass: Record<TaskStatus, string> = {
-  done: "examSquare done",
-  question: "examSquare question",
-  later: "examSquare later",
-  todo: "examSquare",
-};
+function statusClass(question: ExamQuestion): string {
+  if (question.openQuestionCount > 0) return "examSquare question";
+  if (question.solveStatus === "solved" || question.solveStatus === "review") return "examSquare done";
+  if (question.solveStatus === "attempted") return "examSquare later";
+  return "examSquare";
+}
 
 function ExamSquare({
   examId,
@@ -23,20 +23,20 @@ function ExamSquare({
 }: {
   examId: string;
   question: ExamQuestion;
-  onStatusChange: (examId: string, questionId: string, status: TaskStatus) => void;
+  onStatusChange: (examId: string, question: ExamQuestion, status: ExamStatus) => void;
 }) {
   const reward = useCompletionReward();
 
   function toggleDone() {
-    const nextStatus = question.status === "done" ? "todo" : "done";
-    if (nextStatus === "done") reward.celebrate();
-    onStatusChange(examId, question.id, nextStatus);
+    const nextStatus = question.solveStatus === "solved" ? "unsolved" : "solved";
+    if (nextStatus === "solved") reward.celebrate();
+    onStatusChange(examId, question, nextStatus);
   }
 
   return (
     <button
-      aria-label={`${question.label}: ${question.topic}, ${question.status}`}
-      className={statusClass[question.status]}
+      aria-label={`${question.label}: ${question.topic}, ${question.solveStatus}`}
+      className={statusClass(question)}
       onClick={toggleDone}
       title={`${question.label}: ${question.topic}`}
       type="button"
@@ -58,9 +58,9 @@ export function ExamsView({ course, onQuestionStatusChange }: ExamsViewProps) {
   }
 
   const allQuestions = course.exams.flatMap((exam) => exam.questions);
-  const doneCount = allQuestions.filter((question) => question.status === "done").length;
-  const questionCount = allQuestions.filter((question) => question.status === "question").length;
-  const laterCount = allQuestions.filter((question) => question.status === "later").length;
+  const doneCount = allQuestions.filter((question) => question.solveStatus === "solved" || question.solveStatus === "review").length;
+  const questionCount = allQuestions.filter((question) => question.openQuestionCount > 0).length;
+  const laterCount = allQuestions.filter((question) => question.solveStatus === "attempted").length;
 
   return (
     <div className="examLayout">
@@ -94,7 +94,9 @@ export function ExamsView({ course, onQuestionStatusChange }: ExamsViewProps) {
           <header className="sectionHeader">
             <div className="sectionTitle">
               <div>
-                <p className="eyebrow" title={exam.sourcePath}>Source · {exam.sourcePath.split("/").at(-1)}</p>
+                {exam.sourcePath ? (
+                  <p className="eyebrow" title={exam.sourcePath}>Source · {exam.sourcePath.split("/").at(-1)}</p>
+                ) : null}
                 <h2>{exam.title}</h2>
               </div>
             </div>
@@ -114,7 +116,7 @@ export function ExamsView({ course, onQuestionStatusChange }: ExamsViewProps) {
               <article className="examQuestionRow" key={question.id}>
                 <strong>{question.label}</strong>
                 <span>{question.topic}</span>
-                <StatusBadge status={question.status} />
+                <StatusBadge status={question.solveStatus} />
               </article>
             ))}
           </div>

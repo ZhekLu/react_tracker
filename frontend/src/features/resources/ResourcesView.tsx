@@ -21,7 +21,7 @@ type ResourcesViewProps = {
   onResourceReadToggle: (resourceId: string) => void;
 };
 
-const kindIcon: Record<ResourceKind, ComponentType<{ size?: number }>> = {
+const kindIcon: Partial<Record<ResourceKind, ComponentType<{ size?: number }>>> = {
   paper: GraduationCap,
   book: BookMarked,
   slides: FileText,
@@ -31,6 +31,10 @@ const kindIcon: Record<ResourceKind, ComponentType<{ size?: number }>> = {
   web: Link2,
   other: FileText,
 };
+
+function iconForKind(kind: ResourceKind): ComponentType<{ size?: number }> {
+  return kindIcon[kind] ?? FileText;
+}
 
 function ResourceRow({
   accent,
@@ -42,7 +46,8 @@ function ResourceRow({
   onReadToggle: (resourceId: string) => void;
 }) {
   const reward = useCompletionReward();
-  const isRead = resource.progress === 1;
+  const isRead = resource.status === "read" || resource.status === "review";
+  const sourcePath = resource.version?.localPath ?? resource.canonicalUrl ?? undefined;
 
   function toggleRead() {
     if (!isRead) reward.celebrate();
@@ -50,15 +55,17 @@ function ResourceRow({
   }
 
   return (
-    <article className={resource.hasQuestion ? "resourceRow attention" : "resourceRow"}>
+    <article className={resource.openQuestionCount ? "resourceRow attention" : "resourceRow"}>
       <ProgressRing accent={accent} label={resource.title} size="small" value={resource.progress} />
       <div className="resourceRowMain">
         <h3>{resource.title}</h3>
-        {resource.sourcePath ? <p className="filePath" title={resource.sourcePath}>{resource.sourcePath}</p> : null}
+        {sourcePath ? <p className="filePath" title={sourcePath}>{sourcePath}</p> : null}
       </div>
       <div className="resourceRowMeta">
         <span><CalendarDays size={13} /> {resource.dayIds.length}</span>
-        {resource.hasQuestion ? <span className="attentionText"><MessageCircleQuestion size={13} /> Question</span> : null}
+        {resource.openQuestionCount ? (
+          <span className="attentionText"><MessageCircleQuestion size={13} /> {resource.openQuestionCount}</span>
+        ) : null}
       </div>
       <div className="resourceRowProgress">
         <ProgressBar accent={accent} value={resource.progress} />
@@ -83,16 +90,17 @@ export function ResourcesView({ course, onResourceReadToggle }: ResourcesViewPro
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return course.resources;
     return course.resources.filter((resource) =>
-      `${resource.title} ${resource.kind} ${resource.sourcePath ?? ""}`.toLowerCase().includes(normalizedQuery),
+      `${resource.title} ${resource.kind} ${resource.version?.localPath ?? ""}`.toLowerCase().includes(normalizedQuery),
     );
   }, [course.resources, query]);
   const grouped = filteredResources.reduce((groups, resource) => {
-    const resources = groups.get(resource.kind) ?? [];
+    const groupKey = resource.category ?? resource.kind;
+    const resources = groups.get(groupKey) ?? [];
     resources.push(resource);
-    groups.set(resource.kind, resources);
+    groups.set(groupKey, resources);
     return groups;
-  }, new Map<ResourceKind, typeof course.resources>());
-  const completedCount = course.resources.filter((resource) => resource.progress === 1).length;
+  }, new Map<string, typeof course.resources>());
+  const completedCount = course.resources.filter((resource) => resource.status === "read" || resource.status === "review").length;
 
   return (
     <div className="resourceLayout">
@@ -112,7 +120,7 @@ export function ResourcesView({ course, onResourceReadToggle }: ResourcesViewPro
         </label>
       </header>
       {[...grouped.entries()].map(([kind, resources]) => {
-        const Icon = kindIcon[kind];
+        const Icon = iconForKind(resources[0]?.kind ?? "other");
         return (
           <section className="resourceGroup" key={kind}>
             <header className="sectionHeader">

@@ -386,6 +386,43 @@ a:focus-visible,
   padding: 18px;
 }
 
+.bootPanel {
+  min-height: 100vh;
+  padding: 28px;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.inlineError,
+.savingPill {
+  position: sticky;
+  top: 78px;
+  z-index: 7;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.inlineError {
+  border-color: color-mix(in srgb, var(--red) 30%, var(--line));
+  background: var(--red-soft);
+  color: #873030;
+}
+
+.savingPill {
+  width: max-content;
+  margin-left: auto;
+  border-color: color-mix(in srgb, var(--course-accent) 30%, var(--line));
+  background: color-mix(in srgb, var(--course-accent) 8%, #fff);
+}
+
 .roadmapLayout {
   display: grid;
   grid-template-columns: 205px minmax(0, 1fr);
@@ -666,6 +703,38 @@ a:focus-visible,
   gap: 6px;
 }
 
+.taskSection {
+  display: grid;
+  gap: 6px;
+}
+
+.taskSection + .taskSection {
+  margin-top: 10px;
+}
+
+.taskSectionHeader {
+  min-height: 24px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+}
+
+.taskSectionHeader h3 {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 880;
+  letter-spacing: 0;
+}
+
+.taskSectionHeader span {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 850;
+}
+
 .taskRow {
   min-width: 0;
   padding: 9px 10px;
@@ -795,7 +864,23 @@ a:focus-visible,
   color: #17643f;
 }
 
+.statusBadge.read,
+.statusBadge.review,
+.statusBadge.solved {
+  border-color: color-mix(in srgb, var(--green) 30%, var(--line));
+  background: var(--green-soft);
+  color: #17643f;
+}
+
 .statusBadge.question {
+  border-color: color-mix(in srgb, var(--amber) 32%, var(--line));
+  background: var(--amber-soft);
+  color: #7b4a0d;
+}
+
+.statusBadge.in_progress,
+.statusBadge.reading,
+.statusBadge.attempted {
   border-color: color-mix(in srgb, var(--amber) 32%, var(--line));
   background: var(--amber-soft);
   color: #7b4a0d;
@@ -805,6 +890,12 @@ a:focus-visible,
   border-color: color-mix(in srgb, var(--blue) 28%, var(--line));
   background: var(--blue-soft);
   color: #245f9c;
+}
+
+.statusBadge.skipped,
+.statusBadge.archived {
+  background: #eef2f0;
+  color: #627069;
 }
 
 .dayNotes {
@@ -838,6 +929,12 @@ a:focus-visible,
 
 .dayNotesBody {
   padding: 8px;
+}
+
+.noteActions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .viewToolbar {

@@ -15,11 +15,14 @@ feature modules.
 ## State
 
 - Keep transient visual state local to the component that renders it.
-- Keep course/task/resource/exam state at the app workspace boundary until the
-  API data layer replaces the current mock state.
+- Keep course/task/resource/exam state at the app workspace boundary. Fetch one
+  complete course workspace from the API and refresh it after mutations until a
+  finer cache is justified.
 - Derive progress and counts from domain state instead of storing duplicate UI
   counters.
-- Do not mutate imported mock/API objects. Use immutable updates.
+- Do not mutate API objects in-place.
+- Backend mutations are revision-aware. Send the entity revision returned by the
+  workspace endpoint and surface `409` conflicts instead of hiding them.
 
 ## Editors
 

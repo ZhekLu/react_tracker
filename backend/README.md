@@ -1,24 +1,42 @@
 # React Tracker Backend
 
-Tiny Python API skeleton for the React tracker.
+FastAPI + SQLite backend for the React tracker rewrite.
 
 ```sh
 cd /Users/eugene/Documents/Thesis/Tracker/react_tracker/backend
-python3 -m tracker_api.main
+uv sync
+uv run python -m tracker_api.main
 ```
 
 Endpoints:
 
 - `GET /api/health`
 - `GET /api/courses`
-- `GET /api/dumps`
-- `POST /api/dev/seed`
+- `GET /api/courses/{course_id}/workspace`
+- `PATCH /api/tasks/{task_id}/status`
+- `PATCH /api/days/{day_id}/status`
+- `PATCH /api/resources/{resource_id}/status`
+- `PATCH /api/exam-questions/{question_id}/status`
+- `PATCH /api/annotations/{annotation_id}`
+- `POST /api/notes`
 
-The database is created at `react_tracker/data/tracker.db`.
+The database is created at `react_tracker/data/tracker_v2.db`.
 
-Import a static tracker export:
+Database workflow from `/Users/eugene/Documents/Thesis/Tracker`:
 
 ```sh
-cd /Users/eugene/Documents/Thesis/Tracker/react_tracker/backend
-python3 -m tracker_api.import_dump "/Users/eugene/Downloads/study-tracker-2026-06-18 (1).json"
+make react-backend-install
+make react-migrate
+make react-import-v2
+make react-enrich-plan
+```
+
+The importer expects a normalized v2 bundle. Raw tracker exports should first be
+converted with `dump/convert_tracker_dump_to_v2.py`.
+
+Checks:
+
+```sh
+uv run ruff check tracker_api
+uv run mypy tracker_api
 ```
