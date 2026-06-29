@@ -20,7 +20,7 @@ export type ResourceKind =
   | "other"
   | string;
 
-export type TrackerView = "roadmap" | "resources" | "exams";
+export type TrackerView = "roadmap" | "resources" | "exams" | "notes" | "discussions";
 
 export type CourseStats = {
   dayCount: number;
@@ -254,4 +254,12 @@ export type Course = CourseSummary & {
   discussions: Discussion[];
   notes: Note[];
   annotations: Annotation[];
+};
+
+export type EntityNoteSaveInput = {
+  entityType: "day" | "task" | "resource" | "exam_question" | "course";
+  entityId: string;
+  kind: string;
+  note?: Note;
+  html: string;
 };

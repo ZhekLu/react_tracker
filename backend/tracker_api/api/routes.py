@@ -14,12 +14,16 @@ from ..schemas.workspace import (
     CourseListResponse,
     CourseWorkspace,
     DayStatusCommand,
+    DiscussionCreateCommand,
+    DiscussionMessageCreateCommand,
     ExamStatusCommand,
     MutationResponse,
     NoteUpsertCommand,
+    ResourceOpenResponse,
     ResourceStatusCommand,
     TaskStatusCommand,
 )
+from ..services.resource_open_service import ResourceOpenError, open_resource
 
 
 class HealthResponse(BaseModel):
@@ -97,6 +101,31 @@ def update_resource_status(
         raise _translate_repository_error(error) from error
 
 
+@router.post("/resources/{resource_id}/open", response_model=ResourceOpenResponse)
+def open_resource_file(resource_id: str, connection: Database) -> ResourceOpenResponse:
+    try:
+        local_path, source_url = workspace_repository.resource_open_target(
+            connection,
+            resource_id,
+        )
+        target, application = open_resource(
+            local_path=local_path,
+            source_url=source_url,
+        )
+        return ResourceOpenResponse(
+            resource_id=resource_id,
+            target=target,
+            application=application,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+    except ResourceOpenError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
 @router.patch("/exam-questions/{question_id}/status", response_model=MutationResponse)
 def update_exam_question_status(
     question_id: str,
@@ -125,5 +154,32 @@ def update_annotation(
 def upsert_note(command: NoteUpsertCommand, connection: Database) -> MutationResponse:
     try:
         return workspace_repository.upsert_note(connection, command)
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.post("/discussions", response_model=MutationResponse)
+def create_discussion(
+    command: DiscussionCreateCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.create_discussion(connection, command)
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.post("/discussions/{discussion_id}/messages", response_model=MutationResponse)
+def create_discussion_message(
+    discussion_id: str,
+    command: DiscussionMessageCreateCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.create_discussion_message(
+            connection,
+            discussion_id,
+            command,
+        )
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error

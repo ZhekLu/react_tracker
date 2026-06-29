@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  createDiscussion,
+  createDiscussionMessage,
   fetchCourses,
   fetchCourseWorkspace,
+  openResource,
+  updateAnnotation,
   updateDayStatus,
   updateExamQuestionStatus,
   updateResourceStatus,
@@ -9,13 +13,16 @@ import {
   upsertNote,
 } from "../api/trackerApi";
 import { AppShell } from "../components/AppShell";
+import { DiscussionsView } from "../features/discussions/DiscussionsView";
 import { ExamsView } from "../features/exams/ExamsView";
+import { NotesView } from "../features/notes/NotesView";
 import { ResourcesView } from "../features/resources/ResourcesView";
 import { RoadmapView } from "../features/roadmap/RoadmapView";
 import type {
   Course,
   CourseSummary,
   DayStatus,
+  EntityNoteSaveInput,
   ExamQuestion,
   ExamStatus,
   ResourceStatus,
@@ -23,6 +30,7 @@ import type {
   TaskStatus,
   TrackerView,
 } from "../types/tracker";
+import type { DiscussionMessageInput } from "../api/trackerApi";
 
 function htmlToPlainText(value: string): string {
   const element = document.createElement("div");
@@ -43,7 +51,9 @@ export function App() {
   const [workspace, setWorkspace] = useState<Course | null>(null);
   const [view, setView] = useState<TrackerView>("roadmap");
   const [activeDayId, setActiveDayId] = useState("");
+  const [focusedResourceId, setFocusedResourceId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
 
@@ -122,6 +132,7 @@ export function App() {
     if (!workspace) return;
     setMutating(true);
     setError(null);
+    setActionMessage(null);
     try {
       await action();
       await loadWorkspace(workspace.id);
@@ -142,6 +153,11 @@ export function App() {
     });
   }
 
+  function handleCourseChange(nextCourseId: string) {
+    setFocusedResourceId("");
+    setCourseId(nextCourseId);
+  }
+
   function handleDayClosedChange(day: StudyDay, closed: boolean) {
     const status: DayStatus = closed ? "closed" : "open";
     void runMutation(async () => {
@@ -150,19 +166,29 @@ export function App() {
   }
 
   function handleDayNoteSave(day: StudyDay, noteHtml: string) {
+    handleNoteSave({
+      entityId: day.id,
+      entityType: "day",
+      html: noteHtml,
+      kind: "day",
+      note: day.notes[0],
+    });
+  }
+
+  function handleNoteSave(input: EntityNoteSaveInput) {
     if (!workspace) return;
-    const note = day.notes[0];
+    const note = input.note;
     void runMutation(async () => {
       await upsertNote({
         courseId: workspace.id,
         noteId: note?.id,
         noteRevision: note?.revision,
         documentRevision: note?.document.revision,
-        kind: "day",
-        entityType: "day",
-        entityId: day.id,
-        markdown: noteHtml,
-        plainText: htmlToPlainText(noteHtml),
+        kind: input.kind,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        markdown: input.html,
+        plainText: htmlToPlainText(input.html),
       });
     });
   }
@@ -188,6 +214,57 @@ export function App() {
     });
   }
 
+  function resolveDiscussionResourceId(resourceId: string): string {
+    if (!workspace) return resourceId;
+    const resource = workspace.resources.find((item) => item.id === resourceId);
+    return resource?.parentResourceId ?? resourceId;
+  }
+
+  function handleOpenDiscussion(resourceId: string) {
+    setFocusedResourceId(resolveDiscussionResourceId(resourceId));
+    setView("discussions");
+  }
+
+  async function handleOpenResource(resourceId: string) {
+    setError(null);
+    setActionMessage(null);
+    try {
+      const result = await openResource(resourceId);
+      setActionMessage(`Opened with ${result.application}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not open resource.");
+    }
+  }
+
+  function handleAnnotationChange(
+    annotation: Course["annotations"][number],
+    changes: {
+      kind?: Course["annotations"][number]["kind"];
+      status?: Course["annotations"][number]["status"];
+    },
+  ) {
+    void runMutation(async () => {
+      await updateAnnotation(annotation.id, annotation.revision, changes);
+    });
+  }
+
+  function handleCreateDiscussion(resourceId: string) {
+    if (!workspace) return;
+    setFocusedResourceId(resourceId);
+    void runMutation(async () => {
+      await createDiscussion(workspace.id, resourceId);
+    });
+  }
+
+  function handleAddDiscussionMessage(
+    discussionId: string,
+    input: DiscussionMessageInput,
+  ) {
+    void runMutation(async () => {
+      await createDiscussionMessage(discussionId, input);
+    });
+  }
+
   if (loading && !workspace) {
     return <div className="bootPanel">Loading tracker...</div>;
   }
@@ -206,11 +283,12 @@ export function App() {
       activeDayId={activeDayId}
       course={workspace}
       courses={courses}
-      onCourseChange={setCourseId}
+      onCourseChange={handleCourseChange}
       onViewChange={setView}
       view={view}
     >
       {error ? <div className="inlineError">{error}</div> : null}
+      {actionMessage ? <div className="actionToast">{actionMessage}</div> : null}
       {mutating ? <div className="savingPill">Saving...</div> : null}
       {view === "roadmap" ? (
         <RoadmapView
@@ -218,14 +296,48 @@ export function App() {
           onActiveDayChange={setActiveDayId}
           onDayClosedChange={handleDayClosedChange}
           onDayNoteSave={handleDayNoteSave}
+          onNoteSave={handleNoteSave}
+          onOpenDiscussion={handleOpenDiscussion}
+          onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
           onTaskStatusChange={handleTaskStatusChange}
         />
       ) : null}
       {view === "resources" ? (
-        <ResourcesView course={workspace} onResourceReadToggle={handleResourceReadToggle} />
+        <ResourcesView
+          course={workspace}
+          onNoteSave={handleNoteSave}
+          onOpenDiscussion={handleOpenDiscussion}
+          onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
+          onResourceReadToggle={handleResourceReadToggle}
+        />
       ) : null}
       {view === "exams" ? (
-        <ExamsView course={workspace} onQuestionStatusChange={handleQuestionStatusChange} />
+        <ExamsView
+          course={workspace}
+          onNoteSave={handleNoteSave}
+          onOpenDiscussion={handleOpenDiscussion}
+          onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
+          onQuestionStatusChange={handleQuestionStatusChange}
+        />
+      ) : null}
+      {view === "notes" ? (
+        <NotesView
+          course={workspace}
+          onAnnotationChange={handleAnnotationChange}
+          onNoteSave={handleNoteSave}
+          onOpenDiscussion={handleOpenDiscussion}
+          onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
+        />
+      ) : null}
+      {view === "discussions" ? (
+        <DiscussionsView
+          course={workspace}
+          focusedResourceId={focusedResourceId}
+          onAddMessage={handleAddDiscussionMessage}
+          onCreateDiscussion={handleCreateDiscussion}
+          onFocusResource={setFocusedResourceId}
+          onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
+        />
       ) : null}
     </AppShell>
   );

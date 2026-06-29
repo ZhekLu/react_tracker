@@ -280,6 +280,19 @@ export type NoteUpsertInput = {
   plainText: string;
 };
 
+export type DiscussionMessageInput = {
+  role: "user" | "assistant" | "system" | "personal_note";
+  markdown: string;
+  editorJson?: Record<string, unknown> | null;
+  plainText: string;
+};
+
+export type ResourceOpenResult = {
+  resourceId: string;
+  target: string;
+  application: string;
+};
+
 class ApiError extends Error {
   status: number;
 
@@ -632,6 +645,36 @@ export async function updateExamQuestionStatus(
   });
 }
 
+export async function updateAnnotation(
+  annotationId: string,
+  revision: number,
+  changes: {
+    kind?: AnnotationKind;
+    status?: AnnotationStatus;
+    priority?: "low" | "normal" | "high";
+  },
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/annotations/${annotationId}`, {
+    body: JSON.stringify({ revision, ...changes }),
+    method: "PATCH",
+  });
+}
+
+export async function openResource(resourceId: string): Promise<ResourceOpenResult> {
+  const result = await requestJson<{
+    resource_id: string;
+    target: string;
+    application: string;
+  }>(`/resources/${resourceId}/open`, {
+    method: "POST",
+  });
+  return {
+    resourceId: result.resource_id,
+    target: result.target,
+    application: result.application,
+  };
+}
+
 export async function upsertNote(input: NoteUpsertInput): Promise<MutationResponse> {
   return requestJson<MutationResponse>("/notes", {
     body: JSON.stringify({
@@ -642,6 +685,35 @@ export async function upsertNote(input: NoteUpsertInput): Promise<MutationRespon
       kind: input.kind,
       entity_type: input.entityType,
       entity_id: input.entityId,
+      markdown: input.markdown,
+      editor_json: input.editorJson,
+      plain_text: input.plainText,
+    }),
+    method: "POST",
+  });
+}
+
+export async function createDiscussion(
+  courseId: string,
+  resourceId: string,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>("/discussions", {
+    body: JSON.stringify({
+      course_id: courseId,
+      resource_id: resourceId,
+      provider: "chatgpt",
+    }),
+    method: "POST",
+  });
+}
+
+export async function createDiscussionMessage(
+  discussionId: string,
+  input: DiscussionMessageInput,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/discussions/${discussionId}/messages`, {
+    body: JSON.stringify({
+      role: input.role,
       markdown: input.markdown,
       editor_json: input.editorJson,
       plain_text: input.plainText,

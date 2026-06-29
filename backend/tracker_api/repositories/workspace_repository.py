@@ -22,7 +22,9 @@ from ..schemas.workspace import (
     DaySection,
     DayStatusCommand,
     Discussion,
+    DiscussionCreateCommand,
     DiscussionMessage,
+    DiscussionMessageCreateCommand,
     DocumentContent,
     Exam,
     ExamQuestion,
@@ -629,7 +631,7 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
             revision=int(row["revision"]),
             resource_ids=linked_resources,
             exam_question_ids=linked_questions,
-            skill_ids=day_to_skills.get(str(row["day_id"]), []),
+            skill_ids=[],
             rationale=documents.get(str(row["rationale_document_id"]))
             if row["rationale_document_id"]
             else None,
@@ -1269,6 +1271,63 @@ def _insert_document_revision(
     )
 
 
+def _create_document(
+    connection: Connection,
+    *,
+    markdown: str,
+    editor_json: dict[str, Any] | None,
+    plain_text: str,
+    reason: str,
+    timestamp: str,
+) -> str:
+    document_id = _new_id()
+    content_hash = hashlib.sha256(
+        json.dumps(
+            {"markdown": markdown, "editor_json": editor_json, "plain_text": plain_text},
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    canonical_format = "tiptap_json" if editor_json is not None else "markdown"
+    connection.execute(
+        text(
+            """
+            INSERT INTO documents (
+              id, canonical_format, markdown, editor_json, plain_text, editor_name,
+              editor_schema_version, markdown_converter_version, content_hash,
+              created_at, updated_at, deleted_at, revision
+            )
+            VALUES (
+              :id, :canonical_format, :markdown, :editor_json, :plain_text,
+              'tiptap', '1', 'react-editor-v1', :content_hash,
+              :now, :now, NULL, 1
+            )
+            """
+        ),
+        {
+            "id": document_id,
+            "canonical_format": canonical_format,
+            "markdown": markdown,
+            "editor_json": _json_dumps(editor_json),
+            "plain_text": plain_text,
+            "content_hash": content_hash,
+            "now": timestamp,
+        },
+    )
+    _insert_document_revision(
+        connection,
+        document_id=document_id,
+        revision=1,
+        markdown=markdown,
+        editor_json=editor_json,
+        plain_text=plain_text,
+        content_hash=content_hash,
+        reason=reason,
+        timestamp=timestamp,
+    )
+    return document_id
+
+
 def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationResponse:
     now = _now()
     markdown = command.markdown
@@ -1284,40 +1343,11 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
 
     if command.note_id is None:
         note_id = _new_id()
-        document_id = _new_id()
-        connection.execute(
-            text(
-                """
-                INSERT INTO documents (
-                  id, canonical_format, markdown, editor_json, plain_text, editor_name,
-                  editor_schema_version, markdown_converter_version, content_hash,
-                  created_at, updated_at, deleted_at, revision
-                )
-                VALUES (
-                  :id, :canonical_format, :markdown, :editor_json, :plain_text,
-                  'tiptap', '1', 'react-editor-v1', :content_hash,
-                  :now, :now, NULL, 1
-                )
-                """
-            ),
-            {
-                "id": document_id,
-                "canonical_format": canonical_format,
-                "markdown": markdown,
-                "editor_json": _json_dumps(command.editor_json),
-                "plain_text": plain_text,
-                "content_hash": content_hash,
-                "now": now,
-            },
-        )
-        _insert_document_revision(
+        document_id = _create_document(
             connection,
-            document_id=document_id,
-            revision=1,
             markdown=markdown,
             editor_json=command.editor_json,
             plain_text=plain_text,
-            content_hash=content_hash,
             reason="note_created",
             timestamp=now,
         )
@@ -1438,4 +1468,160 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
     )
     if row is None:
         raise RevisionConflictError(f"Stale revision for note: {command.note_id}")
+    return _mutation_result(row)
+
+
+def resource_open_target(
+    connection: Connection,
+    resource_id: str,
+) -> tuple[str | None, str | None]:
+    row = _one_or_none(
+        connection,
+        """
+        SELECT rv.local_path, COALESCE(rv.source_url, r.canonical_url) AS source_url
+        FROM resources r
+        LEFT JOIN resource_versions rv ON rv.id = r.current_version_id
+        WHERE r.id = :resource_id AND r.deleted_at IS NULL
+        """,
+        {"resource_id": resource_id},
+    )
+    if row is None:
+        raise EntityNotFoundError(f"Resource does not exist: {resource_id}")
+    return cast(str | None, row["local_path"]), cast(str | None, row["source_url"])
+
+
+def create_discussion(
+    connection: Connection,
+    command: DiscussionCreateCommand,
+) -> MutationResponse:
+    resource = _one_or_none(
+        connection,
+        """
+        SELECT id
+        FROM resources
+        WHERE id = :resource_id AND course_id = :course_id AND deleted_at IS NULL
+        """,
+        {"resource_id": command.resource_id, "course_id": command.course_id},
+    )
+    if resource is None:
+        raise EntityNotFoundError(
+            f"Resource does not exist in course: {command.resource_id}"
+        )
+    existing = _one_or_none(
+        connection,
+        """
+        SELECT id, revision, updated_at
+        FROM discussion_threads
+        WHERE resource_id = :resource_id AND deleted_at IS NULL
+        """,
+        {"resource_id": command.resource_id},
+    )
+    if existing is not None:
+        return _mutation_result(existing)
+
+    now = _now()
+    discussion_id = _new_id()
+    row = _one_or_none(
+        connection,
+        """
+        INSERT INTO discussion_threads (
+          id, resource_id, course_id, initial_prompt_batch_id, provider,
+          status, created_at, updated_at, deleted_at, revision
+        )
+        VALUES (
+          :id, :resource_id, :course_id, NULL, :provider,
+          'active', :now, :now, NULL, 1
+        )
+        RETURNING id, revision, updated_at
+        """,
+        {
+            "id": discussion_id,
+            "resource_id": command.resource_id,
+            "course_id": command.course_id,
+            "provider": command.provider,
+            "now": now,
+        },
+    )
+    if row is None:
+        raise WorkspaceRepositoryError("Could not create discussion.")
+    return _mutation_result(row)
+
+
+def create_discussion_message(
+    connection: Connection,
+    discussion_id: str,
+    command: DiscussionMessageCreateCommand,
+) -> MutationResponse:
+    thread = _one_or_none(
+        connection,
+        """
+        SELECT id
+        FROM discussion_threads
+        WHERE id = :id AND deleted_at IS NULL
+        """,
+        {"id": discussion_id},
+    )
+    if thread is None:
+        raise EntityNotFoundError(f"Discussion does not exist: {discussion_id}")
+
+    now = _now()
+    markdown = command.markdown
+    plain_text = command.plain_text or markdown
+    document_id = _create_document(
+        connection,
+        markdown=markdown,
+        editor_json=command.editor_json,
+        plain_text=plain_text,
+        reason="discussion_message_created",
+        timestamp=now,
+    )
+    sequence_number = int(
+        connection.execute(
+            text(
+                """
+                SELECT COALESCE(MAX(sequence_number), 0) + 1
+                FROM discussion_messages
+                WHERE thread_id = :thread_id AND deleted_at IS NULL
+                """
+            ),
+            {"thread_id": discussion_id},
+        ).scalar_one()
+    )
+    message_id = _new_id()
+    row = _one_or_none(
+        connection,
+        """
+        INSERT INTO discussion_messages (
+          id, thread_id, parent_message_id, reply_to_message_id, role,
+          body_document_id, sequence_number, imported_from_clipboard,
+          externally_created_at, created_at, updated_at, deleted_at, revision
+        )
+        VALUES (
+          :id, :thread_id, NULL, NULL, :role,
+          :body_document_id, :sequence_number, 0,
+          NULL, :now, :now, NULL, 1
+        )
+        RETURNING id, revision, updated_at
+        """,
+        {
+            "id": message_id,
+            "thread_id": discussion_id,
+            "role": command.role,
+            "body_document_id": document_id,
+            "sequence_number": sequence_number,
+            "now": now,
+        },
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE discussion_threads
+            SET updated_at = :now, revision = revision + 1
+            WHERE id = :id
+            """
+        ),
+        {"id": discussion_id, "now": now},
+    )
+    if row is None:
+        raise WorkspaceRepositoryError("Could not create discussion message.")
     return _mutation_result(row)

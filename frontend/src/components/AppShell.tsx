@@ -1,4 +1,11 @@
-import { BookOpen, CalendarDays, FileQuestion, Sparkles } from "lucide-react";
+import {
+  BookOpen,
+  CalendarDays,
+  FileQuestion,
+  MessageSquareText,
+  Sparkles,
+  StickyNote,
+} from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import {
   dayDisplayTopic,
@@ -24,6 +31,8 @@ const viewMeta = {
   roadmap: { label: "Roadmap", icon: CalendarDays },
   resources: { label: "Resources", icon: BookOpen },
   exams: { label: "Exams", icon: FileQuestion },
+  notes: { label: "Notes", icon: StickyNote },
+  discussions: { label: "Discussions", icon: MessageSquareText },
 } satisfies Record<TrackerView, { label: string; icon: typeof CalendarDays }>;
 
 export function AppShell({

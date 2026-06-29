@@ -211,6 +211,12 @@ class Discussion(StrictModel):
     messages: list[DiscussionMessage]
 
 
+class ResourceOpenResponse(StrictModel):
+    resource_id: str
+    target: str
+    application: str
+
+
 class CourseStats(StrictModel):
     day_count: int
     task_count: int
@@ -289,6 +295,19 @@ class NoteUpsertCommand(StrictModel):
     kind: str
     entity_type: str
     entity_id: str
+    markdown: str = ""
+    editor_json: dict[str, Any] | None = None
+    plain_text: str = ""
+
+
+class DiscussionCreateCommand(StrictModel):
+    course_id: str
+    resource_id: str
+    provider: str = "chatgpt"
+
+
+class DiscussionMessageCreateCommand(StrictModel):
+    role: Literal["user", "assistant", "system", "personal_note"]
     markdown: str = ""
     editor_json: dict[str, Any] | None = None
     plain_text: str = ""

@@ -11,18 +11,21 @@ import {
   FileQuestion,
   Flag,
   Info,
+  MessageSquareText,
   NotebookPen,
   RotateCcw,
   Timer,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
+import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import { statusTone } from "../../lib/progress";
 import type {
   Course,
+  EntityNoteSaveInput,
   ExamQuestion,
   Resource,
   Skill,
@@ -43,6 +46,9 @@ type RoadmapViewProps = {
   onActiveDayChange: (dayId: string) => void;
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
+  onNoteSave: (input: EntityNoteSaveInput) => void;
+  onOpenDiscussion: (resourceId: string) => void;
+  onOpenResource: (resourceId: string) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
 
@@ -64,8 +70,10 @@ type TaskRowProps = {
   dayId: string;
   examQuestionById: Map<string, ExamQuestion>;
   resourceById: Map<string, Resource>;
-  skillById: Map<string, Skill>;
   task: Task;
+  onNoteSave: (input: EntityNoteSaveInput) => void;
+  onOpenDiscussion: (resourceId: string) => void;
+  onOpenResource: (resourceId: string) => void;
   onStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
 
@@ -73,8 +81,10 @@ function TaskRow({
   dayId,
   examQuestionById,
   resourceById,
-  skillById,
   task,
+  onNoteSave,
+  onOpenDiscussion,
+  onOpenResource,
   onStatusChange,
 }: TaskRowProps) {
   const reward = useCompletionReward();
@@ -85,9 +95,6 @@ function TaskRow({
   const linkedQuestions = task.examQuestionIds
     .map((questionId) => examQuestionById.get(questionId))
     .filter((question): question is ExamQuestion => Boolean(question));
-  const linkedSkills = task.skillIds
-    .map((skillId) => skillById.get(skillId))
-    .filter((skill): skill is Skill => Boolean(skill));
 
   function toggleDone() {
     const nextStatus = task.status === "done" ? "todo" : "done";
@@ -137,25 +144,70 @@ function TaskRow({
             <p>{task.rationale.plainText}</p>
           </details>
         ) : null}
-        {linkedResources.length || linkedQuestions.length || linkedSkills.length ? (
+        {linkedResources.length || linkedQuestions.length ? (
           <div className="taskLinks">
             {linkedResources.map((resource) => (
-              <span className={`taskLink resource-${resource.status}`} key={resource.id} title={resource.version?.localPath ?? resource.title}>
-                <BookOpen size={12} />
-                {resource.title}
+              <span className="taskResourceActions" key={resource.id}>
+                <button
+                  className={`taskLink resource-${resource.status}`}
+                  onClick={() => onOpenResource(resource.id)}
+                  title={resource.version?.localPath ?? resource.title}
+                  type="button"
+                >
+                  <BookOpen size={12} />
+                  {resource.title}
+                </button>
+                <button
+                  className="taskLinkIcon"
+                  onClick={() => onOpenDiscussion(resource.id)}
+                  title={`Open discussion for ${resource.title}`}
+                  type="button"
+                >
+                  <MessageSquareText size={12} />
+                </button>
               </span>
             ))}
-            {linkedQuestions.map((question) => (
-              <span className="taskLink exam" key={question.id}>
-                <FileQuestion size={12} />
-                {question.label}{question.topic ? ` · ${question.topic}` : ""}
-              </span>
-            ))}
-            {linkedSkills.map((skill) => (
-              <span className="taskLink skill" key={skill.id}>{skill.name}</span>
-            ))}
+            {linkedQuestions.map((question) => {
+              const questionResource = resourceById.get(question.id);
+              const sourceResourceId = questionResource?.parentResourceId ?? question.id;
+              return (
+                <span className="taskResourceActions" key={question.id}>
+                  <button
+                    className="taskLink exam"
+                    onClick={() => onOpenResource(sourceResourceId)}
+                    type="button"
+                  >
+                    <FileQuestion size={12} />
+                    {question.label}{question.topic ? ` · ${question.topic}` : ""}
+                  </button>
+                  <button
+                    className="taskLinkIcon"
+                    onClick={() => onOpenDiscussion(sourceResourceId)}
+                    title={`Open discussion for ${question.label}`}
+                    type="button"
+                  >
+                    <MessageSquareText size={12} />
+                  </button>
+                </span>
+              );
+            })}
           </div>
         ) : null}
+        <EntityNoteEditor
+          key={`${task.notes[0]?.id ?? task.id}:${task.notes[0]?.revision ?? 0}`}
+          label="Task note"
+          note={task.notes[0]}
+          onSave={(html) =>
+            onNoteSave({
+              entityId: task.id,
+              entityType: "task",
+              html,
+              kind: "task",
+              note: task.notes[0],
+            })
+          }
+          placeholder="Question, answer, implementation detail, or reminder..."
+        />
       </div>
       <div className="taskActions">
         <button
@@ -178,8 +230,11 @@ type DayCardProps = {
   examQuestionById: Map<string, ExamQuestion>;
   resourceById: Map<string, Resource>;
   skillById: Map<string, Skill>;
+  onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
+  onEntityNoteSave: (input: EntityNoteSaveInput) => void;
+  onOpenDiscussion: (resourceId: string) => void;
+  onOpenResource: (resourceId: string) => void;
   onClosedChange: (day: StudyDay, closed: boolean) => void;
-  onNoteSave: (day: StudyDay, noteHtml: string) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
 
@@ -189,8 +244,11 @@ function DayCard({
   examQuestionById,
   resourceById,
   skillById,
+  onDayNoteSave,
+  onEntityNoteSave,
+  onOpenDiscussion,
+  onOpenResource,
   onClosedChange,
-  onNoteSave,
   onTaskStatusChange,
 }: DayCardProps) {
   const reward = useCompletionReward();
@@ -256,8 +314,10 @@ function DayCard({
                 examQuestionById={examQuestionById}
                 key={task.id}
                 onStatusChange={onTaskStatusChange}
+                onNoteSave={onEntityNoteSave}
+                onOpenDiscussion={onOpenDiscussion}
+                onOpenResource={onOpenResource}
                 resourceById={resourceById}
-                skillById={skillById}
                 task={task}
               />
             ));
@@ -305,7 +365,7 @@ function DayCard({
       <DayNotes
         content={day.notes[0]?.document.markdown ?? ""}
         dayTitle={day.title}
-        onSave={(noteHtml) => onNoteSave(day, noteHtml)}
+        onSave={(noteHtml) => onDayNoteSave(day, noteHtml)}
       />
     </article>
   );
@@ -354,6 +414,9 @@ export function RoadmapView({
   onActiveDayChange,
   onDayClosedChange,
   onDayNoteSave,
+  onNoteSave,
+  onOpenDiscussion,
+  onOpenResource,
   onTaskStatusChange,
 }: RoadmapViewProps) {
   const resourceById = useMemo(
@@ -414,7 +477,10 @@ export function RoadmapView({
           examQuestionById={examQuestionById}
           key={day.id}
           onClosedChange={onDayClosedChange}
-          onNoteSave={onDayNoteSave}
+          onDayNoteSave={onDayNoteSave}
+          onEntityNoteSave={onNoteSave}
+          onOpenDiscussion={onOpenDiscussion}
+          onOpenResource={onOpenResource}
           onTaskStatusChange={onTaskStatusChange}
           resourceById={resourceById}
           skillById={skillById}

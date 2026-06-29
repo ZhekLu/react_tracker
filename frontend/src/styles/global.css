@@ -2759,3 +2759,647 @@ a:focus-visible,
     grid-column: 2;
   }
 }
+
+/* Workflows: opening, notes, annotations, and discussions */
+
+.actionToast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 30;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--green) 30%, var(--line));
+  border-radius: 8px;
+  background: var(--green-soft);
+  box-shadow: var(--shadow-sticky);
+  color: #17643f;
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.taskResourceActions {
+  min-width: 0;
+  max-width: 390px;
+  display: inline-flex;
+}
+
+button.taskLink {
+  cursor: pointer;
+}
+
+.taskLinkIcon {
+  width: 24px;
+  min-width: 24px;
+  height: 21px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  background: var(--surface);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
+.taskResourceActions .taskLink {
+  border-radius: 6px 0 0 6px;
+}
+
+.taskLinkIcon:hover,
+.resourceIconButton:hover,
+.examSourceActions button:hover {
+  border-color: color-mix(in srgb, var(--course-accent) 35%, var(--line));
+  color: var(--course-accent);
+}
+
+.entityNoteEditor {
+  margin-top: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+}
+
+.entityNoteEditor > summary {
+  min-height: 31px;
+  padding: 6px 8px;
+  color: var(--muted);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 830;
+  list-style: none;
+}
+
+.entityNoteEditor > summary::-webkit-details-marker {
+  display: none;
+}
+
+.entityNoteEditor[open] > summary {
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.notePresent {
+  margin-left: auto;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--green-soft);
+  color: #17643f;
+  font-size: 8px;
+}
+
+.entityNoteEditorBody {
+  padding: 7px;
+}
+
+.entityNoteEditor .richEditorSurface {
+  min-height: 112px;
+}
+
+.commandButton:disabled,
+.resourceIconButton:disabled,
+.examSourceActions button:disabled {
+  opacity: 0.42;
+  cursor: default;
+  transform: none;
+}
+
+.resourceRow {
+  grid-template-columns: 34px minmax(210px, 1.5fr) minmax(150px, 0.7fr) 130px 154px;
+}
+
+.resourceRowActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  align-items: center;
+}
+
+.resourceIconButton,
+.examSourceActions button {
+  width: 31px;
+  height: 31px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
+.resourceInlineNote {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.resourceInlineNote .entityNoteEditor {
+  margin: 0;
+}
+
+.examSourceActions {
+  display: flex;
+  gap: 4px;
+}
+
+.examQuestionRow {
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+}
+
+.examQuestionNote {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+
+.examQuestionNote .entityNoteEditor {
+  margin-top: 2px;
+}
+
+.notesLayout,
+.discussionLayout,
+.noteCollection,
+.messageStream {
+  display: grid;
+}
+
+.notesLayout,
+.discussionLayout {
+  gap: 15px;
+}
+
+.noteCollection {
+  gap: 7px;
+}
+
+.collectionHeader {
+  min-height: 37px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.collectionHeader h2 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.collectionHeader span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.summaryNoteCard,
+.annotationCard,
+.laterTaskCard {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.summaryNoteIdentity {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.summaryNoteIdentity > svg {
+  color: var(--course-accent);
+}
+
+.summaryNoteIdentity > div:nth-child(2) {
+  min-width: 0;
+}
+
+.summaryNoteIdentity strong,
+.summaryNoteIdentity span {
+  display: block;
+}
+
+.summaryNoteIdentity strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summaryNoteIdentity span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 8px;
+  text-transform: capitalize;
+}
+
+.summaryNoteActions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.summaryNoteActions button,
+.annotationCard footer button {
+  min-height: 28px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  color: var(--ink-soft);
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 8px;
+  font-weight: 780;
+}
+
+.annotationCard {
+  border-left: 4px solid var(--blue);
+}
+
+.annotationCard.kind-question,
+.annotationCard.kind-todo {
+  border-left-color: var(--amber);
+  background: linear-gradient(90deg, var(--amber-soft), #fff 34%);
+}
+
+.annotationCard > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.annotationCard > header strong,
+.annotationCard > header span {
+  display: block;
+}
+
+.annotationCard > header strong {
+  font-size: 11px;
+}
+
+.annotationCard > header div > span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.annotationKind {
+  height: 22px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--blue-soft);
+  color: #245f9c;
+  font-size: 8px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.annotationKind.question,
+.annotationKind.todo {
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--line));
+  background: var(--amber-soft);
+  color: #7b4a0d;
+}
+
+.annotationCard blockquote {
+  margin: 9px 0 0;
+  padding: 7px 9px;
+  border-left: 3px solid color-mix(in srgb, var(--course-accent) 35%, var(--line));
+  background: var(--surface-subtle);
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.annotationCard > p {
+  margin: 8px 0 0;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.annotationCard footer {
+  margin-top: 9px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.laterTaskCard {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+}
+
+.laterTaskCard > svg {
+  color: var(--blue);
+}
+
+.laterTaskCard > div > strong,
+.laterTaskCard > div > span {
+  display: block;
+}
+
+.laterTaskCard > div > strong {
+  font-size: 11px;
+}
+
+.laterTaskCard > div > span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.laterTaskCard .entityNoteEditor {
+  grid-column: 2;
+  width: 100%;
+}
+
+.discussionResourceSelect {
+  display: grid;
+  gap: 4px;
+}
+
+.discussionResourceSelect span,
+.discussionComposer label span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.discussionResourceSelect select,
+.discussionComposer select {
+  min-width: 260px;
+  height: 34px;
+  padding: 0 28px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.discussionWorkspace {
+  min-height: 560px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.discussionIndex {
+  border-right: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.discussionIndex > header {
+  min-height: 43px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-soft);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 10px;
+}
+
+.discussionIndex > button {
+  width: 100%;
+  min-height: 55px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.discussionIndex > button:hover,
+.discussionIndex > button.active {
+  background: color-mix(in srgb, var(--course-accent) 9%, #fff);
+}
+
+.discussionIndex > button strong,
+.discussionIndex > button span {
+  display: block;
+}
+
+.discussionIndex > button strong {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discussionIndex > button span,
+.discussionIndex > p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.discussionIndex > p {
+  padding: 10px;
+}
+
+.discussionMain {
+  min-width: 0;
+  padding: 14px;
+}
+
+.discussionHeader {
+  min-height: 52px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.discussionHeader h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.messageStream {
+  margin-top: 12px;
+  gap: 7px;
+}
+
+.discussionMessage {
+  max-width: 88%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--blue);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.discussionMessage.role-assistant {
+  justify-self: start;
+  border-left-color: var(--green);
+  background: #f4faf6;
+}
+
+.discussionMessage.role-user,
+.discussionMessage.role-personal_note {
+  justify-self: end;
+  border-left-color: var(--course-accent);
+  background: color-mix(in srgb, var(--course-accent) 6%, #fff);
+}
+
+.discussionMessage > header {
+  color: var(--muted);
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 8px;
+}
+
+.discussionMessage > header span {
+  margin-left: auto;
+}
+
+.discussionMessageBody {
+  margin-top: 7px;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.discussionComposer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.discussionComposer > header {
+  margin-bottom: 7px;
+}
+
+.discussionComposer label {
+  width: max-content;
+  display: grid;
+  gap: 4px;
+}
+
+.discussionComposer select {
+  min-width: 150px;
+}
+
+.discussionEmpty {
+  min-height: 400px;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+}
+
+.discussionEmpty h3 {
+  margin: 9px 0 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.discussionEmpty p {
+  max-width: 390px;
+  margin: 5px 0 12px;
+  font-size: 10px;
+}
+
+@media (max-width: 1180px) {
+  .resourceRow {
+    grid-template-columns: 34px minmax(190px, 1fr) minmax(120px, 0.55fr) 154px;
+  }
+
+  .resourceRowMeta {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .resourceRow {
+    grid-template-columns: 34px minmax(0, 1fr) 70px;
+  }
+
+  .resourceRowActions {
+    flex-wrap: wrap;
+  }
+
+  .resourceDoneButton {
+    width: 31px;
+  }
+
+  .resourceDoneButton span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .resourceInlineNote {
+    grid-column: 2 / -1;
+  }
+
+  .discussionWorkspace {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .workspaceNav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summaryNoteIdentity {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .summaryNoteActions {
+    width: 100%;
+    margin-left: 24px;
+  }
+
+  .discussionResourceSelect select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .discussionWorkspace {
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .discussionIndex {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .discussionIndex > button {
+    min-height: 45px;
+  }
+
+  .discussionMain {
+    padding: 10px;
+  }
+
+  .discussionMessage {
+    max-width: 96%;
+  }
+}

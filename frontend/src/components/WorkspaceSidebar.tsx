@@ -3,7 +3,9 @@ import {
   CalendarDays,
   FileQuestion,
   Layers3,
+  MessageSquareText,
   SkipForward,
+  StickyNote,
   Target,
 } from "lucide-react";
 import type { ComponentType, CSSProperties } from "react";
@@ -33,6 +35,8 @@ const navItems: Array<{
   { view: "roadmap", label: "Roadmap", icon: CalendarDays },
   { view: "resources", label: "Resources", icon: BookOpen },
   { view: "exams", label: "Exams", icon: FileQuestion },
+  { view: "notes", label: "Notes", icon: StickyNote },
+  { view: "discussions", label: "Discussions", icon: MessageSquareText },
 ];
 
 function localDateKey(): string {
@@ -192,13 +196,24 @@ export function WorkspaceSidebar({
         </>
       ) : (
         <div className="sidebarViewHint">
-          {view === "resources" ? <BookOpen size={18} /> : <FileQuestion size={18} />}
+          {view === "resources" ? <BookOpen size={18} /> : null}
+          {view === "exams" ? <FileQuestion size={18} /> : null}
+          {view === "notes" ? <StickyNote size={18} /> : null}
+          {view === "discussions" ? <MessageSquareText size={18} /> : null}
           <div>
-            <strong>{view === "resources" ? "Library map" : "Practice map"}</strong>
+            <strong>
+              {view === "resources" ? "Library map" : null}
+              {view === "exams" ? "Practice map" : null}
+              {view === "notes" ? "Study memory" : null}
+              {view === "discussions" ? "Tutor conversations" : null}
+            </strong>
             <span>
               {view === "resources"
                 ? `${libraryResources.length} source files`
-                : `${allQuestions.length} mapped questions`}
+                : null}
+              {view === "exams" ? `${allQuestions.length} mapped questions` : null}
+              {view === "notes" ? `${course.notes.length} editable notes` : null}
+              {view === "discussions" ? `${course.discussions.length} linked threads` : null}
             </span>
           </div>
         </div>

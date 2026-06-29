@@ -4,21 +4,32 @@ import {
   CheckCircle2,
   Circle,
   FileText,
+  FolderOpen,
   GraduationCap,
   Link2,
+  MessageSquareText,
   MessageCircleQuestion,
   NotebookText,
   Search,
 } from "lucide-react";
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
+import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
-import type { Course, Resource, ResourceKind } from "../../types/tracker";
+import type {
+  Course,
+  EntityNoteSaveInput,
+  Resource,
+  ResourceKind,
+} from "../../types/tracker";
 
 type ResourcesViewProps = {
   course: Course;
+  onNoteSave: (input: EntityNoteSaveInput) => void;
+  onOpenDiscussion: (resourceId: string) => void;
+  onOpenResource: (resourceId: string) => void;
   onResourceReadToggle: (resourceId: string) => void;
 };
 
@@ -66,11 +77,17 @@ function ResourceRow({
   accent,
   dayNumberById,
   resource,
+  onNoteSave,
+  onOpenDiscussion,
+  onOpenResource,
   onReadToggle,
 }: {
   accent: string;
   dayNumberById: Map<string, number>;
   resource: Resource;
+  onNoteSave: (input: EntityNoteSaveInput) => void;
+  onOpenDiscussion: (resourceId: string) => void;
+  onOpenResource: (resourceId: string) => void;
   onReadToggle: (resourceId: string) => void;
 }) {
   const reward = useCompletionReward();
@@ -117,21 +134,63 @@ function ResourceRow({
         <StatusBadge status={resource.status} />
         <ProgressBar accent={accent} value={resourceProgress(resource)} />
       </div>
-      <button
-        className={completed ? "resourceDoneButton done" : "resourceDoneButton"}
-        onClick={toggleRead}
-        title={completed ? "Mark unread" : "Mark read"}
-        type="button"
-      >
-        {completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}
-        <span>{completed ? "Read" : "Mark read"}</span>
-        <CompletionBurst token={reward.token} />
-      </button>
+      <div className="resourceRowActions">
+        <button
+          className="resourceIconButton"
+          disabled={!sourcePath}
+          onClick={() => onOpenResource(resource.id)}
+          title={sourcePath ? "Open resource" : "No source path is mapped"}
+          type="button"
+        >
+          <FolderOpen size={16} />
+        </button>
+        <button
+          className="resourceIconButton"
+          onClick={() => onOpenDiscussion(resource.id)}
+          title="Open linked discussion"
+          type="button"
+        >
+          <MessageSquareText size={16} />
+        </button>
+        <button
+          className={completed ? "resourceDoneButton done" : "resourceDoneButton"}
+          onClick={toggleRead}
+          title={completed ? "Mark unread" : "Mark read"}
+          type="button"
+        >
+          {completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}
+          <span>{completed ? "Read" : "Mark read"}</span>
+          <CompletionBurst token={reward.token} />
+        </button>
+      </div>
+      <div className="resourceInlineNote">
+        <EntityNoteEditor
+          key={`${resource.notes[0]?.id ?? resource.id}:${resource.notes[0]?.revision ?? 0}`}
+          label="Resource notes"
+          note={resource.notes[0]}
+          onSave={(html) =>
+            onNoteSave({
+              entityId: resource.id,
+              entityType: "resource",
+              html,
+              kind: "resource",
+              note: resource.notes[0],
+            })
+          }
+          placeholder={`Questions, highlights, or summary for ${resource.title}`}
+        />
+      </div>
     </article>
   );
 }
 
-export function ResourcesView({ course, onResourceReadToggle }: ResourcesViewProps) {
+export function ResourcesView({
+  course,
+  onNoteSave,
+  onOpenDiscussion,
+  onOpenResource,
+  onResourceReadToggle,
+}: ResourcesViewProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ResourceFilter>("all");
   const libraryResources = useMemo(
@@ -261,6 +320,9 @@ export function ResourcesView({ course, onResourceReadToggle }: ResourcesViewPro
                   accent={course.accent}
                   dayNumberById={dayNumberById}
                   key={resource.id}
+                  onNoteSave={onNoteSave}
+                  onOpenDiscussion={onOpenDiscussion}
+                  onOpenResource={onOpenResource}
                   onReadToggle={onResourceReadToggle}
                   resource={resource}
                 />

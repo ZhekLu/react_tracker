@@ -3,17 +3,29 @@ import {
   CircleHelp,
   Clock3,
   FileQuestion,
+  FolderOpen,
+  MessageSquareText,
   Search,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
+import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
-import type { Course, ExamQuestion, ExamSet, ExamStatus } from "../../types/tracker";
+import type {
+  Course,
+  EntityNoteSaveInput,
+  ExamQuestion,
+  ExamSet,
+  ExamStatus,
+} from "../../types/tracker";
 
 type ExamsViewProps = {
   course: Course;
+  onNoteSave: (input: EntityNoteSaveInput) => void;
+  onOpenDiscussion: (resourceId: string) => void;
+  onOpenResource: (resourceId: string) => void;
   onQuestionStatusChange: (examId: string, question: ExamQuestion, status: ExamStatus) => void;
 };
 
@@ -82,7 +94,13 @@ function examProgress(exam: ExamSet): number {
   return exam.questions.filter(isSolved).length / exam.questions.length;
 }
 
-export function ExamsView({ course, onQuestionStatusChange }: ExamsViewProps) {
+export function ExamsView({
+  course,
+  onNoteSave,
+  onOpenDiscussion,
+  onOpenResource,
+  onQuestionStatusChange,
+}: ExamsViewProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ExamFilter>("all");
 
@@ -209,6 +227,23 @@ export function ExamsView({ course, onQuestionStatusChange }: ExamsViewProps) {
               <span>{exam.questions.filter(isSolved).length}/{exam.questions.length} solved</span>
               <ProgressBar accent={course.accent} value={examProgress(exam)} />
             </div>
+            <div className="examSourceActions">
+              <button
+                disabled={!exam.sourcePath}
+                onClick={() => onOpenResource(exam.id)}
+                title={exam.sourcePath ? "Open exam source" : "No source file is mapped"}
+                type="button"
+              >
+                <FolderOpen size={15} />
+              </button>
+              <button
+                onClick={() => onOpenDiscussion(exam.id)}
+                title="Open linked discussion"
+                type="button"
+              >
+                <MessageSquareText size={15} />
+              </button>
+            </div>
           </header>
           <div className="examSquareGrid" aria-label={`${exam.title} questions`}>
             {questions.map((question) => (
@@ -243,6 +278,23 @@ export function ExamsView({ course, onQuestionStatusChange }: ExamsViewProps) {
                     </span>
                   ) : null}
                   <StatusBadge status={question.solveStatus} />
+                </div>
+                <div className="examQuestionNote">
+                  <EntityNoteEditor
+                    key={`${question.notes[0]?.id ?? question.id}:${question.notes[0]?.revision ?? 0}`}
+                    label="Solution / notes"
+                    note={question.notes[0]}
+                    onSave={(html) =>
+                      onNoteSave({
+                        entityId: question.id,
+                        entityType: "exam_question",
+                        html,
+                        kind: "exam_solution",
+                        note: question.notes[0],
+                      })
+                    }
+                    placeholder={`Solution, questions, and review notes for ${question.label}`}
+                  />
                 </div>
               </article>
             ))}

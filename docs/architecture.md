@@ -30,9 +30,24 @@ Reasons:
 4. Enrich imported rows from current plans while preserving known IDs and
    creating unseen tasks/resources. Done through `make react-sync-plans`.
 5. Replace mock/local-only progress with API persistence. Done for Roadmap,
-   Resources, Exams, and day notes.
-6. Move plan parsing from `build_tracker.py` into shared import modules.
-7. Migrate annotation wrappers to post into the Python API.
+   Resources, Exams, notes, annotations, and discussions.
+6. Add safe local-resource opening through the Python API. Done.
+7. Add consolidated Notes and resource-linked Discussions workspaces. Done.
+8. Move plan parsing from `build_tracker.py` into shared import modules.
+9. Add direct course creation/import so a legacy dump is optional.
+10. Migrate annotation wrappers to post into the Python API.
+
+## Ownership Rules
+
+- Day skills describe the day objective. They are not copied onto every task.
+- Tasks own workflow state, optionality, rationale, links, and task notes.
+- Resources own reading state, file/URL identity, annotations, resource notes,
+  and ordered discussion threads.
+- Exam questions own solve state and solution notes.
+- Notes and Discussions are projections over the same API workspace, not
+  separate stores.
+- The database is the source of study state. Markdown plans and registries are
+  repeatable structural inputs; old tracker dumps are optional migration input.
 
 ## Non-Goals For The First Slice
 
