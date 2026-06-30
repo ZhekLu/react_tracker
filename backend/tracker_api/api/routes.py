@@ -11,18 +11,24 @@ from ..config import get_settings
 from ..repositories import workspace_repository
 from ..schemas.workspace import (
     AnnotationCommand,
+    AnnotationCreateCommand,
     CourseListResponse,
     CourseWorkspace,
     DayStatusCommand,
     DiscussionCreateCommand,
     DiscussionMessageCreateCommand,
+    DiscussionStatusCommand,
     ExamStatusCommand,
     MutationResponse,
     NoteUpsertCommand,
+    PromptBatchCreateCommand,
+    ResourceContentResponse,
     ResourceOpenResponse,
+    ResourceProgressCommand,
     ResourceStatusCommand,
     TaskStatusCommand,
 )
+from ..services.resource_content_service import read_resource_content
 from ..services.resource_open_service import ResourceOpenError, open_resource
 
 
@@ -126,6 +132,50 @@ def open_resource_file(resource_id: str, connection: Database) -> ResourceOpenRe
         ) from error
 
 
+@router.get("/resources/{resource_id}/content", response_model=ResourceContentResponse)
+def get_resource_content(
+    resource_id: str,
+    connection: Database,
+) -> ResourceContentResponse:
+    try:
+        title, version_id, local_path = workspace_repository.resource_content_target(
+            connection,
+            resource_id,
+        )
+        content = read_resource_content(local_path)
+        return ResourceContentResponse(
+            resource_id=resource_id,
+            version_id=version_id,
+            title=title,
+            format=content.format,
+            content=content.content,
+            source_path=str(content.path),
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+    except ResourceOpenError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.patch("/resources/{resource_id}/progress", response_model=MutationResponse)
+def update_resource_progress(
+    resource_id: str,
+    command: ResourceProgressCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.update_resource_progress(
+            connection,
+            resource_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
 @router.patch("/exam-questions/{question_id}/status", response_model=MutationResponse)
 def update_exam_question_status(
     question_id: str,
@@ -150,10 +200,32 @@ def update_annotation(
         raise _translate_repository_error(error) from error
 
 
+@router.post("/annotations", response_model=MutationResponse)
+def create_annotation(
+    command: AnnotationCreateCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.create_annotation(connection, command)
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
 @router.post("/notes", response_model=MutationResponse)
 def upsert_note(command: NoteUpsertCommand, connection: Database) -> MutationResponse:
     try:
         return workspace_repository.upsert_note(connection, command)
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.post("/prompt-batches", response_model=MutationResponse)
+def create_prompt_batch(
+    command: PromptBatchCreateCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.create_prompt_batch(connection, command)
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error
 
@@ -177,6 +249,22 @@ def create_discussion_message(
 ) -> MutationResponse:
     try:
         return workspace_repository.create_discussion_message(
+            connection,
+            discussion_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.patch("/discussions/{discussion_id}/status", response_model=MutationResponse)
+def update_discussion_status(
+    discussion_id: str,
+    command: DiscussionStatusCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.update_discussion_status(
             connection,
             discussion_id,
             command,

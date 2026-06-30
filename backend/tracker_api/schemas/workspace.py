@@ -217,6 +217,15 @@ class ResourceOpenResponse(StrictModel):
     application: str
 
 
+class ResourceContentResponse(StrictModel):
+    resource_id: str
+    version_id: str | None = None
+    title: str
+    format: Literal["markdown", "html", "text"]
+    content: str
+    source_path: str
+
+
 class CourseStats(StrictModel):
     day_count: int
     task_count: int
@@ -277,6 +286,12 @@ class ResourceStatusCommand(RevisionCommand):
     status: ResourceStatus
 
 
+class ResourceProgressCommand(StrictModel):
+    progress_percent: float = Field(ge=0, le=100)
+    heading_id: str | None = None
+    position: dict[str, Any] = Field(default_factory=dict)
+
+
 class ExamStatusCommand(RevisionCommand):
     status: ExamStatus
 
@@ -285,6 +300,33 @@ class AnnotationCommand(RevisionCommand):
     kind: AnnotationKind | None = None
     status: AnnotationStatus | None = None
     priority: Literal["low", "normal", "high"] | None = None
+
+
+class AnnotationAnchorCreate(StrictModel):
+    anchor_type: str = "resource"
+    resource_version_id: str | None = None
+    quote: str | None = None
+    section_title: str | None = None
+    source_line_start: int | None = None
+    source_line_end: int | None = None
+    page_number: int | None = None
+    rect: list[float] | None = None
+    color: str | None = None
+    rgb: list[float] | None = None
+    annotation_kind: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnnotationCreateCommand(StrictModel):
+    resource_id: str
+    kind: AnnotationKind = "note"
+    priority: Literal["low", "normal", "high"] = "normal"
+    origin: str = "manual"
+    external_id: str | None = None
+    source_fingerprint: str | None = None
+    markdown: str = ""
+    plain_text: str = ""
+    anchor: AnnotationAnchorCreate | None = None
 
 
 class NoteUpsertCommand(StrictModel):
@@ -311,6 +353,22 @@ class DiscussionMessageCreateCommand(StrictModel):
     markdown: str = ""
     editor_json: dict[str, Any] | None = None
     plain_text: str = ""
+
+
+class DiscussionStatusCommand(RevisionCommand):
+    status: Literal["active", "reviewed", "archived"]
+
+
+class PromptBatchCreateCommand(StrictModel):
+    course_id: str
+    title: str
+    source_scope: str
+    markdown: str
+    plain_text: str = ""
+    source_resource_id: str | None = None
+    source_day_id: str | None = None
+    source_task_id: str | None = None
+    annotation_ids: list[str] = Field(default_factory=list)
 
 
 class MutationResponse(StrictModel):

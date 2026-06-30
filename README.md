@@ -88,19 +88,45 @@ deterministic IDs. Existing completion state is preserved, new rows start open,
 and unmatched dump-only tasks are soft-deleted from the active workspace while
 remaining recoverable in SQLite.
 
-The dump importer is optional for new courses. A future course-creation/import
-workflow may populate the same normalized tables directly from a plan and
-resource registry; the React components do not depend on legacy dump JSON.
+The dump importer is optional for new courses. Native `study-plan/v1` files
+populate the normalized tables directly; the React components do not depend on
+legacy dump JSON.
+
+## Native Plan Authoring
+
+New courses should use `study-plan/v1`, a Markdown file with small TOML
+frontmatter and explicit stable IDs for days and tasks. It can create a course
+without a legacy dump and can be safely re-synced after an AI or human edits the
+plan:
+
+```sh
+make react-plan-validate PLAN=features/study_plan_v1_template.md
+make react-plan-sync PLAN=/absolute/path/to/my_course_plan.md
+```
+
+For a deliberately partial change, use `mode = "patch"` and:
+
+```sh
+make react-plan-patch PATCH=/absolute/path/to/my_course_patch.md
+```
+
+Matching IDs preserve task progress, notes, annotations, discussions, and time
+entries. Full syncs soft-delete removed structure; patches never remove omitted
+rows. The complete format, patch semantics, and AI-generation rules are in
+`../features/study_plan_format.md`.
 
 ## Daily Workflow
 
 - Use Roadmap for task state, linked source opening, task notes, defer flags, and
   day notes. Skills belong to the day and are not repeated on every task.
 - Use Resources for grouped library progress, source opening, resource notes,
-  reading state, and resource-linked discussions.
+  reading state, PDF comment/highlight collection, and resource-linked
+  discussions. Markdown, HTML, text, code, JSON, and CSV files open in the
+  in-app reader; select text there to save a highlight or structured question.
 - Use Exams for the compact activity map plus per-question solution notes.
 - Use Notes to review and edit notes, active questions, structured annotations,
-  and deferred work in one place.
+  deferred work, and the meeting scratchpad in one place. Structured copy
+  actions save an immutable prompt-batch snapshot alongside the clipboard text.
 - Use Discussions to keep ordered tutor exchanges attached to one resource.
   Messages are append-only in the current slice; editing and rendered math are
   still tracked as follow-up work.

@@ -58,16 +58,22 @@ def _run_open(command: list[str], label: str) -> str:
     return label
 
 
+def safe_local_resource_path(local_path: str) -> Path:
+    config = _load_config()
+    target = Path(local_path).expanduser().resolve()
+    if not target.exists():
+        raise ResourceOpenError(f"File not found: {target}")
+    if not _is_under_root(target, _allowed_roots(config)):
+        raise ResourceOpenError(
+            f"Refusing to access a file outside configured tracker roots: {target}"
+        )
+    return target
+
+
 def open_resource(*, local_path: str | None, source_url: str | None) -> tuple[str, str]:
     config = _load_config()
     if local_path:
-        target = Path(local_path).expanduser().resolve()
-        if not target.exists():
-            raise ResourceOpenError(f"File not found: {target}")
-        if not _is_under_root(target, _allowed_roots(config)):
-            raise ResourceOpenError(
-                f"Refusing to open a file outside configured tracker roots: {target}"
-            )
+        target = safe_local_resource_path(local_path)
         if target.suffix.lower() == ".pdf":
             pdf_app = str(config.get("pdf_app") or "").strip()
             if pdf_app:

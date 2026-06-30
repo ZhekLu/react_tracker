@@ -14,6 +14,7 @@ from ..schemas.workspace import (
     Annotation,
     AnnotationAnchor,
     AnnotationCommand,
+    AnnotationCreateCommand,
     CourseListResponse,
     CourseStats,
     CourseSummary,
@@ -25,6 +26,7 @@ from ..schemas.workspace import (
     DiscussionCreateCommand,
     DiscussionMessage,
     DiscussionMessageCreateCommand,
+    DiscussionStatusCommand,
     DocumentContent,
     Exam,
     ExamQuestion,
@@ -33,7 +35,9 @@ from ..schemas.workspace import (
     Note,
     NoteLink,
     NoteUpsertCommand,
+    PromptBatchCreateCommand,
     Resource,
+    ResourceProgressCommand,
     ResourceStatusCommand,
     ResourceVersion,
     Skill,
@@ -1161,6 +1165,104 @@ def update_resource_status(
     return response
 
 
+def update_resource_progress(
+    connection: Connection,
+    resource_id: str,
+    command: ResourceProgressCommand,
+) -> MutationResponse:
+    resource = _one_or_none(
+        connection,
+        """
+        SELECT id, current_version_id, status
+        FROM resources
+        WHERE id = :id AND deleted_at IS NULL
+        """,
+        {"id": resource_id},
+    )
+    if resource is None:
+        raise EntityNotFoundError(f"Resource does not exist: {resource_id}")
+    now = _now()
+    version_id = cast(str | None, resource["current_version_id"])
+    progress_id = str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"study-tracker-progress::{resource_id}::{version_id or 'virtual'}",
+        )
+    )
+    conflict = (
+        "(resource_id, resource_version_id) WHERE resource_version_id IS NOT NULL"
+        if version_id
+        else "(resource_id) WHERE resource_version_id IS NULL"
+    )
+    row = _one_or_none(
+        connection,
+        f"""
+        INSERT INTO resource_reading_progress (
+          id, resource_id, resource_version_id, progress_percent, position_type,
+          page_number, source_line, heading_id, position_json,
+          started_at, last_read_at, completed_at,
+          created_at, updated_at, revision
+        )
+        VALUES (
+          :id, :resource_id, :resource_version_id, :progress_percent, 'scroll',
+          NULL, NULL, :heading_id, :position_json,
+          :now, :now, :completed_at,
+          :now, :now, 1
+        )
+        ON CONFLICT {conflict} DO UPDATE SET
+          progress_percent = excluded.progress_percent,
+          position_type = excluded.position_type,
+          heading_id = excluded.heading_id,
+          position_json = excluded.position_json,
+          last_read_at = excluded.last_read_at,
+          completed_at = excluded.completed_at,
+          updated_at = excluded.updated_at,
+          revision = resource_reading_progress.revision + 1
+        RETURNING id, revision, updated_at
+        """,
+        {
+            "id": progress_id,
+            "resource_id": resource_id,
+            "resource_version_id": version_id,
+            "progress_percent": command.progress_percent,
+            "heading_id": command.heading_id,
+            "position_json": _json_dumps(command.position),
+            "now": now,
+            "completed_at": now if command.progress_percent >= 100 else None,
+        },
+    )
+    next_status = (
+        "read"
+        if command.progress_percent >= 100
+        else "reading"
+        if command.progress_percent > 0
+        else "unread"
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE resources
+            SET status = CASE
+                  WHEN status IN ('read', 'review') AND :next_status != 'read'
+                  THEN status
+                  ELSE :next_status
+                END,
+                completed_at = CASE
+                  WHEN :next_status = 'read' THEN :now
+                  ELSE completed_at
+                END,
+                updated_at = :now,
+                revision = revision + 1
+            WHERE id = :id
+            """
+        ),
+        {"id": resource_id, "next_status": next_status, "now": now},
+    )
+    if row is None:
+        raise WorkspaceRepositoryError("Could not update resource progress.")
+    return _mutation_result(row)
+
+
 def update_exam_question_status(
     connection: Connection,
     question_id: str,
@@ -1230,6 +1332,245 @@ def update_annotation(
             "now": _now(),
         },
     )
+
+
+def create_annotation(
+    connection: Connection,
+    command: AnnotationCreateCommand,
+) -> MutationResponse:
+    resource = _one_or_none(
+        connection,
+        """
+        SELECT id, current_version_id
+        FROM resources
+        WHERE id = :id AND deleted_at IS NULL
+        """,
+        {"id": command.resource_id},
+    )
+    if resource is None:
+        raise EntityNotFoundError(f"Resource does not exist: {command.resource_id}")
+    if command.source_fingerprint:
+        existing = _one_or_none(
+            connection,
+            """
+            SELECT id, revision, updated_at
+            FROM annotations
+            WHERE resource_id = :resource_id
+              AND source_fingerprint = :source_fingerprint
+              AND deleted_at IS NULL
+            """,
+            {
+                "resource_id": command.resource_id,
+                "source_fingerprint": command.source_fingerprint,
+            },
+        )
+        if existing is not None:
+            return _mutation_result(existing)
+
+    now = _now()
+    body_document_id = None
+    if command.markdown or command.plain_text:
+        body_document_id = _create_document(
+            connection,
+            markdown=command.markdown,
+            editor_json=None,
+            plain_text=command.plain_text or command.markdown,
+            reason="annotation_created",
+            timestamp=now,
+        )
+    annotation_id = _new_id()
+    row = _one_or_none(
+        connection,
+        """
+        INSERT INTO annotations (
+          id, resource_id, body_document_id, kind, status, priority, origin,
+          external_id, source_fingerprint, answered_at, archived_at,
+          created_at, updated_at, deleted_at, revision
+        )
+        VALUES (
+          :id, :resource_id, :body_document_id, :kind, 'open', :priority, :origin,
+          :external_id, :source_fingerprint, NULL, NULL,
+          :now, :now, NULL, 1
+        )
+        RETURNING id, revision, updated_at
+        """,
+        {
+            "id": annotation_id,
+            "resource_id": command.resource_id,
+            "body_document_id": body_document_id,
+            "kind": command.kind,
+            "priority": command.priority,
+            "origin": command.origin,
+            "external_id": command.external_id,
+            "source_fingerprint": command.source_fingerprint,
+            "now": now,
+        },
+    )
+    if row is None:
+        raise WorkspaceRepositoryError("Could not create annotation.")
+    anchor = command.anchor
+    if anchor is not None:
+        connection.execute(
+            text(
+                """
+                INSERT INTO annotation_anchors (
+                  annotation_id, resource_version_id, anchor_type, quote,
+                  section_id, section_title, source_line_start, source_line_end,
+                  page_number, rect_json, discussion_message_id, dom_selector,
+                  text_prefix, text_suffix, start_offset, end_offset, color,
+                  rgb_json, annotation_kind, selector_json, created_at, updated_at
+                )
+                VALUES (
+                  :annotation_id, :resource_version_id, :anchor_type, :quote,
+                  NULL, :section_title, :source_line_start, :source_line_end,
+                  :page_number, :rect_json, NULL, NULL,
+                  NULL, NULL, NULL, NULL, :color,
+                  :rgb_json, :annotation_kind, :selector_json, :now, :now
+                )
+                """
+            ),
+            {
+                "annotation_id": annotation_id,
+                "resource_version_id": (
+                    anchor.resource_version_id or resource["current_version_id"]
+                ),
+                "anchor_type": anchor.anchor_type,
+                "quote": anchor.quote,
+                "section_title": anchor.section_title,
+                "source_line_start": anchor.source_line_start,
+                "source_line_end": anchor.source_line_end,
+                "page_number": anchor.page_number,
+                "rect_json": _json_dumps(anchor.rect),
+                "color": anchor.color,
+                "rgb_json": _json_dumps(anchor.rgb),
+                "annotation_kind": anchor.annotation_kind,
+                "selector_json": _json_dumps(anchor.metadata),
+                "now": now,
+            },
+        )
+    return _mutation_result(row)
+
+
+def create_prompt_batch(
+    connection: Connection,
+    command: PromptBatchCreateCommand,
+) -> MutationResponse:
+    course = _one_or_none(
+        connection,
+        "SELECT id FROM courses WHERE id = :id AND deleted_at IS NULL",
+        {"id": command.course_id},
+    )
+    if course is None:
+        raise EntityNotFoundError(f"Course does not exist: {command.course_id}")
+    now = _now()
+    document_id = _create_document(
+        connection,
+        markdown=command.markdown,
+        editor_json=None,
+        plain_text=command.plain_text or command.markdown,
+        reason="prompt_batch_copied",
+        timestamp=now,
+    )
+    prompt_batch_id = _new_id()
+    row = _one_or_none(
+        connection,
+        """
+        INSERT INTO prompt_batches (
+          id, course_id, title, prompt_document_id, source_scope,
+          source_resource_id, source_day_id, source_task_id,
+          parent_discussion_thread_id, status, copied_at, answered_at,
+          created_at, updated_at, deleted_at
+        )
+        VALUES (
+          :id, :course_id, :title, :prompt_document_id, :source_scope,
+          :source_resource_id, :source_day_id, :source_task_id,
+          NULL, 'copied', :now, NULL,
+          :now, :now, NULL
+        )
+        RETURNING id, 1 AS revision, updated_at
+        """,
+        {
+            "id": prompt_batch_id,
+            "course_id": command.course_id,
+            "title": command.title,
+            "prompt_document_id": document_id,
+            "source_scope": command.source_scope,
+            "source_resource_id": command.source_resource_id,
+            "source_day_id": command.source_day_id,
+            "source_task_id": command.source_task_id,
+            "now": now,
+        },
+    )
+    if row is None:
+        raise WorkspaceRepositoryError("Could not create prompt batch.")
+    for order_index, annotation_id in enumerate(
+        dict.fromkeys(command.annotation_ids),
+        start=1,
+    ):
+        annotation = _one_or_none(
+            connection,
+            """
+            SELECT
+              a.id, a.kind, a.priority, a.body_document_id,
+              aa.quote, aa.page_number, aa.section_title,
+              r.title AS resource_title,
+              d.markdown AS body_markdown
+            FROM annotations a
+            JOIN resources r ON r.id = a.resource_id
+            LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
+            LEFT JOIN documents d ON d.id = a.body_document_id
+            WHERE a.id = :annotation_id
+              AND r.course_id = :course_id
+              AND a.deleted_at IS NULL
+            """,
+            {
+                "annotation_id": annotation_id,
+                "course_id": command.course_id,
+            },
+        )
+        if annotation is None:
+            raise EntityNotFoundError(
+                f"Annotation does not exist in course: {annotation_id}"
+            )
+        snapshot = str(
+            annotation["body_markdown"]
+            or annotation["quote"]
+            or f"{annotation['kind']} on {annotation['resource_title']}"
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO prompt_batch_items (
+                  prompt_batch_id, annotation_id, question_label, order_index,
+                  quote_snapshot, question_snapshot_markdown,
+                  source_metadata_snapshot_json, created_at
+                )
+                VALUES (
+                  :prompt_batch_id, :annotation_id, :question_label, :order_index,
+                  :quote_snapshot, :question_snapshot_markdown,
+                  :source_metadata_snapshot_json, :created_at
+                )
+                """
+            ),
+            {
+                "prompt_batch_id": prompt_batch_id,
+                "annotation_id": annotation_id,
+                "question_label": f"Q-{order_index:03d}",
+                "order_index": order_index,
+                "quote_snapshot": annotation["quote"],
+                "question_snapshot_markdown": snapshot,
+                "source_metadata_snapshot_json": _json_dumps(
+                    {
+                        "page_number": annotation["page_number"],
+                        "priority": annotation["priority"],
+                        "resource_title": annotation["resource_title"],
+                        "section_title": annotation["section_title"],
+                    }
+                ),
+                "created_at": now,
+            },
+        )
+    return _mutation_result(row)
 
 
 def _insert_document_revision(
@@ -1490,6 +1831,29 @@ def resource_open_target(
     return cast(str | None, row["local_path"]), cast(str | None, row["source_url"])
 
 
+def resource_content_target(
+    connection: Connection,
+    resource_id: str,
+) -> tuple[str, str | None, str | None]:
+    row = _one_or_none(
+        connection,
+        """
+        SELECT r.title, r.current_version_id, rv.local_path
+        FROM resources r
+        LEFT JOIN resource_versions rv ON rv.id = r.current_version_id
+        WHERE r.id = :resource_id AND r.deleted_at IS NULL
+        """,
+        {"resource_id": resource_id},
+    )
+    if row is None:
+        raise EntityNotFoundError(f"Resource does not exist: {resource_id}")
+    return (
+        str(row["title"]),
+        cast(str | None, row["current_version_id"]),
+        cast(str | None, row["local_path"]),
+    )
+
+
 def create_discussion(
     connection: Connection,
     command: DiscussionCreateCommand,
@@ -1625,3 +1989,18 @@ def create_discussion_message(
     if row is None:
         raise WorkspaceRepositoryError("Could not create discussion message.")
     return _mutation_result(row)
+
+
+def update_discussion_status(
+    connection: Connection,
+    discussion_id: str,
+    command: DiscussionStatusCommand,
+) -> MutationResponse:
+    return _update_with_revision(
+        connection,
+        table_name="discussion_threads",
+        entity_id=discussion_id,
+        revision=command.revision,
+        assignments="status = :status",
+        params={"status": command.status},
+    )

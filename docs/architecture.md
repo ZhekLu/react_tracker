@@ -33,9 +33,14 @@ Reasons:
    Resources, Exams, notes, annotations, and discussions.
 6. Add safe local-resource opening through the Python API. Done.
 7. Add consolidated Notes and resource-linked Discussions workspaces. Done.
-8. Move plan parsing from `build_tracker.py` into shared import modules.
-9. Add direct course creation/import so a legacy dump is optional.
-10. Migrate annotation wrappers to post into the Python API.
+8. Define native `study-plan/v1` Markdown and parse it independently of
+   `build_tracker.py`. Done.
+9. Add direct course creation, full re-sync, and non-destructive patching so a
+   legacy dump is optional. Done.
+10. Migrate annotation capture to the Python API. Done for in-app text
+    selection, manual resource/exam questions, and idempotent PDF imports.
+11. Replace generated Markdown/HTML wrappers with a sandboxed API-backed
+    reader, persisted progress, and selection capture. Done.
 
 ## Ownership Rules
 
