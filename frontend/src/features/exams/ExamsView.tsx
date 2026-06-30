@@ -1,6 +1,7 @@
 import {
   CheckCircle2,
   CircleHelp,
+  ClipboardCopy,
   Clock3,
   FileQuestion,
   FolderOpen,
@@ -23,13 +24,15 @@ import type {
 
 type ExamsViewProps = {
   course: Course;
+  onCopyOverview: () => void;
+  onFlagQuestion: (resourceId: string, label: string) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
   onQuestionStatusChange: (examId: string, question: ExamQuestion, status: ExamStatus) => void;
 };
 
-type ExamFilter = "all" | "open" | "questions" | "solved";
+type ExamFilter = "all" | "open" | "questions" | "solved" | "unmapped";
 
 function isSolved(question: ExamQuestion): boolean {
   return question.solveStatus === "solved" || question.solveStatus === "review";
@@ -96,6 +99,8 @@ function examProgress(exam: ExamSet): number {
 
 export function ExamsView({
   course,
+  onCopyOverview,
+  onFlagQuestion,
   onNoteSave,
   onOpenDiscussion,
   onOpenResource,
@@ -109,6 +114,15 @@ export function ExamsView({
   const questionCount = allQuestions.filter((question) => question.openQuestionCount > 0).length;
   const laterCount = allQuestions.filter((question) => question.solveStatus === "attempted").length;
   const normalizedQuery = query.trim().toLowerCase();
+  const questionResourceById = useMemo(
+    () =>
+      new Map(
+        course.resources
+          .filter((resource) => resource.kind === "exam_question")
+          .map((resource) => [resource.id, resource]),
+      ),
+    [course.resources],
+  );
   const visibleExams = useMemo(
     () =>
       course.exams
@@ -121,7 +135,9 @@ export function ExamsView({
               filter === "all" ||
               (filter === "open" && !isSolved(question)) ||
               (filter === "questions" && question.openQuestionCount > 0) ||
-              (filter === "solved" && isSolved(question));
+              (filter === "solved" && isSolved(question)) ||
+              (filter === "unmapped" &&
+                !questionResourceById.get(question.id)?.taskIds.length);
             if (!matchesFilter) return false;
             if (!normalizedQuery || examMatches) return true;
             return `${question.label} ${question.part ?? ""} ${question.topic ?? ""} ${question.prompt?.plainText ?? ""}`
@@ -131,7 +147,7 @@ export function ExamsView({
           return { exam, questions };
         })
         .filter(({ exam, questions }) => questions.length > 0 || (!normalizedQuery && exam.questions.length === 0)),
-    [course.exams, filter, normalizedQuery],
+    [course.exams, filter, normalizedQuery, questionResourceById],
   );
 
   if (!course.exams.length) {
@@ -155,6 +171,9 @@ export function ExamsView({
             <span><CheckCircle2 size={14} /> Done {doneCount}</span>
             <span><CircleHelp size={14} /> Questions {questionCount}</span>
             <span><Clock3 size={14} /> Later {laterCount}</span>
+            <button className="commandButton subtle" onClick={onCopyOverview} type="button">
+              <ClipboardCopy size={14} /> Copy overview
+            </button>
           </div>
         </header>
 
@@ -195,7 +214,7 @@ export function ExamsView({
           />
         </label>
         <div className="filterBar">
-          {(["all", "open", "questions", "solved"] as const).map((item) => (
+          {(["all", "open", "questions", "solved", "unmapped"] as const).map((item) => (
             <button
               className={filter === item ? "filterButton active" : "filterButton"}
               key={item}
@@ -257,7 +276,16 @@ export function ExamsView({
           </div>
           <div className="examQuestionList">
             {questions.map((question) => (
-              <article className={question.openQuestionCount ? "examQuestionRow attention" : "examQuestionRow"} key={question.id}>
+              <article
+                className={[
+                  "examQuestionRow",
+                  question.openQuestionCount ? "attention" : "",
+                  !questionResourceById.get(question.id)?.taskIds.length
+                    ? "unmapped"
+                    : "",
+                ].filter(Boolean).join(" ")}
+                key={question.id}
+              >
                 <ExamSquare
                   examId={exam.id}
                   onStatusChange={onQuestionStatusChange}
@@ -270,6 +298,9 @@ export function ExamsView({
                     {question.points ? <span>{question.points} pts</span> : null}
                   </strong>
                   <p>{question.topic || question.prompt?.plainText || "Topic not mapped"}</p>
+                  {!questionResourceById.get(question.id)?.taskIds.length ? (
+                    <span className="unmappedLabel">Not linked to the study plan</span>
+                  ) : null}
                 </div>
                 <div className="examQuestionMeta">
                   {question.openQuestionCount ? (
@@ -278,6 +309,34 @@ export function ExamsView({
                     </span>
                   ) : null}
                   <StatusBadge status={question.solveStatus} />
+                  <button
+                    className="resourceIconButton"
+                    onClick={() => onFlagQuestion(question.id, question.label)}
+                    title={`Add a question about ${question.label}`}
+                    type="button"
+                  >
+                    <CircleHelp size={14} />
+                  </button>
+                  <label className="workflowSelect compact">
+                    <span className="srOnly">Status for {question.label}</span>
+                    <select
+                      aria-label={`Status for ${question.label}`}
+                      onChange={(event) =>
+                        onQuestionStatusChange(
+                          exam.id,
+                          question,
+                          event.target.value as ExamStatus,
+                        )
+                      }
+                      value={question.solveStatus}
+                    >
+                      <option value="unsolved">Unsolved</option>
+                      <option value="attempted">Attempted</option>
+                      <option value="solved">Solved</option>
+                      <option value="review">Review</option>
+                      <option value="skipped">Skipped</option>
+                    </select>
+                  </label>
                 </div>
                 <div className="examQuestionNote">
                   <EntityNoteEditor

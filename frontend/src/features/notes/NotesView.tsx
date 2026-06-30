@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   CircleHelp,
   Clock3,
+  ClipboardCopy,
   MessageSquareText,
   RotateCcw,
   Search,
@@ -26,6 +27,9 @@ type NotesViewProps = {
     annotation: Annotation,
     changes: { kind?: AnnotationKind; status?: AnnotationStatus },
   ) => void;
+  onCopyAgenda: () => void;
+  onCopyAnnotation: (annotation: Annotation) => void;
+  onCopyQuestions: () => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
@@ -48,12 +52,16 @@ function containsQuestionMarker(value: string): boolean {
 export function NotesView({
   course,
   onAnnotationChange,
+  onCopyAgenda,
+  onCopyAnnotation,
+  onCopyQuestions,
   onNoteSave,
   onOpenDiscussion,
   onOpenResource,
 }: NotesViewProps) {
   const [filter, setFilter] = useState<NotesFilter>("all");
   const [query, setQuery] = useState("");
+  const meetingNote = course.notes.find((note) => note.kind === "meeting");
 
   const dayById = useMemo(() => new Map(course.days.map((day) => [day.id, day])), [course.days]);
   const taskById = useMemo(
@@ -181,15 +189,25 @@ export function NotesView({
           <p className="eyebrow">Study memory</p>
           <h2>{course.notes.length} notes · {course.annotations.length} annotations</h2>
         </div>
-        <label className="searchField">
-          <Search size={16} />
-          <input
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search notes and questions"
-            type="search"
-            value={query}
-          />
-        </label>
+        <div className="viewToolbarActions">
+          <label className="searchField">
+            <Search size={16} />
+            <input
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search notes and questions"
+              type="search"
+              value={query}
+            />
+          </label>
+          <button className="commandButton subtle" onClick={onCopyQuestions} type="button">
+            <CircleHelp size={14} />
+            <span>Copy questions</span>
+          </button>
+          <button className="commandButton subtle" onClick={onCopyAgenda} type="button">
+            <ClipboardCopy size={14} />
+            <span>Copy agenda</span>
+          </button>
+        </div>
       </header>
 
       <div className="filterBar" aria-label="Notes filters">
@@ -204,6 +222,31 @@ export function NotesView({
           </button>
         ))}
       </div>
+
+      <section className="meetingScratchpad">
+        <header className="collectionHeader">
+          <div>
+            <p className="eyebrow">Supervisor / study meeting</p>
+            <h2>Meeting scratchpad</h2>
+          </div>
+          <span>{meetingNote ? "saved" : "new"}</span>
+        </header>
+        <EntityNoteEditor
+          key={`${meetingNote?.id ?? course.id}:${meetingNote?.revision ?? 0}`}
+          label="Meeting scratchpad"
+          note={meetingNote}
+          onSave={(html) =>
+            onNoteSave({
+              entityId: course.id,
+              entityType: "course",
+              html,
+              kind: "meeting",
+              note: meetingNote,
+            })
+          }
+          placeholder="Loose agenda, decisions, questions for the professor, and follow-ups..."
+        />
+      </section>
 
       {filter !== "later" ? (
         <section className="noteCollection">
@@ -281,6 +324,9 @@ export function NotesView({
                   </button>
                   <button onClick={() => onOpenDiscussion(annotation.resourceId)} type="button">
                     <MessageSquareText size={13} /> Discuss
+                  </button>
+                  <button onClick={() => onCopyAnnotation(annotation)} type="button">
+                    <ClipboardCopy size={13} /> Copy context
                   </button>
                   <button
                     onClick={() =>

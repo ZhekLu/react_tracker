@@ -1,15 +1,20 @@
 import { lazy, Suspense, useState } from "react";
 import {
+  Archive,
   BookOpen,
   Bot,
   MessageSquarePlus,
   MessageSquareText,
   Plus,
+  ClipboardPaste,
+  Copy,
   Send,
   UserRound,
+  RotateCcw,
 } from "lucide-react";
 import type { DiscussionMessageInput } from "../../api/trackerApi";
 import type { Course, Discussion } from "../../types/tracker";
+import { discussionFollowups } from "../../lib/discussionText";
 
 const RichNoteEditor = lazy(() =>
   import("../../components/editor/RichNoteEditor").then((module) => ({
@@ -22,7 +27,13 @@ type DiscussionsViewProps = {
   focusedResourceId: string;
   onAddMessage: (discussionId: string, input: DiscussionMessageInput) => void;
   onCreateDiscussion: (resourceId: string) => void;
+  onDiscussionStatusChange: (
+    discussion: Discussion,
+    status: Discussion["status"],
+  ) => void;
   onFocusResource: (resourceId: string) => void;
+  onImportClipboard: (resourceId: string) => void;
+  onCopy: (text: string, label: string) => void;
   onOpenResource: (resourceId: string) => void;
 };
 
@@ -37,7 +48,10 @@ export function DiscussionsView({
   focusedResourceId,
   onAddMessage,
   onCreateDiscussion,
+  onDiscussionStatusChange,
   onFocusResource,
+  onImportClipboard,
+  onCopy,
   onOpenResource,
 }: DiscussionsViewProps) {
   const resources = course.resources.filter((resource) => resource.kind !== "exam_question");
@@ -48,6 +62,7 @@ export function DiscussionsView({
     "";
   const selectedResource = course.resources.find((resource) => resource.id === selectedResourceId);
   const discussion = course.discussions.find((item) => item.resourceId === selectedResourceId);
+  const followups = discussion ? discussionFollowups(discussion) : "";
 
   return (
     <div className="discussionLayout">
@@ -99,14 +114,57 @@ export function DiscussionsView({
               <h2>{selectedResource?.title ?? "Choose a resource"}</h2>
             </div>
             {selectedResource ? (
-              <button
-                className="commandButton subtle"
-                onClick={() => onOpenResource(selectedResource.id)}
-                type="button"
-              >
-                <BookOpen size={15} />
-                <span>Open source</span>
-              </button>
+              <div className="discussionHeaderActions">
+                <button
+                  className="commandButton subtle"
+                  onClick={() => onOpenResource(selectedResource.id)}
+                  type="button"
+                >
+                  <BookOpen size={15} />
+                  <span>Open source</span>
+                </button>
+                {discussion ? (
+                  <>
+                    {followups ? (
+                      <button
+                        className="commandButton subtle"
+                        onClick={() => onCopy(followups, "Discussion follow-ups copied")}
+                        type="button"
+                      >
+                        <Copy size={14} />
+                        <span>Follow-ups</span>
+                      </button>
+                    ) : null}
+                    <button
+                      className="commandButton subtle"
+                      onClick={() =>
+                        onDiscussionStatusChange(
+                          discussion,
+                          discussion.status === "archived" ? "active" : "archived",
+                        )
+                      }
+                      type="button"
+                    >
+                      {discussion.status === "archived" ? (
+                        <RotateCcw size={14} />
+                      ) : (
+                        <Archive size={14} />
+                      )}
+                      <span>
+                        {discussion.status === "archived" ? "Restore" : "Archive"}
+                      </span>
+                    </button>
+                  </>
+                ) : null}
+                <button
+                  className="commandButton subtle"
+                  onClick={() => onImportClipboard(selectedResource.id)}
+                  type="button"
+                >
+                  <ClipboardPaste size={14} />
+                  <span>Paste GPT</span>
+                </button>
+              </div>
             ) : null}
           </header>
 

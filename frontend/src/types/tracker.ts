@@ -20,7 +20,13 @@ export type ResourceKind =
   | "other"
   | string;
 
-export type TrackerView = "roadmap" | "resources" | "exams" | "notes" | "discussions";
+export type TrackerView =
+  | "roadmap"
+  | "resources"
+  | "skills"
+  | "exams"
+  | "notes"
+  | "discussions";
 
 export type CourseStats = {
   dayCount: number;

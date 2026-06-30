@@ -210,6 +210,22 @@ function TaskRow({
         />
       </div>
       <div className="taskActions">
+        <label className="workflowSelect">
+          <span className="srOnly">Status for {task.title}</span>
+          <select
+            aria-label={`Status for ${task.title}`}
+            onChange={(event) =>
+              onStatusChange(dayId, task.id, event.target.value as TaskStatus)
+            }
+            value={task.status}
+          >
+            <option value="todo">To do</option>
+            <option value="in_progress">In progress</option>
+            <option value="done">Done</option>
+            <option value="later">Do later</option>
+            <option value="skipped">Skipped</option>
+          </select>
+        </label>
         <button
           className={task.status === "later" ? "taskActionButton active" : "taskActionButton"}
           onClick={toggleLater}

@@ -293,6 +293,51 @@ export type ResourceOpenResult = {
   application: string;
 };
 
+export type AnnotationCreateInput = {
+  resourceId: string;
+  kind?: AnnotationKind;
+  priority?: "low" | "normal" | "high";
+  origin?: string;
+  externalId?: string;
+  sourceFingerprint?: string;
+  markdown?: string;
+  plainText?: string;
+  anchor?: {
+    anchorType?: string;
+    quote?: string;
+    sectionTitle?: string;
+    sourceLineStart?: number;
+    sourceLineEnd?: number;
+    pageNumber?: number;
+    rect?: number[];
+    color?: string;
+    rgb?: number[];
+    annotationKind?: string;
+    metadata?: Record<string, unknown>;
+  };
+};
+
+export type PromptBatchInput = {
+  courseId: string;
+  title: string;
+  sourceScope: string;
+  markdown: string;
+  plainText?: string;
+  sourceResourceId?: string;
+  sourceDayId?: string;
+  sourceTaskId?: string;
+  annotationIds?: string[];
+};
+
+export type ResourceContentResult = {
+  resourceId: string;
+  versionId?: string | null;
+  title: string;
+  format: "markdown" | "html" | "text";
+  content: string;
+  sourcePath: string;
+};
+
 class ApiError extends Error {
   status: number;
 
@@ -634,6 +679,41 @@ export async function updateResourceStatus(
   });
 }
 
+export async function fetchResourceContent(
+  resourceId: string,
+): Promise<ResourceContentResult> {
+  const payload = await requestJson<{
+    resource_id: string;
+    version_id?: string | null;
+    title: string;
+    format: "markdown" | "html" | "text";
+    content: string;
+    source_path: string;
+  }>(`/resources/${resourceId}/content`);
+  return {
+    content: payload.content,
+    format: payload.format,
+    resourceId: payload.resource_id,
+    sourcePath: payload.source_path,
+    title: payload.title,
+    versionId: payload.version_id,
+  };
+}
+
+export async function updateResourceProgress(
+  resourceId: string,
+  progressPercent: number,
+  position: Record<string, unknown> = {},
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/resources/${resourceId}/progress`, {
+    body: JSON.stringify({
+      position,
+      progress_percent: progressPercent,
+    }),
+    method: "PATCH",
+  });
+}
+
 export async function updateExamQuestionStatus(
   questionId: string,
   status: ExamStatus,
@@ -657,6 +737,58 @@ export async function updateAnnotation(
   return requestJson<MutationResponse>(`/annotations/${annotationId}`, {
     body: JSON.stringify({ revision, ...changes }),
     method: "PATCH",
+  });
+}
+
+export async function createAnnotation(
+  input: AnnotationCreateInput,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>("/annotations", {
+    body: JSON.stringify({
+      resource_id: input.resourceId,
+      kind: input.kind ?? "note",
+      priority: input.priority ?? "normal",
+      origin: input.origin ?? "manual",
+      external_id: input.externalId,
+      source_fingerprint: input.sourceFingerprint,
+      markdown: input.markdown ?? "",
+      plain_text: input.plainText ?? input.markdown ?? "",
+      anchor: input.anchor
+        ? {
+            anchor_type: input.anchor.anchorType ?? "resource",
+            quote: input.anchor.quote,
+            section_title: input.anchor.sectionTitle,
+            source_line_start: input.anchor.sourceLineStart,
+            source_line_end: input.anchor.sourceLineEnd,
+            page_number: input.anchor.pageNumber,
+            rect: input.anchor.rect,
+            color: input.anchor.color,
+            rgb: input.anchor.rgb,
+            annotation_kind: input.anchor.annotationKind,
+            metadata: input.anchor.metadata ?? {},
+          }
+        : undefined,
+    }),
+    method: "POST",
+  });
+}
+
+export async function createPromptBatch(
+  input: PromptBatchInput,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>("/prompt-batches", {
+    body: JSON.stringify({
+      course_id: input.courseId,
+      title: input.title,
+      source_scope: input.sourceScope,
+      markdown: input.markdown,
+      plain_text: input.plainText ?? input.markdown,
+      source_resource_id: input.sourceResourceId,
+      source_day_id: input.sourceDayId,
+      source_task_id: input.sourceTaskId,
+      annotation_ids: input.annotationIds ?? [],
+    }),
+    method: "POST",
   });
 }
 
@@ -719,5 +851,16 @@ export async function createDiscussionMessage(
       plain_text: input.plainText,
     }),
     method: "POST",
+  });
+}
+
+export async function updateDiscussionStatus(
+  discussionId: string,
+  status: Discussion["status"],
+  revision: number,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/discussions/${discussionId}/status`, {
+    body: JSON.stringify({ revision, status }),
+    method: "PATCH",
   });
 }

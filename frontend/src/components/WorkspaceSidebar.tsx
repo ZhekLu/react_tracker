@@ -4,6 +4,7 @@ import {
   FileQuestion,
   Layers3,
   MessageSquareText,
+  ScanSearch,
   SkipForward,
   StickyNote,
   Target,
@@ -34,6 +35,7 @@ const navItems: Array<{
 }> = [
   { view: "roadmap", label: "Roadmap", icon: CalendarDays },
   { view: "resources", label: "Resources", icon: BookOpen },
+  { view: "skills", label: "Skills", icon: ScanSearch },
   { view: "exams", label: "Exams", icon: FileQuestion },
   { view: "notes", label: "Notes", icon: StickyNote },
   { view: "discussions", label: "Discussions", icon: MessageSquareText },
@@ -81,7 +83,7 @@ export function WorkspaceSidebar({
         </span>
         <div>
           <strong>Study Tracker</strong>
-          <span>Plans, materials, questions</span>
+          <span>Focus in motion</span>
         </div>
       </div>
 
@@ -197,12 +199,14 @@ export function WorkspaceSidebar({
       ) : (
         <div className="sidebarViewHint">
           {view === "resources" ? <BookOpen size={18} /> : null}
+          {view === "skills" ? <ScanSearch size={18} /> : null}
           {view === "exams" ? <FileQuestion size={18} /> : null}
           {view === "notes" ? <StickyNote size={18} /> : null}
           {view === "discussions" ? <MessageSquareText size={18} /> : null}
           <div>
             <strong>
               {view === "resources" ? "Library map" : null}
+              {view === "skills" ? "Objective coverage" : null}
               {view === "exams" ? "Practice map" : null}
               {view === "notes" ? "Study memory" : null}
               {view === "discussions" ? "Tutor conversations" : null}
@@ -211,6 +215,7 @@ export function WorkspaceSidebar({
               {view === "resources"
                 ? `${libraryResources.length} source files`
                 : null}
+              {view === "skills" ? `${coveredSkills}/${course.skills.length} covered` : null}
               {view === "exams" ? `${allQuestions.length} mapped questions` : null}
               {view === "notes" ? `${course.notes.length} editable notes` : null}
               {view === "discussions" ? `${course.discussions.length} linked threads` : null}
@@ -218,6 +223,10 @@ export function WorkspaceSidebar({
           </div>
         </div>
       )}
+      <div className="sidebarShortcutHint">
+        <span>⌥1–6 views</span>
+        <span>J/K days</span>
+      </div>
     </aside>
   );
 }

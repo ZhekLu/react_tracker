@@ -6,8 +6,8 @@ type CompletionBurstProps = {
 };
 
 const particleCount = {
-  task: 7,
-  day: 16,
+  task: 10,
+  day: 24,
 } as const;
 
 export function CompletionBurst({ token, variant = "task" }: CompletionBurstProps) {

@@ -3,7 +3,10 @@ import {
   CalendarDays,
   CheckCircle2,
   Circle,
+  ClipboardCopy,
+  Copy,
   FileText,
+  FileScan,
   FolderOpen,
   GraduationCap,
   Link2,
@@ -23,14 +26,19 @@ import type {
   EntityNoteSaveInput,
   Resource,
   ResourceKind,
+  ResourceStatus,
 } from "../../types/tracker";
 
 type ResourcesViewProps = {
   course: Course;
+  onCopyInventory: () => void;
+  onCopyResourceQuestions: (resource: Resource) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
+  onCollectPdfAnnotations: (resourceId: string) => void;
+  onFlagQuestion: (resourceId: string, label: string) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
-  onResourceReadToggle: (resourceId: string) => void;
+  onResourceStatusChange: (resourceId: string, status: ResourceStatus) => void;
 };
 
 type ResourceFilter = "all" | "open" | "questions" | "read";
@@ -78,17 +86,23 @@ function ResourceRow({
   dayNumberById,
   resource,
   onNoteSave,
+  onCollectPdfAnnotations,
+  onCopyResourceQuestions,
+  onFlagQuestion,
   onOpenDiscussion,
   onOpenResource,
-  onReadToggle,
+  onStatusChange,
 }: {
   accent: string;
   dayNumberById: Map<string, number>;
   resource: Resource;
   onNoteSave: (input: EntityNoteSaveInput) => void;
+  onCollectPdfAnnotations: (resourceId: string) => void;
+  onCopyResourceQuestions: (resource: Resource) => void;
+  onFlagQuestion: (resourceId: string, label: string) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
-  onReadToggle: (resourceId: string) => void;
+  onStatusChange: (resourceId: string, status: ResourceStatus) => void;
 }) {
   const reward = useCompletionReward();
   const completed = isRead(resource);
@@ -96,7 +110,7 @@ function ResourceRow({
 
   function toggleRead() {
     if (!completed) reward.celebrate();
-    onReadToggle(resource.id);
+    onStatusChange(resource.id, completed ? "unread" : "read");
   }
 
   return (
@@ -132,6 +146,23 @@ function ResourceRow({
       </div>
       <div className="resourceStatusCell">
         <StatusBadge status={resource.status} />
+        <label className="workflowSelect compact">
+          <span className="srOnly">Status for {resource.title}</span>
+          <select
+            aria-label={`Status for ${resource.title}`}
+            onChange={(event) =>
+              onStatusChange(resource.id, event.target.value as ResourceStatus)
+            }
+            value={resource.status}
+          >
+            <option value="unread">Unread</option>
+            <option value="skimmed">Skimmed</option>
+            <option value="reading">Reading</option>
+            <option value="read">Read</option>
+            <option value="review">Review</option>
+            <option value="archived">Archived</option>
+          </select>
+        </label>
         <ProgressBar accent={accent} value={resourceProgress(resource)} />
       </div>
       <div className="resourceRowActions">
@@ -152,6 +183,34 @@ function ResourceRow({
         >
           <MessageSquareText size={16} />
         </button>
+        <button
+          className="resourceIconButton"
+          onClick={() => onFlagQuestion(resource.id, resource.title)}
+          title="Add a question about this resource"
+          type="button"
+        >
+          <MessageCircleQuestion size={16} />
+        </button>
+        {resource.openQuestionCount ? (
+          <button
+            className="resourceIconButton"
+            onClick={() => onCopyResourceQuestions(resource)}
+            title="Copy open questions for this resource"
+            type="button"
+          >
+            <Copy size={15} />
+          </button>
+        ) : null}
+        {resource.version?.localPath?.toLowerCase().endsWith(".pdf") ? (
+          <button
+            className="resourceIconButton"
+            onClick={() => onCollectPdfAnnotations(resource.id)}
+            title="Collect typed comments and highlights from this PDF"
+            type="button"
+          >
+            <FileScan size={16} />
+          </button>
+        ) : null}
         <button
           className={completed ? "resourceDoneButton done" : "resourceDoneButton"}
           onClick={toggleRead}
@@ -186,10 +245,14 @@ function ResourceRow({
 
 export function ResourcesView({
   course,
+  onCopyInventory,
+  onCollectPdfAnnotations,
+  onCopyResourceQuestions,
+  onFlagQuestion,
   onNoteSave,
   onOpenDiscussion,
   onOpenResource,
-  onResourceReadToggle,
+  onResourceStatusChange,
 }: ResourcesViewProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ResourceFilter>("all");
@@ -244,15 +307,21 @@ export function ResourcesView({
           <p className="eyebrow">Library status</p>
           <h2>{completedCount}/{libraryResources.length} resources completed</h2>
         </div>
-        <label className="searchField">
-          <Search size={16} />
-          <input
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search resources"
-            type="search"
-            value={query}
-          />
-        </label>
+        <div className="viewToolbarActions">
+          <label className="searchField">
+            <Search size={16} />
+            <input
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search resources"
+              type="search"
+              value={query}
+            />
+          </label>
+          <button className="commandButton subtle" onClick={onCopyInventory} type="button">
+            <ClipboardCopy size={15} />
+            <span>Copy inventory</span>
+          </button>
+        </div>
       </header>
 
       <section className="resourceSummaryStrip" aria-label="Resource summary">
@@ -320,10 +389,13 @@ export function ResourcesView({
                   accent={course.accent}
                   dayNumberById={dayNumberById}
                   key={resource.id}
+                  onCollectPdfAnnotations={onCollectPdfAnnotations}
+                  onCopyResourceQuestions={onCopyResourceQuestions}
+                  onFlagQuestion={onFlagQuestion}
                   onNoteSave={onNoteSave}
                   onOpenDiscussion={onOpenDiscussion}
                   onOpenResource={onOpenResource}
-                  onReadToggle={onResourceReadToggle}
+                  onStatusChange={onResourceStatusChange}
                   resource={resource}
                 />
               ))}

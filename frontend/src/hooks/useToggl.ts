@@ -1,0 +1,90 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  fetchTogglStatus,
+  startToggl,
+  stopToggl,
+  type TogglStatus,
+} from "../api/helperApi";
+import type { Course, StudyDay } from "../types/tracker";
+
+const offlineStatus: TogglStatus = {
+  configured: false,
+  current: null,
+  days: {},
+  error: "",
+  online: false,
+  projectName: "",
+  running: false,
+  totals: {},
+};
+
+function legacyPlanId(course: Course): string {
+  return course.shortCode
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .replace(/[^a-z0-9]+/gi, "_")
+    .toLowerCase();
+}
+
+export function useToggl(course: Course | null, activeDay?: StudyDay) {
+  const [status, setStatus] = useState<TogglStatus>(offlineStatus);
+  const [busy, setBusy] = useState(false);
+  const [commandError, setCommandError] = useState("");
+
+  const refresh = useCallback(async () => {
+    setStatus(await fetchTogglStatus());
+  }, []);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void refresh(), 0);
+    const interval = window.setInterval(() => void refresh(), 60_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+    };
+  }, [refresh]);
+
+  const planId = course ? legacyPlanId(course) : "";
+  const dayToken = activeDay ? `day-${String(activeDay.number).padStart(2, "0")}` : "";
+  const activeForDay =
+    status.running &&
+    status.current?.planId === planId &&
+    status.current?.dayId === dayToken;
+  const trackedSeconds = useMemo(
+    () => (dayToken ? status.days[planId]?.[dayToken] ?? 0 : 0),
+    [dayToken, planId, status.days],
+  );
+  const courseTrackedSeconds = status.totals[planId] ?? 0;
+
+  async function toggle() {
+    if (!course || !activeDay) return;
+    setBusy(true);
+    setCommandError("");
+    try {
+      const nextStatus = status.running
+        ? await stopToggl()
+        : await startToggl(
+            `[${course.shortCode}] Day ${activeDay.number}. ${
+              activeDay.topic || activeDay.title
+            }`,
+          );
+      setStatus(nextStatus);
+    } catch (caught) {
+      setCommandError(
+        caught instanceof Error ? caught.message : "Toggl command failed.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return {
+    activeForDay,
+    busy,
+    courseTrackedSeconds,
+    error: commandError || status.error,
+    refresh,
+    status,
+    toggle,
+    trackedSeconds,
+  };
+}
