@@ -366,11 +366,7 @@ def _resource_id(
         ),
         {"course_id": course_id, "key": resource.key},
     ).scalar_one_or_none()
-    return (
-        str(legacy)
-        if legacy is not None
-        else stable_id("resource", course_id, resource.key)
-    )
+    return str(legacy) if legacy is not None else stable_id("resource", course_id, resource.key)
 
 
 def _resource_format(resource: ResourceSpec) -> str:
@@ -407,7 +403,21 @@ def _sync_resources(
         )
         current_version_id: str | None = None
         format_value = _resource_format(resource)
-        metadata = {"plan_resource_id": resource.key}
+        content_document_id = (
+            _upsert_document(
+                connection,
+                identity=f"resource-description:{resource_id}",
+                markdown=resource.description_markdown,
+                timestamp=timestamp,
+            )
+            if resource.description_markdown
+            else None
+        )
+        metadata = {
+            **resource.metadata,
+            "local_paths": list(resource.paths),
+            "plan_resource_id": resource.key,
+        }
         if existing is None:
             connection.execute(
                 text(
@@ -421,7 +431,7 @@ def _sync_resources(
                     )
                     VALUES (
                       :id, :course_id, NULL, :current_version_id,
-                      NULL, :title, :kind, :format, :source_type,
+                      :content_document_id, :title, :kind, :format, :source_type,
                       :category, :authors_json, :publication_year, :canonical_url,
                       'unread', NULL, NULL, NULL,
                       :metadata_json, :timestamp, :timestamp, NULL, 1
@@ -432,6 +442,7 @@ def _sync_resources(
                     "id": resource_id,
                     "course_id": course_id,
                     "current_version_id": current_version_id,
+                    "content_document_id": content_document_id,
                     "title": resource.title,
                     "kind": resource.kind,
                     "format": format_value,
@@ -457,6 +468,10 @@ def _sync_resources(
                     """
                     UPDATE resources
                     SET current_version_id = COALESCE(:current_version_id, current_version_id),
+                        content_document_id = COALESCE(
+                          :content_document_id,
+                          content_document_id
+                        ),
                         title = :title,
                         kind = :kind,
                         format = :format,
@@ -465,6 +480,7 @@ def _sync_resources(
                         authors_json = :authors_json,
                         publication_year = :publication_year,
                         canonical_url = :canonical_url,
+                        metadata_json = :metadata_json,
                         updated_at = :timestamp,
                         deleted_at = NULL,
                         revision = revision + 1
@@ -474,6 +490,7 @@ def _sync_resources(
                 {
                     "id": resource_id,
                     "current_version_id": current_version_id,
+                    "content_document_id": content_document_id,
                     "title": resource.title,
                     "kind": resource.kind,
                     "format": format_value,
@@ -488,6 +505,7 @@ def _sync_resources(
                     "authors_json": _json(resource.authors),
                     "publication_year": resource.publication_year,
                     "canonical_url": resource.url,
+                    "metadata_json": _json(metadata),
                     "timestamp": timestamp,
                 },
             )
@@ -1033,9 +1051,7 @@ def _sync_days_and_tasks(
                                 "task_id": task_id,
                                 "resource_id": resource_ids[resource_key],
                                 "relation": (
-                                    "exercise"
-                                    if task.task_type == "solve"
-                                    else "reading"
+                                    "exercise" if task.task_type == "solve" else "reading"
                                 ),
                                 "is_required": not task.is_optional,
                                 "order_index": resource_order,
@@ -1156,7 +1172,7 @@ def sync_study_plan(path: Path, *, force_patch: bool = False) -> StudyPlanSyncRe
     plan = parsed.plan
     if force_patch and plan.mode != "patch":
         raise StudyPlanSyncError(
-            "The patch command requires mode = \"patch\" in the plan frontmatter."
+            'The patch command requires mode = "patch" in the plan frontmatter.'
         )
     run_migrations()
     timestamp = utc_now()
@@ -1255,10 +1271,7 @@ def sync_study_plan(path: Path, *, force_patch: bool = False) -> StudyPlanSyncRe
                         "mode": plan.mode,
                         "source_path": str(plan.source_path),
                         "counts": counts,
-                        "warnings": [
-                            item.render()
-                            for item in parsed.warnings
-                        ],
+                        "warnings": [item.render() for item in parsed.warnings],
                     }
                 ),
                 "timestamp": timestamp,
@@ -1359,9 +1372,7 @@ def inspect_plan_structure(course_selector: str) -> str:
         for day in days:
             day_id = str(day["id"])
             day_key = keys_by_entity.get(("day", day_id), day_id)
-            lines.append(
-                f"### Day {day['number']}: {day['title']} {{#{day_key}}}"
-            )
+            lines.append(f"### Day {day['number']}: {day['title']} {{#{day_key}}}")
             if day["date"]:
                 lines.append(f"Date: {day['date']}")
             sections = active_connection.execute(
@@ -1392,8 +1403,6 @@ def inspect_plan_structure(course_selector: str) -> str:
                     task_id = str(task["id"])
                     task_key = keys_by_entity.get(("task", task_id), task_id)
                     checkbox = "x" if task["status"] == "done" else " "
-                    lines.append(
-                        f"- [{checkbox}] {task['title']} {{#{task_key}}}"
-                    )
+                    lines.append(f"- [{checkbox}] {task['title']} {{#{task_key}}}")
             lines.append("")
         return "\n".join(lines).rstrip() + "\n"

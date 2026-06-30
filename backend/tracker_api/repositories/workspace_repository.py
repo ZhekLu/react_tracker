@@ -6,6 +6,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 
 from sqlalchemy import Connection, RowMapping, text
@@ -37,6 +38,7 @@ from ..schemas.workspace import (
     NoteUpsertCommand,
     PromptBatchCreateCommand,
     Resource,
+    ResourceFile,
     ResourceProgressCommand,
     ResourceStatusCommand,
     ResourceVersion,
@@ -249,7 +251,9 @@ def _resource_progress(connection: Connection, course_id: str) -> dict[str, floa
     }
 
 
-def _task_resources(connection: Connection, course_id: str) -> tuple[
+def _task_resources(
+    connection: Connection, course_id: str
+) -> tuple[
     dict[str, list[str]],
     dict[str, list[str]],
     dict[str, list[str]],
@@ -732,6 +736,7 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
         progress_by_resource,
         resource_to_days,
         resource_to_tasks,
+        documents,
         notes_by_entity,
         annotations_by_resource,
     )
@@ -778,6 +783,7 @@ def _resources(
     progress_by_resource: Mapping[str, float],
     resource_to_days: Mapping[str, list[str]],
     resource_to_tasks: Mapping[str, list[str]],
+    documents: Mapping[str, DocumentContent],
     notes_by_entity: Mapping[tuple[str, str], list[Note]],
     annotations_by_resource: Mapping[str, list[Annotation]],
 ) -> list[Resource]:
@@ -785,8 +791,9 @@ def _resources(
     for row in _rows(
         connection,
         """
-        SELECT id, parent_resource_id, title, kind, format, source_type, category,
-               authors_json, publication_year, canonical_url, status, revision
+        SELECT id, parent_resource_id, content_document_id, title, kind, format,
+               source_type, category, authors_json, publication_year, canonical_url,
+               status, metadata_json, revision
         FROM resources
         WHERE course_id = :course_id AND deleted_at IS NULL
         ORDER BY kind, category, title
@@ -795,6 +802,13 @@ def _resources(
     ):
         resource_id = str(row["id"])
         resource_annotations = annotations_by_resource.get(resource_id, [])
+        metadata: dict[str, Any] = _json_loads(row["metadata_json"], {})
+        raw_local_paths = metadata.get("local_paths", [])
+        local_paths = (
+            [str(item) for item in raw_local_paths if str(item).strip()]
+            if isinstance(raw_local_paths, list)
+            else []
+        )
         resources.append(
             Resource(
                 id=resource_id,
@@ -809,7 +823,22 @@ def _resources(
                 canonical_url=cast(str | None, row["canonical_url"]),
                 status=cast(Any, row["status"]),
                 revision=int(row["revision"]),
+                description=(
+                    documents.get(str(row["content_document_id"]))
+                    if row["content_document_id"]
+                    else None
+                ),
                 version=versions.get(resource_id),
+                local_files=[
+                    ResourceFile(
+                        index=index,
+                        local_path=local_path,
+                        file_name=Path(local_path).name,
+                        is_primary=index == 0,
+                    )
+                    for index, local_path in enumerate(local_paths)
+                ],
+                metadata=metadata,
                 progress_percent=progress_by_resource.get(resource_id, 0),
                 day_ids=resource_to_days.get(resource_id, []),
                 task_ids=resource_to_tasks.get(resource_id, []),
@@ -1010,9 +1039,7 @@ def _workspace_stats(
 ) -> CourseStats:
     tasks = [task for day in days for section in day.sections for task in section.tasks]
     questions = [question for exam in exams for question in exam.questions]
-    library_resources = [
-        resource for resource in resources if resource.kind != "exam_question"
-    ]
+    library_resources = [resource for resource in resources if resource.kind != "exam_question"]
     read_resource_count = sum(
         1 for resource in library_resources if resource.status in {"read", "review"}
     )
@@ -1529,9 +1556,7 @@ def create_prompt_batch(
             },
         )
         if annotation is None:
-            raise EntityNotFoundError(
-                f"Annotation does not exist in course: {annotation_id}"
-            )
+            raise EntityNotFoundError(f"Annotation does not exist in course: {annotation_id}")
         snapshot = str(
             annotation["body_markdown"]
             or annotation["quote"]
@@ -1868,9 +1893,7 @@ def create_discussion(
         {"resource_id": command.resource_id, "course_id": command.course_id},
     )
     if resource is None:
-        raise EntityNotFoundError(
-            f"Resource does not exist in course: {command.resource_id}"
-        )
+        raise EntityNotFoundError(f"Resource does not exist in course: {command.resource_id}")
     existing = _one_or_none(
         connection,
         """

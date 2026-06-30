@@ -136,6 +136,13 @@ class ResourceVersion(StrictModel):
     page_count: int | None = None
 
 
+class ResourceFile(StrictModel):
+    index: int
+    local_path: str
+    file_name: str
+    is_primary: bool
+
+
 class Resource(StrictModel):
     id: str
     parent_resource_id: str | None = None
@@ -149,7 +156,10 @@ class Resource(StrictModel):
     canonical_url: str | None = None
     status: ResourceStatus
     revision: int
+    description: DocumentContent | None = None
     version: ResourceVersion | None = None
+    local_files: list[ResourceFile] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     progress_percent: float
     day_ids: list[str] = Field(default_factory=list)
     task_ids: list[str] = Field(default_factory=list)

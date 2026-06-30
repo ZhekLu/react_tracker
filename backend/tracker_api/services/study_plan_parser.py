@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import unquote, urlparse
 
+from .study_plan_registry import (
+    RegistryResource,
+    ResourceRegistryError,
+    load_resource_registry,
+)
+
 PLAN_FORMAT = "study-plan/v1"
 VALID_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 FRONTMATTER = re.compile(r"\A\+\+\+\s*\n(?P<body>.*?)\n\+\+\+\s*(?:\n|\Z)", re.DOTALL)
@@ -44,10 +50,16 @@ class ResourceSpec:
     title: str
     kind: str = "other"
     category: str | None = None
-    path: str | None = None
+    paths: tuple[str, ...] = ()
     url: str | None = None
     authors: tuple[str, ...] = ()
     publication_year: int | None = None
+    description_markdown: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def path(self) -> str | None:
+        return self.paths[0] if self.paths else None
 
 
 @dataclass(frozen=True)
@@ -172,9 +184,7 @@ def _parse_attributes(
     try:
         tokens = shlex.split(body)
     except ValueError as error:
-        diagnostics.append(
-            PlanDiagnostic("error", "invalid_attributes", str(error), line)
-        )
+        diagnostics.append(PlanDiagnostic("error", "invalid_attributes", str(error), line))
         return value[: match.start()].strip(), {}
     attributes: dict[str, str | bool] = {}
     for token in tokens:
@@ -250,11 +260,11 @@ def _status_from_checkbox(value: str) -> TaskStatus | None:
     return cast(
         TaskStatus | None,
         {
-        "x": "done",
-        "X": "done",
-        "~": "in_progress",
-        ">": "later",
-        "-": "skipped",
+            "x": "done",
+            "X": "done",
+            "~": "in_progress",
+            ">": "later",
+            "-": "skipped",
         }.get(value),
     )
 
@@ -281,13 +291,9 @@ def _parse_day_heading(
         return None
     number = int(explicit_number.group("number")) if explicit_number else fallback_number
     title = (
-        explicit_number.group("title").strip()
-        if explicit_number
-        else title_with_attributes.strip()
+        explicit_number.group("title").strip() if explicit_number else title_with_attributes.strip()
     )
-    date_value = _string(attributes.get("date")) or (
-        date_match.group(1) if date_match else None
-    )
+    date_value = _string(attributes.get("date")) or (date_match.group(1) if date_match else None)
     topic = _string(attributes.get("topic"))
     if topic is None:
         topic = title.split(" - ", 1)[1].strip() if " - " in title else title
@@ -328,9 +334,7 @@ def _resource_from_link(
     parsed = urlparse(normalized_target)
     is_web = parsed.scheme in {"http", "https"}
     identity = (
-        normalized_target
-        if is_web
-        else str((source_path.parent / normalized_target).resolve())
+        normalized_target if is_web else str((source_path.parent / normalized_target).resolve())
     )
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
     key = f"link-{_slug(label)[:36]}-{digest}"
@@ -340,7 +344,7 @@ def _resource_from_link(
         key=key,
         title=_clean_markdown(label),
         kind=kind,
-        path=None if is_web else identity,
+        paths=() if is_web else (identity,),
         url=normalized_target if is_web else None,
     )
 
@@ -366,13 +370,65 @@ def _infer_resource_kind(title: str, suffix: str = "") -> str:
     return "other"
 
 
+def _resolve_local_path(
+    raw_path: str,
+    *,
+    source_path: Path,
+    resource_key: str,
+    diagnostics: list[PlanDiagnostic],
+) -> str:
+    normalized = re.sub(r"\\([ ~()\[\]])", r"\1", raw_path)
+    if normalized != raw_path:
+        diagnostics.append(
+            PlanDiagnostic(
+                "warning",
+                "normalized_shell_escaped_path",
+                (
+                    f"Resource {resource_key!r} used shell escapes in a TOML path; "
+                    f"interpreting it as {normalized!r}."
+                ),
+            )
+        )
+    candidate = Path(normalized).expanduser()
+    return str(
+        candidate.resolve()
+        if candidate.is_absolute()
+        else (source_path.parent / candidate).resolve()
+    )
+
+
+def _registry_resources(
+    raw_registry_path: object,
+    source_path: Path,
+    diagnostics: list[PlanDiagnostic],
+) -> dict[str, RegistryResource]:
+    registry_value = _string(raw_registry_path)
+    if registry_value is None:
+        return {}
+    registry_path = Path(
+        _resolve_local_path(
+            registry_value,
+            source_path=source_path,
+            resource_key="resource_registry",
+            diagnostics=diagnostics,
+        )
+    )
+    try:
+        return load_resource_registry(registry_path)
+    except ResourceRegistryError as error:
+        diagnostics.append(PlanDiagnostic("error", "invalid_resource_registry", str(error)))
+        return {}
+
+
 def _parse_resources(
     raw_resources: object,
+    raw_registry_path: object,
     source_path: Path,
     diagnostics: list[PlanDiagnostic],
 ) -> dict[str, ResourceSpec]:
+    registry = _registry_resources(raw_registry_path, source_path, diagnostics)
     if raw_resources is None:
-        return {}
+        raw_resources = {}
     if not isinstance(raw_resources, dict):
         diagnostics.append(
             PlanDiagnostic(
@@ -381,7 +437,7 @@ def _parse_resources(
                 "[resources] must contain keyed resource tables.",
             )
         )
-        return {}
+        raw_resources = {}
     resources: dict[str, ResourceSpec] = {}
     for key_value, payload in raw_resources.items():
         key = str(key_value)
@@ -395,30 +451,45 @@ def _parse_resources(
                 )
             )
             continue
-        raw_path = _string(payload.get("path"))
-        resolved_path = (
-            str((source_path.parent / raw_path).expanduser().resolve())
-            if raw_path and not Path(raw_path).expanduser().is_absolute()
-            else str(Path(raw_path).expanduser().resolve())
-            if raw_path
-            else None
+        raw_paths = _string_list(payload.get("path"))
+        resolved_paths = tuple(
+            _resolve_local_path(
+                raw_path,
+                source_path=source_path,
+                resource_key=key,
+                diagnostics=diagnostics,
+            )
+            for raw_path in raw_paths
         )
         url = _string(payload.get("url"))
         title = _string(payload.get("title")) or key.replace("-", " ").title()
-        suffix = Path(resolved_path).suffix.lower().lstrip(".") if resolved_path else ""
+        suffix = Path(resolved_paths[0]).suffix.lower().lstrip(".") if resolved_paths else ""
+        registry_resource = registry.pop(key, None)
         resources[key] = ResourceSpec(
             key=key,
             title=title,
             kind=_string(payload.get("kind")) or _infer_resource_kind(title, suffix),
             category=_string(payload.get("category")),
-            path=resolved_path,
-            url=url,
-            authors=_string_list(payload.get("authors")),
+            paths=resolved_paths
+            or ((registry_resource.path,) if registry_resource and registry_resource.path else ()),
+            url=url or (registry_resource.url if registry_resource else None),
+            authors=_string_list(payload.get("authors"))
+            or (registry_resource.authors if registry_resource else ()),
             publication_year=(
-                int(payload["year"]) if payload.get("year") is not None else None
+                int(payload["year"])
+                if payload.get("year") is not None
+                else registry_resource.publication_year
+                if registry_resource
+                else None
             ),
+            description_markdown=(
+                registry_resource.description_markdown if registry_resource else ""
+            ),
+            metadata=(registry_resource.metadata if registry_resource else {}),
         )
-        if resolved_path and not Path(resolved_path).exists():
+        for resolved_path in resources[key].paths:
+            if Path(resolved_path).exists():
+                continue
             diagnostics.append(
                 PlanDiagnostic(
                     "warning",
@@ -426,6 +497,35 @@ def _parse_resources(
                     f"Resource {key!r} points to a file that does not exist: {resolved_path}",
                 )
             )
+    for key, registry_resource in registry.items():
+        _validate_key(key, entity="resource", line=None, diagnostics=diagnostics)
+        paths = (registry_resource.path,) if registry_resource.path else ()
+        resources[key] = ResourceSpec(
+            key=key,
+            title=registry_resource.title,
+            kind=registry_resource.kind,
+            category=registry_resource.category,
+            paths=paths,
+            url=registry_resource.url,
+            authors=registry_resource.authors,
+            publication_year=registry_resource.publication_year,
+            description_markdown=registry_resource.description_markdown,
+            metadata=registry_resource.metadata,
+        )
+        diagnostics.extend(
+            [
+                PlanDiagnostic(
+                    "warning",
+                    "missing_resource_file",
+                    (
+                        f"Registry resource {key!r} points to a file that "
+                        f"does not exist: {resolved_path}"
+                    ),
+                )
+                for resolved_path in paths
+                if not Path(resolved_path).exists()
+            ]
+        )
     return resources
 
 
@@ -466,276 +566,337 @@ def _parse_skills(
     return skills
 
 
-def parse_study_plan(path: Path) -> PlanParseResult:
-    diagnostics: list[PlanDiagnostic] = []
-    try:
-        source = path.read_text(encoding="utf-8")
-    except OSError as error:
-        return PlanParseResult(
-            plan=None,
-            diagnostics=[
-                PlanDiagnostic("error", "cannot_read", f"Cannot read {path}: {error}")
-            ],
+@dataclass(frozen=True)
+class _SourceLine:
+    number: int
+    text: str
+
+
+class _CourseBodyParser:
+    def __init__(
+        self,
+        *,
+        source_path: Path,
+        mode: PlanMode,
+        resources: dict[str, ResourceSpec],
+        diagnostics: list[PlanDiagnostic],
+    ) -> None:
+        self.source_path = source_path
+        self.mode = mode
+        self.resources = resources
+        self.diagnostics = diagnostics
+        self.seen_day_keys: set[str] = set()
+        self.seen_task_keys: set[str] = set()
+        self.task_counts: dict[tuple[str, str], int] = {}
+
+    def parse_course(self, body: str, *, line_offset: int) -> tuple[DaySpec, ...]:
+        days: list[DaySpec] = []
+        heading: _SourceLine | None = None
+        day_lines: list[_SourceLine] = []
+        for relative_line, raw_line in enumerate(body.splitlines(), start=1):
+            source_line = _SourceLine(line_offset + relative_line, raw_line.rstrip())
+            heading_match = DAY_HEADING.match(source_line.text)
+            if heading_match:
+                if heading is not None:
+                    day = self.parse_day(heading, day_lines, len(days) + 1)
+                    if day is not None:
+                        days.append(day)
+                heading = _SourceLine(source_line.number, heading_match.group("body"))
+                day_lines = []
+            elif heading is not None:
+                day_lines.append(source_line)
+        if heading is not None:
+            day = self.parse_day(heading, day_lines, len(days) + 1)
+            if day is not None:
+                days.append(day)
+        return tuple(sorted(days, key=lambda item: item.order_index))
+
+    def parse_day(
+        self,
+        heading: _SourceLine,
+        lines: list[_SourceLine],
+        fallback_number: int,
+    ) -> DaySpec | None:
+        parsed = _parse_day_heading(
+            heading.text,
+            fallback_number=fallback_number,
+            line=heading.number,
+            diagnostics=self.diagnostics,
         )
-    frontmatter_match = FRONTMATTER.match(source)
-    if frontmatter_match is None:
-        return PlanParseResult(
-            plan=None,
-            diagnostics=[
+        if parsed is None:
+            return None
+        raw_day, explicit_key = parsed
+        day_key = str(raw_day["key"])
+        if day_key in self.seen_day_keys:
+            self.diagnostics.append(
                 PlanDiagnostic(
                     "error",
-                    "missing_frontmatter",
-                    "Study Plan v1 files must begin with TOML frontmatter between +++ lines.",
-                    1,
+                    "duplicate_day_id",
+                    f"Duplicate day id {day_key!r}.",
+                    heading.number,
                 )
-            ],
-        )
-    try:
-        metadata = tomllib.loads(frontmatter_match.group("body"))
-    except tomllib.TOMLDecodeError as error:
-        return PlanParseResult(
-            plan=None,
-            diagnostics=[
-                PlanDiagnostic("error", "invalid_frontmatter", str(error), 1)
-            ],
-        )
-    plan_format = _string(metadata.get("format")) or ""
-    if plan_format != PLAN_FORMAT:
-        diagnostics.append(
-            PlanDiagnostic(
-                "error",
-                "unsupported_format",
-                f"format must be {PLAN_FORMAT!r}; received {plan_format!r}.",
             )
-        )
-    plan_id = _string(metadata.get("id")) or ""
-    _validate_key(plan_id, entity="plan", line=None, diagnostics=diagnostics)
-    mode_value = _string(metadata.get("mode")) or "full"
-    if mode_value not in {"full", "patch"}:
-        diagnostics.append(
-            PlanDiagnostic(
-                "error",
-                "invalid_mode",
-                "mode must be either 'full' or 'patch'.",
-            )
-        )
-        mode_value = "full"
-    body = source[frontmatter_match.end() :]
-    body_line_offset = source[: frontmatter_match.end()].count("\n")
-    heading_title = next(
-        (
-            _clean_markdown(line.removeprefix("# "))
-            for line in body.splitlines()
-            if line.startswith("# ")
-        ),
-        None,
-    )
-    title = _string(metadata.get("title")) or heading_title or plan_id.replace("-", " ").title()
-    resources = _parse_resources(metadata.get("resources"), path, diagnostics)
-    skills = _parse_skills(metadata.get("skills"), diagnostics)
-
-    raw_days: list[dict[str, Any]] = []
-    explicit_day_keys: dict[str, bool] = {}
-    current_day: dict[str, Any] | None = None
-    current_section = "Tasks"
-    task_counts: dict[tuple[str, str], int] = {}
-    seen_day_keys: set[str] = set()
-    seen_task_keys: set[str] = set()
-
-    def ensure_section(day: dict[str, Any], title_value: str) -> dict[str, Any]:
-        for section in day["sections"]:
-            if section["title"] == title_value:
-                return cast(dict[str, Any], section)
-        section = {
-            "key": _slug(title_value),
-            "title": title_value,
-            "order_index": len(day["sections"]) + 1,
-            "default_collapsed": title_value.lower() in {"optional", "additional", "skip"},
-            "tasks": [],
-        }
-        day["sections"].append(section)
-        return section
-
-    for relative_line, raw_line in enumerate(body.splitlines(), start=1):
-        line_number = body_line_offset + relative_line
-        line = raw_line.rstrip()
-        day_heading = DAY_HEADING.match(line)
-        if day_heading:
-            parsed_day = _parse_day_heading(
-                day_heading.group("body"),
-                fallback_number=len(raw_days) + 1,
-                line=line_number,
-                diagnostics=diagnostics,
-            )
-            if parsed_day is not None:
-                current_day, explicit_key = parsed_day
-                raw_days.append(current_day)
-                explicit_day_keys[current_day["key"]] = explicit_key
-                if current_day["key"] in seen_day_keys:
-                    diagnostics.append(
-                        PlanDiagnostic(
-                            "error",
-                            "duplicate_day_id",
-                            f"Duplicate day id {current_day['key']!r}.",
-                            line_number,
-                        )
-                    )
-                seen_day_keys.add(current_day["key"])
-                current_section = "Tasks"
+        self.seen_day_keys.add(day_key)
+        current_section = "Tasks"
+        for line in lines:
+            section_title = self._parse_section_heading(line, raw_day)
+            if section_title is not None:
+                current_section = section_title
                 continue
-            current_day = None
-            continue
-        if current_day is None:
-            continue
-        section_heading = SECTION_HEADING.match(line)
-        colon_section = COLON_SECTION.match(line)
-        if section_heading or colon_section:
-            matched_section = section_heading or colon_section
-            assert matched_section is not None
-            section_text = matched_section.group("body")
-            section_title, attributes = _parse_attributes(
-                section_text,
-                line=line_number,
-                diagnostics=diagnostics,
+            purpose = PURPOSE.match(line.text)
+            if purpose:
+                raw_day["purpose"] = _clean_markdown(purpose.group("body"))
+                continue
+            task = self.parse_task(
+                line,
+                day_key=day_key,
+                current_section=current_section,
+                raw_day=raw_day,
             )
-            current_section = _clean_markdown(section_title)
-            section = ensure_section(current_day, current_section)
-            if attributes.get("collapsed") is True:
-                section["default_collapsed"] = True
-            if _string(attributes.get("order")):
-                section["order_index"] = int(str(attributes["order"]))
-            continue
-        purpose = PURPOSE.match(line)
-        if purpose:
-            current_day["purpose"] = _clean_markdown(purpose.group("body"))
-            continue
-        stop_when = STOP_WHEN.match(line)
-        checkbox = CHECKBOX.match(line)
+            if task is not None:
+                section = self._ensure_section(raw_day, task.section)
+                cast(list[TaskSpec], section["tasks"]).append(task)
+        sections = tuple(
+            SectionSpec(
+                key=str(section["key"]),
+                title=str(section["title"]),
+                order_index=int(section["order_index"]),
+                default_collapsed=bool(section["default_collapsed"]),
+                tasks=tuple(cast(list[TaskSpec], section["tasks"])),
+            )
+            for section in sorted(
+                cast(list[dict[str, Any]], raw_day["sections"]),
+                key=lambda item: int(item["order_index"]),
+            )
+        )
+        return DaySpec(
+            key=day_key,
+            number=int(raw_day["number"]),
+            title=str(raw_day["title"]),
+            order_index=int(raw_day["order_index"]),
+            line=int(raw_day["line"]),
+            explicit_key=explicit_key,
+            date=cast(str | None, raw_day["date"]),
+            topic=cast(str | None, raw_day["topic"]),
+            purpose=cast(str | None, raw_day["purpose"]),
+            skill_keys=cast(tuple[str, ...], raw_day["skills"]),
+            sections=sections,
+        )
+
+    def parse_task(
+        self,
+        line: _SourceLine,
+        *,
+        day_key: str,
+        current_section: str,
+        raw_day: dict[str, Any],
+    ) -> TaskSpec | None:
+        stop_when = STOP_WHEN.match(line.text)
+        checkbox = CHECKBOX.match(line.text)
         if stop_when:
             task_body = stop_when.group("body")
             state = " "
-            target_section = "Stop when"
+            section_title = "Stop when"
         elif checkbox:
             task_body = checkbox.group("body")
             state = checkbox.group("state")
-            target_section = current_section
+            section_title = current_section
         else:
-            continue
+            return None
         task_body, attributes = _parse_attributes(
             task_body,
-            line=line_number,
-            diagnostics=diagnostics,
+            line=line.number,
+            diagnostics=self.diagnostics,
         )
         title_with_annotations, inline_rationale = _split_task_annotations(task_body)
-        title_value = _clean_markdown(title_with_annotations)
-        section = ensure_section(current_day, target_section)
-        count_key = (current_day["key"], section["key"])
-        task_counts[count_key] = task_counts.get(count_key, 0) + 1
+        title = _clean_markdown(title_with_annotations)
+        section = self._ensure_section(raw_day, section_title)
+        count_key = (day_key, str(section["key"]))
+        self.task_counts[count_key] = self.task_counts.get(count_key, 0) + 1
         explicit_key = "id" in attributes
         task_key = _string(attributes.get("id")) or (
-            f"{current_day['key']}-{section['key']}-{task_counts[count_key]}"
+            f"{day_key}-{section['key']}-{self.task_counts[count_key]}"
         )
         assert task_key is not None
         _validate_key(
             task_key,
             entity="task",
-            line=line_number,
-            diagnostics=diagnostics,
+            line=line.number,
+            diagnostics=self.diagnostics,
         )
-        if task_key in seen_task_keys:
-            diagnostics.append(
+        if task_key in self.seen_task_keys:
+            self.diagnostics.append(
                 PlanDiagnostic(
                     "error",
                     "duplicate_task_id",
                     f"Duplicate task id {task_key!r}.",
-                    line_number,
+                    line.number,
                 )
             )
-        seen_task_keys.add(task_key)
-        link_resource_keys: list[str] = []
-        for link in MARKDOWN_LINK.finditer(task_body):
-            resource = _resource_from_link(link.group(1), link.group(2), path)
-            resources.setdefault(resource.key, resource)
-            link_resource_keys.append(resource.key)
+        self.seen_task_keys.add(task_key)
+        link_resource_keys = self._link_resources(task_body)
         resource_keys = tuple(
-            dict.fromkeys(
-                (*_string_list(attributes.get("resources")), *link_resource_keys)
-            )
+            dict.fromkeys((*_string_list(attributes.get("resources")), *link_resource_keys))
         )
-        skill_keys = _string_list(attributes.get("skills"))
-        status_value = _string(attributes.get("status"))
-        inferred_status = _status_from_checkbox(state)
-        status: TaskStatus | None = None
-        if status_value:
-            if status_value not in {"todo", "in_progress", "done", "later", "skipped"}:
-                diagnostics.append(
-                    PlanDiagnostic(
-                        "error",
-                        "invalid_task_status",
-                        f"Task status {status_value!r} is not supported.",
-                        line_number,
-                    )
-                )
-            else:
-                status = status_value  # type: ignore[assignment]
-        elif mode_value == "patch":
-            status = inferred_status
-        rationale = _string(attributes.get("why")) or inline_rationale
-        minutes_value = _string(attributes.get("minutes"))
-        section["tasks"].append(
-            TaskSpec(
-                key=task_key,
-                title=title_value,
-                section=section["title"],
-                order_index=int(
-                    _string(attributes.get("order")) or len(section["tasks"]) + 1
-                ),
-                line=line_number,
-                explicit_key=explicit_key,
-                task_type=_string(attributes.get("type"))
-                or _infer_task_type(section["title"], title_value),
-                is_optional=bool(
-                    attributes.get("optional") is True
-                    or section["title"].lower() in {"optional", "additional", "skip"}
-                ),
-                estimated_minutes=int(minutes_value) if minutes_value else None,
-                status=status,
-                rationale=rationale or "",
-                resource_keys=resource_keys,
-                skill_keys=skill_keys,
+        status = self._task_status(attributes, state, line.number)
+        rationale = "\n\n".join(
+            part
+            for part in (
+                _string(attributes.get("why")) or inline_rationale,
+                _string(attributes.get("info")),
             )
+            if part
+        )
+        return TaskSpec(
+            key=task_key,
+            title=title,
+            section=str(section["title"]),
+            order_index=self._integer_attribute(
+                attributes,
+                "order",
+                default=len(cast(list[TaskSpec], section["tasks"])) + 1,
+                line=line.number,
+            ),
+            line=line.number,
+            explicit_key=explicit_key,
+            task_type=_string(attributes.get("type"))
+            or _infer_task_type(str(section["title"]), title),
+            is_optional=bool(
+                attributes.get("optional") is True
+                or str(section["title"]).lower() in {"optional", "additional", "skip"}
+            ),
+            estimated_minutes=self._optional_integer_attribute(
+                attributes,
+                "minutes",
+                line=line.number,
+            ),
+            status=status,
+            rationale=rationale,
+            resource_keys=resource_keys,
+            skill_keys=_string_list(attributes.get("skills")),
         )
 
-    days: list[DaySpec] = []
-    for raw_day in raw_days:
-        sections = tuple(
-            SectionSpec(
-                key=section["key"],
-                title=section["title"],
-                order_index=section["order_index"],
-                default_collapsed=section["default_collapsed"],
-                tasks=tuple(section["tasks"]),
-            )
-            for section in sorted(
-                raw_day["sections"],
-                key=lambda item: int(item["order_index"]),
-            )
+    def _parse_section_heading(
+        self,
+        line: _SourceLine,
+        raw_day: dict[str, Any],
+    ) -> str | None:
+        section_heading = SECTION_HEADING.match(line.text)
+        colon_section = COLON_SECTION.match(line.text)
+        matched = section_heading or colon_section
+        if matched is None:
+            return None
+        section_title, attributes = _parse_attributes(
+            matched.group("body"),
+            line=line.number,
+            diagnostics=self.diagnostics,
         )
-        days.append(
-            DaySpec(
-                key=raw_day["key"],
-                number=raw_day["number"],
-                title=raw_day["title"],
-                order_index=raw_day["order_index"],
-                line=raw_day["line"],
-                explicit_key=explicit_day_keys[raw_day["key"]],
-                date=raw_day["date"],
-                topic=raw_day["topic"],
-                purpose=raw_day["purpose"],
-                skill_keys=raw_day["skills"],
-                sections=sections,
+        cleaned_title = _clean_markdown(section_title)
+        section = self._ensure_section(raw_day, cleaned_title)
+        if attributes.get("collapsed") is True:
+            section["default_collapsed"] = True
+        if _string(attributes.get("order")):
+            section["order_index"] = self._integer_attribute(
+                attributes,
+                "order",
+                default=int(section["order_index"]),
+                line=line.number,
             )
-        )
+        return cleaned_title
+
+    def _ensure_section(
+        self,
+        raw_day: dict[str, Any],
+        title: str,
+    ) -> dict[str, Any]:
+        sections = cast(list[dict[str, Any]], raw_day["sections"])
+        for section in sections:
+            if section["title"] == title:
+                return section
+        section = {
+            "key": _slug(title),
+            "title": title,
+            "order_index": len(sections) + 1,
+            "default_collapsed": title.lower() in {"optional", "additional", "skip"},
+            "tasks": [],
+        }
+        sections.append(section)
+        return section
+
+    def _link_resources(self, task_body: str) -> list[str]:
+        resource_keys: list[str] = []
+        for link in MARKDOWN_LINK.finditer(task_body):
+            resource = _resource_from_link(
+                link.group(1),
+                link.group(2),
+                self.source_path,
+            )
+            self.resources.setdefault(resource.key, resource)
+            resource_keys.append(resource.key)
+        return resource_keys
+
+    def _task_status(
+        self,
+        attributes: dict[str, str | bool],
+        checkbox_state: str,
+        line: int,
+    ) -> TaskStatus | None:
+        status_value = _string(attributes.get("status"))
+        if status_value is None:
+            return _status_from_checkbox(checkbox_state)
+        if status_value not in {"todo", "in_progress", "done", "later", "skipped"}:
+            self.diagnostics.append(
+                PlanDiagnostic(
+                    "error",
+                    "invalid_task_status",
+                    f"Task status {status_value!r} is not supported.",
+                    line,
+                )
+            )
+            return None
+        return cast(TaskStatus, status_value)
+
+    def _integer_attribute(
+        self,
+        attributes: dict[str, str | bool],
+        key: str,
+        *,
+        default: int,
+        line: int,
+    ) -> int:
+        value = self._optional_integer_attribute(attributes, key, line=line)
+        return value if value is not None else default
+
+    def _optional_integer_attribute(
+        self,
+        attributes: dict[str, str | bool],
+        key: str,
+        *,
+        line: int,
+    ) -> int | None:
+        value = _string(attributes.get(key))
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            self.diagnostics.append(
+                PlanDiagnostic(
+                    "error",
+                    "invalid_integer_attribute",
+                    f"Task attribute {key!r} must be an integer; received {value!r}.",
+                    line,
+                )
+            )
+            return None
+
+
+def _validate_references(
+    days: tuple[DaySpec, ...],
+    resources: dict[str, ResourceSpec],
+    skills: dict[str, SkillSpec],
+    diagnostics: list[PlanDiagnostic],
+) -> None:
 
     referenced_resources = {
         key
@@ -745,11 +906,7 @@ def parse_study_plan(path: Path) -> PlanParseResult:
         for key in task.resource_keys
     }
     referenced_skills = {
-        *(
-            key
-            for day in days
-            for key in day.skill_keys
-        ),
+        *(key for day in days for key in day.skill_keys),
         *(
             key
             for day in days
@@ -778,7 +935,14 @@ def parse_study_plan(path: Path) -> PlanParseResult:
             for skill_key in sorted(referenced_skills - skills.keys())
         ]
     )
-    if mode_value == "full":
+
+
+def _validate_structure(
+    days: tuple[DaySpec, ...],
+    mode: PlanMode,
+    diagnostics: list[PlanDiagnostic],
+) -> None:
+    if mode == "full":
         for day in days:
             if not day.explicit_key:
                 diagnostics.append(
@@ -807,7 +971,7 @@ def parse_study_plan(path: Path) -> PlanParseResult:
                                 task.line,
                             )
                         )
-    if mode_value == "patch":
+    if mode == "patch":
         for day in days:
             if not day.explicit_key:
                 diagnostics.append(
@@ -831,7 +995,7 @@ def parse_study_plan(path: Path) -> PlanParseResult:
                                 )
                             ]
                         )
-    if mode_value == "full" and not days:
+    if mode == "full" and not days:
         diagnostics.append(
             PlanDiagnostic(
                 "error",
@@ -840,10 +1004,88 @@ def parse_study_plan(path: Path) -> PlanParseResult:
             )
         )
 
+
+def parse_study_plan(path: Path) -> PlanParseResult:
+    diagnostics: list[PlanDiagnostic] = []
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError as error:
+        return PlanParseResult(
+            plan=None,
+            diagnostics=[PlanDiagnostic("error", "cannot_read", f"Cannot read {path}: {error}")],
+        )
+    frontmatter_match = FRONTMATTER.match(source)
+    if frontmatter_match is None:
+        return PlanParseResult(
+            plan=None,
+            diagnostics=[
+                PlanDiagnostic(
+                    "error",
+                    "missing_frontmatter",
+                    "Study Plan v1 files must begin with TOML frontmatter between +++ lines.",
+                    1,
+                )
+            ],
+        )
+    try:
+        metadata = tomllib.loads(frontmatter_match.group("body"))
+    except tomllib.TOMLDecodeError as error:
+        return PlanParseResult(
+            plan=None,
+            diagnostics=[PlanDiagnostic("error", "invalid_frontmatter", str(error), 1)],
+        )
+    plan_format = _string(metadata.get("format")) or ""
+    if plan_format != PLAN_FORMAT:
+        diagnostics.append(
+            PlanDiagnostic(
+                "error",
+                "unsupported_format",
+                f"format must be {PLAN_FORMAT!r}; received {plan_format!r}.",
+            )
+        )
+    plan_id = _string(metadata.get("id")) or ""
+    _validate_key(plan_id, entity="plan", line=None, diagnostics=diagnostics)
+    raw_mode = _string(metadata.get("mode")) or "full"
+    if raw_mode not in {"full", "patch"}:
+        diagnostics.append(
+            PlanDiagnostic(
+                "error",
+                "invalid_mode",
+                "mode must be either 'full' or 'patch'.",
+            )
+        )
+        raw_mode = "full"
+    mode = cast(PlanMode, raw_mode)
+    body = source[frontmatter_match.end() :]
+    body_line_offset = source[: frontmatter_match.end()].count("\n")
+    heading_title = next(
+        (
+            _clean_markdown(line.removeprefix("# "))
+            for line in body.splitlines()
+            if line.startswith("# ")
+        ),
+        None,
+    )
+    title = _string(metadata.get("title")) or heading_title or plan_id.replace("-", " ").title()
+    resources = _parse_resources(
+        metadata.get("resources"),
+        metadata.get("resource_registry"),
+        path,
+        diagnostics,
+    )
+    skills = _parse_skills(metadata.get("skills"), diagnostics)
+    days = _CourseBodyParser(
+        source_path=path,
+        mode=mode,
+        resources=resources,
+        diagnostics=diagnostics,
+    ).parse_course(body, line_offset=body_line_offset)
+    _validate_references(days, resources, skills, diagnostics)
+    _validate_structure(days, mode, diagnostics)
     plan = StudyPlanSpec(
         format=plan_format,
         plan_id=plan_id,
-        mode=mode_value,  # type: ignore[arg-type]
+        mode=mode,
         source_path=path.resolve(),
         title=title,
         short_code=_string(metadata.get("short_code")),

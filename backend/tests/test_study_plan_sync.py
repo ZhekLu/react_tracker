@@ -185,3 +185,70 @@ mode = "patch"
         row["title"] == "Write a summary" and row["deleted_at"] is None
         for row in rows
     )
+
+
+def test_sync_persists_registry_description_and_local_file_list(
+    tmp_path: Path,
+) -> None:
+    paper = tmp_path / "paper.pdf"
+    supplement = tmp_path / "supplement.pdf"
+    paper.touch()
+    supplement.touch()
+    registry = tmp_path / "registry.json"
+    registry.write_text(
+        """
+{
+  "papers": [
+    {
+      "id": "paper",
+      "title": "Registry paper",
+      "source": "https://example.org/paper",
+      "source_type": "url",
+      "reading_level": "CRITICAL",
+      "central_question": "What can fail?"
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    plan = tmp_path / "plan.md"
+    plan.write_text(
+        f"""
++++
+format = "study-plan/v1"
+id = "registry_sync"
+mode = "full"
+resource_registry = "./registry.json"
+
+[resources.paper]
+title = "Paper"
+kind = "paper"
+path = ["{paper}", "{supplement}"]
++++
+
+### Day 1: Read {{#day-01}}
+
+- [ ] Read the paper. {{#read-paper resources=paper}}
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = sync_study_plan(plan)
+
+    with transaction() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT d.markdown, r.canonical_url, r.metadata_json
+                FROM resources r
+                JOIN documents d ON d.id = r.content_document_id
+                WHERE r.course_id = :course_id AND r.title = 'Paper'
+                """
+            ),
+            {"course_id": result.course_id},
+        ).mappings().one()
+    assert "What can fail?" in row["markdown"]
+    assert row["canonical_url"] == "https://example.org/paper"
+    assert str(paper) in row["metadata_json"]
+    assert str(supplement) in row["metadata_json"]
