@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { ProgressBar } from "../../components/ProgressBar";
+import { MarkdownMath } from "../../components/content/MarkdownMath";
 import type { Course, Skill } from "../../types/tracker";
 
 type SkillsViewProps = {
@@ -174,7 +175,11 @@ export function SkillsView({ course, onOpenDay, onCopy }: SkillsViewProps) {
                 </div>
                 <span className={`skillToneLabel tone-${tone}`}>{tone}</span>
               </header>
-              {skill.description?.plainText ? <p>{skill.description.plainText}</p> : null}
+              {skill.description?.plainText ? (
+                <MarkdownMath>
+                  {skill.description.markdown ?? skill.description.plainText}
+                </MarkdownMath>
+              ) : null}
               <ProgressBar
                 accent={course.accent}
                 label={`${skill.name} coverage`}

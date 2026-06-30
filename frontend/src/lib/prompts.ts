@@ -280,7 +280,7 @@ export function meetingAgenda(course: Course): PromptPayload {
 
 export function resourceInventory(course: Course): PromptPayload {
   const resources = course.resources.filter(
-    (resource) => resource.kind !== "exam_question",
+    (resource) => !["discussion", "exam_question"].includes(resource.kind),
   );
   const lines = resources.map((resource) => {
     const location =

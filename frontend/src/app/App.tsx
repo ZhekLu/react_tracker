@@ -6,7 +6,9 @@ import {
   createPromptBatch,
   fetchCourses,
   fetchCourseWorkspace,
+  linkDiscussionQuestion,
   openResource,
+  openResourceFile,
   updateAnnotation,
   updateDayStatus,
   updateDiscussionStatus,
@@ -26,6 +28,7 @@ import { ResourcesView } from "../features/resources/ResourcesView";
 import { ResourceReader } from "../features/reader/ResourceReader";
 import { RoadmapView } from "../features/roadmap/RoadmapView";
 import { SkillsView } from "../features/skills/SkillsView";
+import { QuestionDialog } from "../features/questions/QuestionDialog";
 import {
   allQuestions,
   annotationContext,
@@ -45,6 +48,7 @@ import type {
   EntityNoteSaveInput,
   ExamQuestion,
   ExamStatus,
+  DiscussionQuestionRelation,
   ResourceStatus,
   StudyDay,
   TaskStatus,
@@ -126,6 +130,16 @@ export function App() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
+  const [questionDraft, setQuestionDraft] = useState<{
+    resourceId: string;
+    contextLabel: string;
+    anchor?: {
+      anchorType: string;
+      quote?: string;
+      sectionTitle?: string;
+      discussionMessageId?: string;
+    };
+  } | null>(null);
   const broadcastRef = useRef<BroadcastChannel | null>(null);
 
   const activeCourseId = useMemo(
@@ -387,12 +401,15 @@ export function App() {
     }
   }
 
-  async function handleCopyPrompt(payload: PromptPayload, label: string) {
-    if (!workspace) return;
+  async function savePromptBatch(
+    payload: PromptPayload,
+    label: string,
+  ): Promise<string | null> {
+    if (!workspace) return null;
     setError(null);
     try {
       await writeClipboard(payload.markdown);
-      await createPromptBatch({
+      const batch = await createPromptBatch({
         annotationIds: payload.annotationIds,
         courseId: workspace.id,
         markdown: payload.markdown,
@@ -403,13 +420,39 @@ export function App() {
         title: payload.title,
       });
       setActionMessage(label);
+      return batch.id;
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
           : "The prompt was copied, but its audit record could not be saved.",
       );
+      return null;
     }
+  }
+
+  async function handleCopyPrompt(payload: PromptPayload, label: string) {
+    await savePromptBatch(payload, label);
+  }
+
+  async function handleStartDiscussion(payload: PromptPayload) {
+    if (!workspace) return;
+    const promptBatchId = await savePromptBatch(
+      payload,
+      "Prompt copied; discussion created for the response.",
+    );
+    if (!promptBatchId) return;
+    await runMutation(async () => {
+      await createDiscussion({
+        courseId: workspace.id,
+        initialPromptBatchId: promptBatchId,
+        sourceResourceId: payload.sourceResourceId,
+        title: payload.title,
+      });
+    });
+    setFocusedResourceId(payload.sourceResourceId ?? "");
+    setView("discussions");
+    setActionMessage("Prompt copied. Paste the tutor response into this discussion.");
   }
 
   function handleDayClosedChange(day: StudyDay, closed: boolean) {
@@ -475,7 +518,14 @@ export function App() {
   function resolveDiscussionResourceId(resourceId: string): string {
     if (!workspace) return resourceId;
     const resource = workspace.resources.find((item) => item.id === resourceId);
-    return resource?.parentResourceId ?? resourceId;
+    const sourceResourceId = resource?.parentResourceId ?? resourceId;
+    return (
+      workspace.discussions.find(
+        (discussion) =>
+          discussion.resourceId === sourceResourceId ||
+          discussion.sourceResourceIds.includes(sourceResourceId),
+      )?.resourceId ?? sourceResourceId
+    );
   }
 
   function handleOpenDiscussion(resourceId: string) {
@@ -513,6 +563,19 @@ export function App() {
     }
   }
 
+  async function handleOpenResourceFile(resourceId: string, fileIndex: number) {
+    setError(null);
+    setActionMessage(null);
+    try {
+      const result = await openResourceFile(resourceId, fileIndex);
+      setActionMessage(`Opened ${result.target.split("/").at(-1) ?? "file"}.`);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Could not open resource file.",
+      );
+    }
+  }
+
   function handleReaderClose(resourceId: string, progressPercent: number) {
     setReaderResourceId("");
     void runMutation(async () => {
@@ -528,6 +591,21 @@ export function App() {
     quote: string,
     sectionTitle?: string,
   ) {
+    if (kind === "question") {
+      const resource = workspace?.resources.find(
+        (item) => item.id === resourceId,
+      );
+      setQuestionDraft({
+        anchor: {
+          anchorType: "text_quote",
+          quote,
+          sectionTitle,
+        },
+        contextLabel: resource?.title ?? "selected passage",
+        resourceId,
+      });
+      return;
+    }
     void runMutation(async () => {
       await createAnnotation({
         anchor: {
@@ -539,11 +617,7 @@ export function App() {
         origin: "reader_selection",
         resourceId,
       });
-      setActionMessage(
-        kind === "question"
-          ? "Selection added to Questions."
-          : "Selection saved as a highlight.",
-      );
+      setActionMessage("Selection saved as a highlight.");
     });
   }
 
@@ -552,6 +626,10 @@ export function App() {
     changes: {
       kind?: Course["annotations"][number]["kind"];
       status?: Course["annotations"][number]["status"];
+      priority?: Course["annotations"][number]["priority"];
+      markdown?: string;
+      plainText?: string;
+      documentRevision?: number;
     },
   ) {
     void runMutation(async () => {
@@ -560,14 +638,29 @@ export function App() {
   }
 
   function handleFlagQuestion(resourceId: string, label: string) {
+    setQuestionDraft({
+      anchor: { anchorType: "resource" },
+      contextLabel: label,
+      resourceId,
+    });
+  }
+
+  function handleQuestionSubmit(input: {
+    markdown: string;
+    priority: "low" | "normal" | "high";
+  }) {
+    if (!questionDraft) return;
+    const draft = questionDraft;
+    setQuestionDraft(null);
     void runMutation(async () => {
       await createAnnotation({
-        anchor: { anchorType: "resource" },
+        anchor: draft.anchor,
         kind: "question",
-        markdown: `Question about ${label}`,
+        markdown: input.markdown,
         origin: "manual",
-        plainText: `Question about ${label}`,
-        resourceId,
+        plainText: input.markdown,
+        priority: input.priority,
+        resourceId: draft.resourceId,
       });
       setActionMessage("Question added to Notes.");
     });
@@ -623,7 +716,10 @@ export function App() {
     if (!workspace) return;
     setFocusedResourceId(resourceId);
     void runMutation(async () => {
-      await createDiscussion(workspace.id, resourceId);
+      await createDiscussion({
+        courseId: workspace.id,
+        sourceResourceId: resourceId,
+      });
     });
   }
 
@@ -644,8 +740,21 @@ export function App() {
       if (!markdown) throw new Error("The clipboard does not contain discussion text.");
       await runMutation(async () => {
         if (!workspace) return;
-        const discussion = await createDiscussion(workspace.id, resourceId);
+        const existingDiscussion = workspace.discussions.find(
+          (item) =>
+            item.id === resourceId ||
+            item.resourceId === resourceId ||
+            item.sourceResourceIds.includes(resourceId),
+        );
+        const discussion =
+          existingDiscussion ??
+          (await createDiscussion({
+            courseId: workspace.id,
+            sourceResourceId: resourceId,
+          }));
         await createDiscussionMessage(discussion.id, {
+          importedFromClipboard: true,
+          linkPromptQuestions: true,
           markdown,
           plainText: markdown,
           role: "assistant",
@@ -661,6 +770,32 @@ export function App() {
           : "Could not read the clipboard discussion.",
       );
     }
+  }
+
+  function handleDiscussionQuestionLink(
+    messageId: string,
+    annotationId: string,
+    relation: DiscussionQuestionRelation,
+  ) {
+    void runMutation(async () => {
+      await linkDiscussionQuestion(messageId, annotationId, relation);
+    });
+  }
+
+  function handleAskDiscussionQuestion(
+    discussionResourceId: string,
+    messageId: string,
+    messagePreview: string,
+  ) {
+    setQuestionDraft({
+      anchor: {
+        anchorType: "discussion_message",
+        discussionMessageId: messageId,
+        quote: messagePreview.slice(0, 1_000),
+      },
+      contextLabel: "tutor response",
+      resourceId: discussionResourceId,
+    });
   }
 
   function handleDiscussionStatusChange(
@@ -755,6 +890,9 @@ export function App() {
           onNoteSave={handleNoteSave}
           onOpenDiscussion={handleOpenDiscussion}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
+          onOpenResourceFile={(resourceId, fileIndex) =>
+            void handleOpenResourceFile(resourceId, fileIndex)
+          }
           onResourceStatusChange={handleResourceStatusChange}
         />
       ) : null}
@@ -796,6 +934,9 @@ export function App() {
               "Active questions copied",
             )
           }
+          onStartQuestionDiscussion={() =>
+            void handleStartDiscussion(allQuestions(workspace))
+          }
           onCopyAnnotation={(annotation) =>
             void handleCopyPrompt(
               annotationContext(workspace, annotation),
@@ -815,6 +956,8 @@ export function App() {
           onAddMessage={handleAddDiscussionMessage}
           onCreateDiscussion={handleCreateDiscussion}
           onDiscussionStatusChange={handleDiscussionStatusChange}
+          onQuestionLink={handleDiscussionQuestionLink}
+          onAskMessageQuestion={handleAskDiscussionQuestion}
           onImportClipboard={(resourceId) =>
             void handleImportDiscussionFromClipboard(resourceId)
           }
@@ -842,6 +985,13 @@ export function App() {
             void handleOpenResourceExternal(readerResource.id)
           }
           resource={readerResource}
+        />
+      ) : null}
+      {questionDraft ? (
+        <QuestionDialog
+          contextLabel={questionDraft.contextLabel}
+          onClose={() => setQuestionDraft(null)}
+          onSubmit={handleQuestionSubmit}
         />
       ) : null}
     </>

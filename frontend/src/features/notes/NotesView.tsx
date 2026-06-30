@@ -6,11 +6,14 @@ import {
   Clock3,
   ClipboardCopy,
   MessageSquareText,
+  Save,
+  Sparkles,
   RotateCcw,
   Search,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
+import { MarkdownMath } from "../../components/content/MarkdownMath";
 import type {
   Annotation,
   AnnotationKind,
@@ -18,6 +21,7 @@ import type {
   Course,
   EntityNoteSaveInput,
   Note,
+  Resource,
   Task,
 } from "../../types/tracker";
 
@@ -25,11 +29,19 @@ type NotesViewProps = {
   course: Course;
   onAnnotationChange: (
     annotation: Annotation,
-    changes: { kind?: AnnotationKind; status?: AnnotationStatus },
+    changes: {
+      kind?: AnnotationKind;
+      status?: AnnotationStatus;
+      priority?: Annotation["priority"];
+      markdown?: string;
+      plainText?: string;
+      documentRevision?: number;
+    },
   ) => void;
   onCopyAgenda: () => void;
   onCopyAnnotation: (annotation: Annotation) => void;
   onCopyQuestions: () => void;
+  onStartQuestionDiscussion: () => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
@@ -45,6 +57,150 @@ type NoteContext = {
   resourceId?: string;
 };
 
+function AnnotationSummaryCard({
+  annotation,
+  resource,
+  onAnnotationChange,
+  onCopyAnnotation,
+  onOpenDiscussion,
+  onOpenResource,
+}: {
+  annotation: Annotation;
+  resource?: Resource;
+  onAnnotationChange: NotesViewProps["onAnnotationChange"];
+  onCopyAnnotation: NotesViewProps["onCopyAnnotation"];
+  onOpenDiscussion: NotesViewProps["onOpenDiscussion"];
+  onOpenResource: NotesViewProps["onOpenResource"];
+}) {
+  const initialMarkdown =
+    annotation.body?.markdown ?? annotation.body?.plainText ?? "";
+  const [markdown, setMarkdown] = useState(initialMarkdown);
+  const [priority, setPriority] = useState(annotation.priority);
+  const editable = ["question", "todo"].includes(annotation.kind);
+  const dirty =
+    markdown !== initialMarkdown || priority !== annotation.priority;
+
+  return (
+    <article className={`annotationCard kind-${annotation.kind}`}>
+      <header>
+        <div>
+          <strong>{resource?.title ?? "Unknown resource"}</strong>
+          <span>
+            {annotation.anchor?.pageNumber
+              ? `Page ${annotation.anchor.pageNumber}`
+              : null}
+            {annotation.anchor?.sectionTitle
+              ? ` · ${annotation.anchor.sectionTitle}`
+              : null}
+          </span>
+        </div>
+        <span className={`annotationKind ${annotation.kind}`}>
+          {annotation.kind} · {annotation.status}
+        </span>
+      </header>
+      {annotation.anchor?.quote ? (
+        <blockquote>{annotation.anchor.quote}</blockquote>
+      ) : null}
+      {editable ? (
+        <div className="questionEditBody">
+          <textarea
+            aria-label={`Question for ${resource?.title ?? "resource"}`}
+            onChange={(event) => setMarkdown(event.target.value)}
+            rows={4}
+            value={markdown}
+          />
+          {markdown.trim() ? (
+            <MarkdownMath className="questionFormulaPreview">
+              {markdown}
+            </MarkdownMath>
+          ) : null}
+          <div>
+            <label>
+              <span>Priority</span>
+              <select
+                onChange={(event) =>
+                  setPriority(event.target.value as Annotation["priority"])
+                }
+                value={priority}
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <button
+              disabled={!dirty || !markdown.trim()}
+              onClick={() =>
+                onAnnotationChange(annotation, {
+                  documentRevision: annotation.body?.revision,
+                  markdown: markdown.trim(),
+                  plainText: markdown.trim(),
+                  priority,
+                })
+              }
+              type="button"
+            >
+              <Save size={13} /> Save question
+            </button>
+          </div>
+        </div>
+      ) : annotation.body?.plainText ? (
+        <MarkdownMath>
+          {annotation.body.markdown ?? annotation.body.plainText}
+        </MarkdownMath>
+      ) : null}
+      <footer>
+        <button onClick={() => onOpenResource(annotation.resourceId)} type="button">
+          <BookOpen size={13} /> Open
+        </button>
+        <button
+          onClick={() => onOpenDiscussion(annotation.resourceId)}
+          type="button"
+        >
+          <MessageSquareText size={13} /> Discuss
+        </button>
+        <button onClick={() => onCopyAnnotation(annotation)} type="button">
+          <ClipboardCopy size={13} /> Copy context
+        </button>
+        <button
+          onClick={() =>
+            onAnnotationChange(annotation, {
+              kind: annotation.kind === "question" ? "note" : "question",
+            })
+          }
+          type="button"
+        >
+          <CircleHelp size={13} />
+          {annotation.kind === "question" ? "Make note" : "Make question"}
+        </button>
+        <button
+          onClick={() =>
+            onAnnotationChange(annotation, {
+              status: annotation.status === "answered" ? "open" : "answered",
+            })
+          }
+          type="button"
+        >
+          {annotation.status === "answered" ? (
+            <RotateCcw size={13} />
+          ) : (
+            <CheckCircle2 size={13} />
+          )}
+          {annotation.status === "answered" ? "Reopen" : "Answered"}
+        </button>
+        <button
+          onClick={() =>
+            onAnnotationChange(annotation, { status: "archived" })
+          }
+          type="button"
+        >
+          <Archive size={13} /> Archive
+        </button>
+      </footer>
+    </article>
+  );
+}
+
 function containsQuestionMarker(value: string): boolean {
   return value.includes("??") || value.toLowerCase().includes("todo!");
 }
@@ -55,6 +211,7 @@ export function NotesView({
   onCopyAgenda,
   onCopyAnnotation,
   onCopyQuestions,
+  onStartQuestionDiscussion,
   onNoteSave,
   onOpenDiscussion,
   onOpenResource,
@@ -203,6 +360,14 @@ export function NotesView({
             <CircleHelp size={14} />
             <span>Copy questions</span>
           </button>
+          <button
+            className="commandButton"
+            onClick={onStartQuestionDiscussion}
+            type="button"
+          >
+            <Sparkles size={14} />
+            <span>Discuss questions</span>
+          </button>
           <button className="commandButton subtle" onClick={onCopyAgenda} type="button">
             <ClipboardCopy size={14} />
             <span>Copy agenda</span>
@@ -305,59 +470,15 @@ export function NotesView({
           {filteredAnnotations.map((annotation) => {
             const resource = resourceById.get(annotation.resourceId);
             return (
-              <article className={`annotationCard kind-${annotation.kind}`} key={annotation.id}>
-                <header>
-                  <div>
-                    <strong>{resource?.title ?? "Unknown resource"}</strong>
-                    <span>
-                      {annotation.anchor?.pageNumber ? `Page ${annotation.anchor.pageNumber}` : null}
-                      {annotation.anchor?.sectionTitle ? ` · ${annotation.anchor.sectionTitle}` : null}
-                    </span>
-                  </div>
-                  <span className={`annotationKind ${annotation.kind}`}>{annotation.kind}</span>
-                </header>
-                {annotation.anchor?.quote ? <blockquote>{annotation.anchor.quote}</blockquote> : null}
-                {annotation.body?.plainText ? <p>{annotation.body.plainText}</p> : null}
-                <footer>
-                  <button onClick={() => onOpenResource(annotation.resourceId)} type="button">
-                    <BookOpen size={13} /> Open
-                  </button>
-                  <button onClick={() => onOpenDiscussion(annotation.resourceId)} type="button">
-                    <MessageSquareText size={13} /> Discuss
-                  </button>
-                  <button onClick={() => onCopyAnnotation(annotation)} type="button">
-                    <ClipboardCopy size={13} /> Copy context
-                  </button>
-                  <button
-                    onClick={() =>
-                      onAnnotationChange(annotation, {
-                        kind: annotation.kind === "question" ? "note" : "question",
-                      })
-                    }
-                    type="button"
-                  >
-                    <CircleHelp size={13} />
-                    {annotation.kind === "question" ? "Make note" : "Make question"}
-                  </button>
-                  <button
-                    onClick={() =>
-                      onAnnotationChange(annotation, {
-                        status: annotation.status === "answered" ? "open" : "answered",
-                      })
-                    }
-                    type="button"
-                  >
-                    {annotation.status === "answered" ? <RotateCcw size={13} /> : <CheckCircle2 size={13} />}
-                    {annotation.status === "answered" ? "Reopen" : "Answered"}
-                  </button>
-                  <button
-                    onClick={() => onAnnotationChange(annotation, { status: "archived" })}
-                    type="button"
-                  >
-                    <Archive size={13} /> Archive
-                  </button>
-                </footer>
-              </article>
+              <AnnotationSummaryCard
+                annotation={annotation}
+                key={`${annotation.id}:${annotation.revision}`}
+                onAnnotationChange={onAnnotationChange}
+                onCopyAnnotation={onCopyAnnotation}
+                onOpenDiscussion={onOpenDiscussion}
+                onOpenResource={onOpenResource}
+                resource={resource}
+              />
             );
           })}
           {!filteredAnnotations.length ? <div className="emptyInline">No annotations in this view.</div> : null}

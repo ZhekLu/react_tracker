@@ -10,13 +10,22 @@ from tracker_api.config import get_settings
 from tracker_api.database import get_engine, transaction
 from tracker_api.repositories.workspace_repository import (
     create_annotation,
+    create_discussion,
+    create_discussion_message,
     create_prompt_batch,
+    get_workspace,
+    link_discussion_question,
     resource_content_target,
+    update_annotation,
     update_resource_progress,
 )
 from tracker_api.schemas.workspace import (
     AnnotationAnchorCreate,
+    AnnotationCommand,
     AnnotationCreateCommand,
+    DiscussionCreateCommand,
+    DiscussionMessageCreateCommand,
+    DiscussionQuestionLinkCommand,
     PromptBatchCreateCommand,
     ResourceProgressCommand,
 )
@@ -196,3 +205,118 @@ def test_reader_content_and_progress_are_persisted(tmp_path: Path) -> None:
         ).mappings().one()
     assert row["progress_percent"] == 72
     assert '"scrollTop":300' in row["position_json"]
+
+
+def test_prompt_discussion_tracks_question_coverage_and_answer_state(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown=r"Why does $V^\pi$ require support?",
+                plain_text="Why does V-pi require support?",
+            ),
+        )
+        batch = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Support question",
+                source_scope="resource_questions",
+                source_resource_id=resource_id,
+                markdown=r"# Question\n\nWhy does $V^\pi$ require support?",
+                annotation_ids=[question.id],
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+                initial_prompt_batch_id=batch.id,
+            ),
+        )
+        assistant = create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown=r"Because $\pi(a|s)>0$ must overlap with the logger.",
+                imported_from_clipboard=True,
+                link_prompt_questions=True,
+            ),
+        )
+        before = get_workspace(connection, course_id)
+        link_discussion_question(
+            connection,
+            assistant.id,
+            question.id,
+            DiscussionQuestionLinkCommand(relation="answers"),
+        )
+        followup = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=before.discussions[0].resource_id,
+                kind="question",
+                markdown="What changes under weak overlap?",
+                anchor=AnnotationAnchorCreate(
+                    anchor_type="discussion_message",
+                    discussion_message_id=assistant.id,
+                    quote="overlap with the logger",
+                ),
+            ),
+        )
+        after = get_workspace(connection, course_id)
+
+    thread = before.discussions[0]
+    assert thread.resource_id != resource_id
+    assert thread.source_resource_ids == [resource_id]
+    assert thread.question_ids == [question.id]
+    assert thread.messages[0].role == "user"
+    assert thread.messages[0].annotation_links[0].relation == "generated_from"
+    assert thread.messages[1].imported_from_clipboard is True
+    assert thread.messages[1].annotation_links[0].relation == "references"
+    answered = next(item for item in after.annotations if item.id == question.id)
+    assert answered.status == "answered"
+    answered_message = after.discussions[0].messages[1]
+    assert answered_message.annotation_links[0].relation == "answers"
+    assert followup.id in after.discussions[0].question_ids
+
+
+def test_question_body_can_be_edited_with_document_revision(tmp_path: Path) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        created = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Original question",
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+        question = next(item for item in workspace.annotations if item.id == created.id)
+        assert question.body is not None
+        update_annotation(
+            connection,
+            question.id,
+            AnnotationCommand(
+                revision=question.revision,
+                markdown=r"Updated question with $\rho(s, a)$",
+                plain_text="Updated question with rho",
+                document_revision=question.body.revision,
+                priority="high",
+            ),
+        )
+        updated_workspace = get_workspace(connection, course_id)
+
+    updated = next(
+        item for item in updated_workspace.annotations if item.id == created.id
+    )
+    assert updated.priority == "high"
+    assert updated.body is not None
+    assert updated.body.markdown == r"Updated question with $\rho(s, a)$"

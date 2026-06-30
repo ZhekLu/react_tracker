@@ -10,6 +10,13 @@ ResourceStatus = Literal["unread", "skimmed", "reading", "read", "review", "arch
 ExamStatus = Literal["unsolved", "attempted", "solved", "review", "skipped"]
 AnnotationKind = Literal["question", "note", "highlight", "todo"]
 AnnotationStatus = Literal["open", "answered", "archived"]
+DiscussionQuestionRelation = Literal[
+    "answers",
+    "partially_answers",
+    "references",
+    "followup_to",
+    "generated_from",
+]
 
 
 class StrictModel(BaseModel):
@@ -207,13 +214,23 @@ class DiscussionMessage(StrictModel):
     sequence_number: int
     body: DocumentContent
     reply_to_message_id: str | None = None
+    imported_from_clipboard: bool
+    annotation_links: list[DiscussionMessageAnnotation] = Field(default_factory=list)
     revision: int
     created_at: str
+
+
+class DiscussionMessageAnnotation(StrictModel):
+    annotation_id: str
+    relation: DiscussionQuestionRelation
 
 
 class Discussion(StrictModel):
     id: str
     resource_id: str
+    source_resource_ids: list[str] = Field(default_factory=list)
+    initial_prompt_batch_id: str | None = None
+    question_ids: list[str] = Field(default_factory=list)
     title: str
     provider: str
     status: Literal["active", "reviewed", "archived"]
@@ -310,6 +327,9 @@ class AnnotationCommand(RevisionCommand):
     kind: AnnotationKind | None = None
     status: AnnotationStatus | None = None
     priority: Literal["low", "normal", "high"] | None = None
+    markdown: str | None = None
+    plain_text: str | None = None
+    document_revision: int | None = Field(default=None, ge=1)
 
 
 class AnnotationAnchorCreate(StrictModel):
@@ -324,6 +344,7 @@ class AnnotationAnchorCreate(StrictModel):
     color: str | None = None
     rgb: list[float] | None = None
     annotation_kind: str | None = None
+    discussion_message_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -354,8 +375,15 @@ class NoteUpsertCommand(StrictModel):
 
 class DiscussionCreateCommand(StrictModel):
     course_id: str
-    resource_id: str
+    source_resource_id: str | None = None
+    initial_prompt_batch_id: str | None = None
+    title: str | None = None
     provider: str = "chatgpt"
+
+
+class DiscussionMessageAnnotationInput(StrictModel):
+    annotation_id: str
+    relation: DiscussionQuestionRelation
 
 
 class DiscussionMessageCreateCommand(StrictModel):
@@ -363,6 +391,16 @@ class DiscussionMessageCreateCommand(StrictModel):
     markdown: str = ""
     editor_json: dict[str, Any] | None = None
     plain_text: str = ""
+    reply_to_message_id: str | None = None
+    imported_from_clipboard: bool = False
+    link_prompt_questions: bool = False
+    annotation_links: list[DiscussionMessageAnnotationInput] = Field(
+        default_factory=list
+    )
+
+
+class DiscussionQuestionLinkCommand(StrictModel):
+    relation: DiscussionQuestionRelation
 
 
 class DiscussionStatusCommand(RevisionCommand):

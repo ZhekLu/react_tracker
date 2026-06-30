@@ -125,11 +125,17 @@ rows. The complete format, patch semantics, and AI-generation rules are in
   in-app reader; select text there to save a highlight or structured question.
 - Use Exams for the compact activity map plus per-question solution notes.
 - Use Notes to review and edit notes, active questions, structured annotations,
-  deferred work, and the meeting scratchpad in one place. Structured copy
-  actions save an immutable prompt-batch snapshot alongside the clipboard text.
-- Use Discussions to keep ordered tutor exchanges attached to one resource.
-  Messages are append-only in the current slice; editing and rendered math are
-  still tracked as follow-up work.
+  deferred work, and the meeting scratchpad in one place. Question text and
+  priority are editable. Structured copy actions save an immutable prompt-batch
+  snapshot alongside the clipboard text and can start a linked discussion.
+- Use Discussions to keep ordered tutor exchanges attached to one or more source
+  resources. Messages are immutable, render Markdown/LaTeX, and can answer,
+  partially answer, or reference one or many questions. New questions can be
+  anchored recursively to any discussion message.
+
+Tiptap notes support editable inline and block formulas. Read-only Markdown
+surfaces use the same lazy KaTeX renderer so formula syntax remains consistent
+across notes, questions, plans, resource descriptions, and discussions.
 
 The target relational model, invariants, import identity rules, and phased
 migration order are documented in `../features/db_schema.md`.

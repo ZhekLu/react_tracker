@@ -10,6 +10,7 @@ import type {
   DayStatus,
   Discussion,
   DiscussionMessage,
+  DiscussionQuestionRelation,
   DocumentContent,
   ExamQuestion,
   ExamSet,
@@ -17,6 +18,7 @@ import type {
   Note,
   NoteLink,
   Resource,
+  ResourceFile,
   ResourceStatus,
   ResourceVersion,
   Skill,
@@ -188,7 +190,15 @@ type ApiResource = {
   canonical_url?: string | null;
   status: ResourceStatus;
   revision: number;
+  description?: ApiDocumentContent | null;
   version?: ApiResourceVersion | null;
+  local_files: {
+    index: number;
+    local_path: string;
+    file_name: string;
+    is_primary: boolean;
+  }[];
+  metadata: Record<string, unknown>;
   progress_percent: number;
   day_ids: string[];
   task_ids: string[];
@@ -236,6 +246,11 @@ type ApiDiscussionMessage = {
   sequence_number: number;
   body: ApiDocumentContent;
   reply_to_message_id?: string | null;
+  imported_from_clipboard: boolean;
+  annotation_links: {
+    annotation_id: string;
+    relation: DiscussionQuestionRelation;
+  }[];
   revision: number;
   created_at: string;
 };
@@ -243,6 +258,9 @@ type ApiDiscussionMessage = {
 type ApiDiscussion = {
   id: string;
   resource_id: string;
+  source_resource_ids: string[];
+  initial_prompt_batch_id?: string | null;
+  question_ids: string[];
   title: string;
   provider: string;
   status: "active" | "reviewed" | "archived";
@@ -285,6 +303,21 @@ export type DiscussionMessageInput = {
   markdown: string;
   editorJson?: Record<string, unknown> | null;
   plainText: string;
+  replyToMessageId?: string;
+  importedFromClipboard?: boolean;
+  linkPromptQuestions?: boolean;
+  annotationLinks?: {
+    annotationId: string;
+    relation: DiscussionQuestionRelation;
+  }[];
+};
+
+export type DiscussionCreateInput = {
+  courseId: string;
+  sourceResourceId?: string;
+  initialPromptBatchId?: string;
+  title?: string;
+  provider?: string;
 };
 
 export type ResourceOpenResult = {
@@ -313,6 +346,7 @@ export type AnnotationCreateInput = {
     color?: string;
     rgb?: number[];
     annotationKind?: string;
+    discussionMessageId?: string;
     metadata?: Record<string, unknown>;
   };
 };
@@ -550,7 +584,15 @@ function resource(api: ApiResource): Resource {
     canonicalUrl: api.canonical_url,
     status: api.status,
     revision: api.revision,
+    description: api.description ? documentContent(api.description) : null,
     version: api.version ? resourceVersion(api.version) : null,
+    localFiles: api.local_files.map<ResourceFile>((file) => ({
+      index: file.index,
+      localPath: file.local_path,
+      fileName: file.file_name,
+      isPrimary: file.is_primary,
+    })),
+    metadata: api.metadata,
     progress: api.progress_percent,
     dayIds: api.day_ids,
     taskIds: api.task_ids,
@@ -607,6 +649,11 @@ function discussionMessage(api: ApiDiscussionMessage): DiscussionMessage {
     sequenceNumber: api.sequence_number,
     body: documentContent(api.body),
     replyToMessageId: api.reply_to_message_id,
+    importedFromClipboard: api.imported_from_clipboard,
+    annotationLinks: api.annotation_links.map((link) => ({
+      annotationId: link.annotation_id,
+      relation: link.relation,
+    })),
     revision: api.revision,
     createdAt: api.created_at,
   };
@@ -616,6 +663,9 @@ function discussion(api: ApiDiscussion): Discussion {
   return {
     id: api.id,
     resourceId: api.resource_id,
+    sourceResourceIds: api.source_resource_ids,
+    initialPromptBatchId: api.initial_prompt_batch_id,
+    questionIds: api.question_ids,
     title: api.title,
     provider: api.provider,
     status: api.status,
@@ -732,10 +782,21 @@ export async function updateAnnotation(
     kind?: AnnotationKind;
     status?: AnnotationStatus;
     priority?: "low" | "normal" | "high";
+    markdown?: string;
+    plainText?: string;
+    documentRevision?: number;
   },
 ): Promise<MutationResponse> {
   return requestJson<MutationResponse>(`/annotations/${annotationId}`, {
-    body: JSON.stringify({ revision, ...changes }),
+    body: JSON.stringify({
+      revision,
+      kind: changes.kind,
+      status: changes.status,
+      priority: changes.priority,
+      markdown: changes.markdown,
+      plain_text: changes.plainText,
+      document_revision: changes.documentRevision,
+    }),
     method: "PATCH",
   });
 }
@@ -765,6 +826,7 @@ export async function createAnnotation(
             color: input.anchor.color,
             rgb: input.anchor.rgb,
             annotation_kind: input.anchor.annotationKind,
+            discussion_message_id: input.anchor.discussionMessageId,
             metadata: input.anchor.metadata ?? {},
           }
         : undefined,
@@ -807,6 +869,24 @@ export async function openResource(resourceId: string): Promise<ResourceOpenResu
   };
 }
 
+export async function openResourceFile(
+  resourceId: string,
+  fileIndex: number,
+): Promise<ResourceOpenResult> {
+  const result = await requestJson<{
+    resource_id: string;
+    target: string;
+    application: string;
+  }>(`/resources/${resourceId}/files/${fileIndex}/open`, {
+    method: "POST",
+  });
+  return {
+    resourceId: result.resource_id,
+    target: result.target,
+    application: result.application,
+  };
+}
+
 export async function upsertNote(input: NoteUpsertInput): Promise<MutationResponse> {
   return requestJson<MutationResponse>("/notes", {
     body: JSON.stringify({
@@ -826,14 +906,15 @@ export async function upsertNote(input: NoteUpsertInput): Promise<MutationRespon
 }
 
 export async function createDiscussion(
-  courseId: string,
-  resourceId: string,
+  input: DiscussionCreateInput,
 ): Promise<MutationResponse> {
   return requestJson<MutationResponse>("/discussions", {
     body: JSON.stringify({
-      course_id: courseId,
-      resource_id: resourceId,
-      provider: "chatgpt",
+      course_id: input.courseId,
+      source_resource_id: input.sourceResourceId,
+      initial_prompt_batch_id: input.initialPromptBatchId,
+      title: input.title,
+      provider: input.provider ?? "chatgpt",
     }),
     method: "POST",
   });
@@ -849,9 +930,30 @@ export async function createDiscussionMessage(
       markdown: input.markdown,
       editor_json: input.editorJson,
       plain_text: input.plainText,
+      reply_to_message_id: input.replyToMessageId,
+      imported_from_clipboard: input.importedFromClipboard ?? false,
+      link_prompt_questions: input.linkPromptQuestions ?? false,
+      annotation_links: (input.annotationLinks ?? []).map((link) => ({
+        annotation_id: link.annotationId,
+        relation: link.relation,
+      })),
     }),
     method: "POST",
   });
+}
+
+export async function linkDiscussionQuestion(
+  messageId: string,
+  annotationId: string,
+  relation: DiscussionQuestionRelation,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(
+    `/discussion-messages/${messageId}/questions/${annotationId}`,
+    {
+      body: JSON.stringify({ relation }),
+      method: "PUT",
+    },
+  );
 }
 
 export async function updateDiscussionStatus(

@@ -6,6 +6,12 @@ export type ResourceStatus = "unread" | "skimmed" | "reading" | "read" | "review
 export type ExamStatus = "unsolved" | "attempted" | "solved" | "review" | "skipped";
 export type AnnotationKind = "question" | "note" | "highlight" | "todo";
 export type AnnotationStatus = "open" | "answered" | "archived";
+export type DiscussionQuestionRelation =
+  | "answers"
+  | "partially_answers"
+  | "references"
+  | "followup_to"
+  | "generated_from";
 
 export type ResourceKind =
   | "paper"
@@ -176,6 +182,13 @@ export type ResourceVersion = {
   pageCount?: number | null;
 };
 
+export type ResourceFile = {
+  index: number;
+  localPath: string;
+  fileName: string;
+  isPrimary: boolean;
+};
+
 export type Resource = {
   id: string;
   parentResourceId?: string | null;
@@ -189,7 +202,10 @@ export type Resource = {
   canonicalUrl?: string | null;
   status: ResourceStatus;
   revision: number;
+  description?: DocumentContent | null;
   version?: ResourceVersion | null;
+  localFiles: ResourceFile[];
+  metadata: Record<string, unknown>;
   progress: number;
   dayIds: string[];
   taskIds: string[];
@@ -238,6 +254,11 @@ export type DiscussionMessage = {
   sequenceNumber: number;
   body: DocumentContent;
   replyToMessageId?: string | null;
+  importedFromClipboard: boolean;
+  annotationLinks: {
+    annotationId: string;
+    relation: DiscussionQuestionRelation;
+  }[];
   revision: number;
   createdAt: string;
 };
@@ -245,6 +266,9 @@ export type DiscussionMessage = {
 export type Discussion = {
   id: string;
   resourceId: string;
+  sourceResourceIds: string[];
+  initialPromptBatchId?: string | null;
+  questionIds: string[];
   title: string;
   provider: string;
   status: "active" | "reviewed" | "archived";

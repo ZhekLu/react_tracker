@@ -61,7 +61,9 @@ export function WorkspaceSidebar({
   onCourseChange,
   onViewChange,
 }: WorkspaceSidebarProps) {
-  const libraryResources = course.resources.filter((resource) => resource.kind !== "exam_question");
+  const libraryResources = course.resources.filter(
+    (resource) => !["discussion", "exam_question"].includes(resource.kind),
+  );
   const readResources = libraryResources.filter((resource) =>
     ["read", "review"].includes(resource.status),
   ).length;

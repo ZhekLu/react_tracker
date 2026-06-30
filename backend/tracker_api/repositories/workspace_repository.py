@@ -26,7 +26,10 @@ from ..schemas.workspace import (
     Discussion,
     DiscussionCreateCommand,
     DiscussionMessage,
+    DiscussionMessageAnnotation,
+    DiscussionMessageAnnotationInput,
     DiscussionMessageCreateCommand,
+    DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
     DocumentContent,
     Exam,
@@ -499,9 +502,12 @@ def list_courses(connection: Connection) -> CourseListResponse:
             resource_stats AS (
               SELECT
                 course_id,
-                COUNT(id) FILTER (WHERE kind <> 'exam_question') AS resource_count,
                 COUNT(id) FILTER (
-                  WHERE kind <> 'exam_question' AND status IN ('read', 'review')
+                  WHERE kind NOT IN ('exam_question', 'discussion')
+                ) AS resource_count,
+                COUNT(id) FILTER (
+                  WHERE kind NOT IN ('exam_question', 'discussion')
+                    AND status IN ('read', 'review')
                 ) AS read_resource_count,
                 COUNT(id) FILTER (WHERE kind = 'exam_question') AS exam_question_count
               FROM resources
@@ -977,13 +983,97 @@ def _discussions(
     course_id: str,
     documents: Mapping[str, DocumentContent],
 ) -> list[Discussion]:
+    links_by_message: dict[str, list[DiscussionMessageAnnotation]] = defaultdict(list)
+    linked_question_ids: dict[str, list[str]] = defaultdict(list)
+    for row in _rows(
+        connection,
+        """
+        SELECT dm.thread_id, dma.message_id, dma.annotation_id, dma.relation
+        FROM discussion_message_annotations dma
+        JOIN discussion_messages dm ON dm.id = dma.message_id
+        JOIN discussion_threads dt ON dt.id = dm.thread_id
+        WHERE dt.course_id = :course_id
+          AND dt.deleted_at IS NULL
+          AND dm.deleted_at IS NULL
+        ORDER BY dm.sequence_number, dma.created_at
+        """,
+        {"course_id": course_id},
+    ):
+        message_id = str(row["message_id"])
+        thread_id = str(row["thread_id"])
+        annotation_id = str(row["annotation_id"])
+        links_by_message[message_id].append(
+            DiscussionMessageAnnotation(
+                annotation_id=annotation_id,
+                relation=cast(Any, row["relation"]),
+            )
+        )
+        if annotation_id not in linked_question_ids[thread_id]:
+            linked_question_ids[thread_id].append(annotation_id)
+
+    for row in _rows(
+        connection,
+        """
+        SELECT dm.thread_id, aa.annotation_id
+        FROM annotation_anchors aa
+        JOIN discussion_messages dm ON dm.id = aa.discussion_message_id
+        JOIN discussion_threads dt ON dt.id = dm.thread_id
+        JOIN annotations a ON a.id = aa.annotation_id
+        WHERE dt.course_id = :course_id
+          AND dt.deleted_at IS NULL
+          AND dm.deleted_at IS NULL
+          AND a.deleted_at IS NULL
+          AND a.kind IN ('question', 'todo')
+        ORDER BY a.created_at
+        """,
+        {"course_id": course_id},
+    ):
+        thread_id = str(row["thread_id"])
+        annotation_id = str(row["annotation_id"])
+        if annotation_id not in linked_question_ids[thread_id]:
+            linked_question_ids[thread_id].append(annotation_id)
+
+    initial_question_ids: dict[str, list[str]] = defaultdict(list)
+    for row in _rows(
+        connection,
+        """
+        SELECT dt.id AS thread_id, pbi.annotation_id
+        FROM discussion_threads dt
+        JOIN prompt_batch_items pbi
+          ON pbi.prompt_batch_id = dt.initial_prompt_batch_id
+        WHERE dt.course_id = :course_id AND dt.deleted_at IS NULL
+        ORDER BY dt.id, pbi.order_index
+        """,
+        {"course_id": course_id},
+    ):
+        initial_question_ids[str(row["thread_id"])].append(str(row["annotation_id"]))
+
+    source_resource_ids: dict[str, list[str]] = defaultdict(list)
+    for row in _rows(
+        connection,
+        """
+        SELECT dt.id AS thread_id, rr.target_resource_id
+        FROM discussion_threads dt
+        JOIN resource_relations rr ON rr.source_resource_id = dt.resource_id
+        WHERE dt.course_id = :course_id
+          AND dt.deleted_at IS NULL
+          AND rr.relation IN ('generated_from', 'continuation_of')
+        ORDER BY dt.id, rr.created_at
+        """,
+        {"course_id": course_id},
+    ):
+        source_resource_ids[str(row["thread_id"])].append(
+            str(row["target_resource_id"])
+        )
+
     messages_by_thread: dict[str, list[DiscussionMessage]] = defaultdict(list)
     for row in _rows(
         connection,
         """
         SELECT
           dm.id, dm.thread_id, dm.role, dm.sequence_number, dm.body_document_id,
-          dm.reply_to_message_id, dm.revision, dm.created_at
+          dm.reply_to_message_id, dm.imported_from_clipboard, dm.revision,
+          dm.created_at
         FROM discussion_messages dm
         JOIN discussion_threads dt ON dt.id = dm.thread_id
         WHERE dt.course_id = :course_id AND dt.deleted_at IS NULL AND dm.deleted_at IS NULL
@@ -1001,6 +1091,8 @@ def _discussions(
                 sequence_number=int(row["sequence_number"]),
                 body=body,
                 reply_to_message_id=cast(str | None, row["reply_to_message_id"]),
+                imported_from_clipboard=_as_bool(row["imported_from_clipboard"]),
+                annotation_links=links_by_message.get(str(row["id"]), []),
                 revision=int(row["revision"]),
                 created_at=str(row["created_at"]),
             )
@@ -1010,7 +1102,31 @@ def _discussions(
         Discussion(
             id=str(row["id"]),
             resource_id=str(row["resource_id"]),
-            title=f"Discussion: {row['title']}",
+            source_resource_ids=(
+                source_resource_ids.get(str(row["id"]), [])
+                or (
+                    [str(row["resource_id"])]
+                    if str(row["resource_kind"]) != "discussion"
+                    else []
+                )
+            ),
+            initial_prompt_batch_id=cast(
+                str | None,
+                row["initial_prompt_batch_id"],
+            ),
+            question_ids=list(
+                dict.fromkeys(
+                    [
+                        *initial_question_ids.get(str(row["id"]), []),
+                        *linked_question_ids.get(str(row["id"]), []),
+                    ]
+                )
+            ),
+            title=(
+                str(row["title"])
+                if str(row["resource_kind"]) == "discussion"
+                else f"Discussion: {row['title']}"
+            ),
             provider=str(row["provider"]),
             status=cast(Any, row["status"]),
             revision=int(row["revision"]),
@@ -1019,7 +1135,9 @@ def _discussions(
         for row in _rows(
             connection,
             """
-            SELECT dt.id, dt.resource_id, r.title, dt.provider, dt.status, dt.revision
+            SELECT
+              dt.id, dt.resource_id, dt.initial_prompt_batch_id, r.title,
+              r.kind AS resource_kind, dt.provider, dt.status, dt.revision
             FROM discussion_threads dt
             JOIN resources r ON r.id = dt.resource_id
             WHERE dt.course_id = :course_id AND dt.deleted_at IS NULL
@@ -1039,7 +1157,11 @@ def _workspace_stats(
 ) -> CourseStats:
     tasks = [task for day in days for section in day.sections for task in section.tasks]
     questions = [question for exam in exams for question in exam.questions]
-    library_resources = [resource for resource in resources if resource.kind != "exam_question"]
+    library_resources = [
+        resource
+        for resource in resources
+        if resource.kind not in {"exam_question", "discussion"}
+    ]
     read_resource_count = sum(
         1 for resource in library_resources if resource.status in {"read", "review"}
     )
@@ -1339,6 +1461,17 @@ def update_annotation(
     annotation_id: str,
     command: AnnotationCommand,
 ) -> MutationResponse:
+    annotation = _one_or_none(
+        connection,
+        """
+        SELECT id, body_document_id
+        FROM annotations
+        WHERE id = :id AND deleted_at IS NULL
+        """,
+        {"id": annotation_id},
+    )
+    if annotation is None:
+        raise EntityNotFoundError(f"Annotation does not exist: {annotation_id}")
     assignments = [
         "kind = COALESCE(:kind, kind)",
         "status = COALESCE(:status, status)",
@@ -1346,7 +1479,7 @@ def update_annotation(
         "answered_at = CASE WHEN :status = 'answered' THEN :now ELSE answered_at END",
         "archived_at = CASE WHEN :status = 'archived' THEN :now ELSE archived_at END",
     ]
-    return _update_with_revision(
+    response = _update_with_revision(
         connection,
         table_name="annotations",
         entity_id=annotation_id,
@@ -1359,6 +1492,80 @@ def update_annotation(
             "now": _now(),
         },
     )
+    if command.markdown is None and command.plain_text is None:
+        return response
+    now = _now()
+    markdown = command.markdown or command.plain_text or ""
+    plain_text = command.plain_text if command.plain_text is not None else markdown
+    content_hash = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
+    document_id = cast(str | None, annotation["body_document_id"])
+    if document_id is None:
+        document_id = _create_document(
+            connection,
+            markdown=markdown,
+            editor_json=None,
+            plain_text=plain_text,
+            reason="annotation_body_created",
+            timestamp=now,
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE annotations
+                SET body_document_id = :document_id
+                WHERE id = :annotation_id
+                """
+            ),
+            {"annotation_id": annotation_id, "document_id": document_id},
+        )
+        return response
+    current_document_revision = connection.execute(
+        text("SELECT revision FROM documents WHERE id = :id AND deleted_at IS NULL"),
+        {"id": document_id},
+    ).scalar_one_or_none()
+    if current_document_revision is None:
+        raise EntityNotFoundError(f"Annotation document does not exist: {document_id}")
+    expected_revision = command.document_revision or int(current_document_revision)
+    document_row = _one_or_none(
+        connection,
+        """
+        UPDATE documents
+        SET canonical_format = 'markdown',
+            markdown = :markdown,
+            editor_json = NULL,
+            plain_text = :plain_text,
+            content_hash = :content_hash,
+            updated_at = :updated_at,
+            revision = revision + 1
+        WHERE id = :id AND revision = :revision AND deleted_at IS NULL
+        RETURNING id, revision, updated_at
+        """,
+        {
+            "id": document_id,
+            "revision": expected_revision,
+            "markdown": markdown,
+            "plain_text": plain_text,
+            "content_hash": content_hash,
+            "updated_at": now,
+        },
+    )
+    if document_row is None:
+        raise RevisionConflictError(
+            f"Stale revision for annotation document: {document_id}"
+        )
+    document_revision = int(document_row["revision"])
+    _insert_document_revision(
+        connection,
+        document_id=document_id,
+        revision=document_revision,
+        markdown=markdown,
+        editor_json=None,
+        plain_text=plain_text,
+        content_hash=content_hash,
+        reason="annotation_body_updated",
+        timestamp=now,
+    )
+    return response
 
 
 def create_annotation(
@@ -1450,7 +1657,7 @@ def create_annotation(
                 VALUES (
                   :annotation_id, :resource_version_id, :anchor_type, :quote,
                   NULL, :section_title, :source_line_start, :source_line_end,
-                  :page_number, :rect_json, NULL, NULL,
+                  :page_number, :rect_json, :discussion_message_id, NULL,
                   NULL, NULL, NULL, NULL, :color,
                   :rgb_json, :annotation_kind, :selector_json, :now, :now
                 )
@@ -1468,6 +1675,7 @@ def create_annotation(
                 "source_line_end": anchor.source_line_end,
                 "page_number": anchor.page_number,
                 "rect_json": _json_dumps(anchor.rect),
+                "discussion_message_id": anchor.discussion_message_id,
                 "color": anchor.color,
                 "rgb_json": _json_dumps(anchor.rgb),
                 "annotation_kind": anchor.annotation_kind,
@@ -1856,6 +2064,36 @@ def resource_open_target(
     return cast(str | None, row["local_path"]), cast(str | None, row["source_url"])
 
 
+def resource_file_open_target(
+    connection: Connection,
+    resource_id: str,
+    file_index: int,
+) -> tuple[str, None]:
+    row = _one_or_none(
+        connection,
+        """
+        SELECT metadata_json
+        FROM resources
+        WHERE id = :resource_id AND deleted_at IS NULL
+        """,
+        {"resource_id": resource_id},
+    )
+    if row is None:
+        raise EntityNotFoundError(f"Resource does not exist: {resource_id}")
+    metadata: dict[str, Any] = _json_loads(row["metadata_json"], {})
+    raw_paths = metadata.get("local_paths", [])
+    paths = (
+        [str(path) for path in raw_paths if str(path).strip()]
+        if isinstance(raw_paths, list)
+        else []
+    )
+    if file_index < 0 or file_index >= len(paths):
+        raise EntityNotFoundError(
+            f"Resource file index does not exist: {resource_id}/{file_index}"
+        )
+    return paths[file_index], None
+
+
 def resource_content_target(
     connection: Connection,
     resource_id: str,
@@ -1883,31 +2121,88 @@ def create_discussion(
     connection: Connection,
     command: DiscussionCreateCommand,
 ) -> MutationResponse:
-    resource = _one_or_none(
-        connection,
-        """
-        SELECT id
-        FROM resources
-        WHERE id = :resource_id AND course_id = :course_id AND deleted_at IS NULL
-        """,
-        {"resource_id": command.resource_id, "course_id": command.course_id},
-    )
-    if resource is None:
-        raise EntityNotFoundError(f"Resource does not exist in course: {command.resource_id}")
-    existing = _one_or_none(
-        connection,
-        """
-        SELECT id, revision, updated_at
-        FROM discussion_threads
-        WHERE resource_id = :resource_id AND deleted_at IS NULL
-        """,
-        {"resource_id": command.resource_id},
-    )
-    if existing is not None:
-        return _mutation_result(existing)
-
+    source_resource = _discussion_source_resource(connection, command)
+    prompt_batch = _discussion_prompt_batch(connection, command)
+    if source_resource is None and prompt_batch is not None:
+        prompt_source_id = cast(str | None, prompt_batch["source_resource_id"])
+        if prompt_source_id:
+            source_resource = _one_or_none(
+                connection,
+                """
+                SELECT id, title
+                FROM resources
+                WHERE id = :id AND course_id = :course_id AND deleted_at IS NULL
+                """,
+                {"id": prompt_source_id, "course_id": command.course_id},
+            )
+    if source_resource is None and prompt_batch is None:
+        raise WorkspaceRepositoryError(
+            "A discussion needs a source resource or an initial prompt batch."
+        )
     now = _now()
+    resource_id = _new_id()
     discussion_id = _new_id()
+    title = (
+        command.title
+        or (str(prompt_batch["title"]) if prompt_batch is not None else None)
+        or (
+            f"Discussion: {source_resource['title']}"
+            if source_resource is not None
+            else "Tutor discussion"
+        )
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO resources (
+              id, course_id, parent_resource_id, current_version_id,
+              content_document_id, title, kind, format, source_type,
+              category, authors_json, publication_year, canonical_url,
+              status, first_opened_at, last_opened_at, completed_at,
+              metadata_json, created_at, updated_at, deleted_at, revision
+            )
+            VALUES (
+              :id, :course_id, NULL, NULL,
+              NULL, :title, 'discussion', 'discussion_thread', 'generated',
+              'Tutor conversations', '[]', NULL, NULL,
+              'unread', NULL, NULL, NULL,
+              :metadata_json, :now, :now, NULL, 1
+            )
+            """
+        ),
+        {
+            "id": resource_id,
+            "course_id": command.course_id,
+            "title": title,
+            "metadata_json": _json_dumps(
+                {
+                    "initial_prompt_batch_id": command.initial_prompt_batch_id,
+                    "source_resource_id": (
+                        str(source_resource["id"])
+                        if source_resource is not None
+                        else None
+                    ),
+                }
+            ),
+            "now": now,
+        },
+    )
+    if source_resource is not None:
+        connection.execute(
+            text(
+                """
+                INSERT INTO resource_relations (
+                  source_resource_id, target_resource_id, relation, created_at
+                )
+                VALUES (:source_id, :target_id, 'generated_from', :created_at)
+                """
+            ),
+            {
+                "source_id": resource_id,
+                "target_id": source_resource["id"],
+                "created_at": now,
+            },
+        )
     row = _one_or_none(
         connection,
         """
@@ -1916,22 +2211,142 @@ def create_discussion(
           status, created_at, updated_at, deleted_at, revision
         )
         VALUES (
-          :id, :resource_id, :course_id, NULL, :provider,
+          :id, :resource_id, :course_id, :initial_prompt_batch_id, :provider,
           'active', :now, :now, NULL, 1
         )
         RETURNING id, revision, updated_at
         """,
         {
             "id": discussion_id,
-            "resource_id": command.resource_id,
+            "resource_id": resource_id,
             "course_id": command.course_id,
+            "initial_prompt_batch_id": command.initial_prompt_batch_id,
             "provider": command.provider,
             "now": now,
         },
     )
     if row is None:
         raise WorkspaceRepositoryError("Could not create discussion.")
-    return _mutation_result(row)
+    if prompt_batch is not None:
+        prompt_links = [
+            DiscussionMessageAnnotationInput(
+                annotation_id=str(annotation_id),
+                relation="generated_from",
+            )
+            for annotation_id in connection.execute(
+                text(
+                    """
+                    SELECT annotation_id
+                    FROM prompt_batch_items
+                    WHERE prompt_batch_id = :prompt_batch_id
+                    ORDER BY order_index
+                    """
+                ),
+                {"prompt_batch_id": prompt_batch["id"]},
+            ).scalars()
+        ]
+        create_discussion_message(
+            connection,
+            discussion_id,
+            DiscussionMessageCreateCommand(
+                role="user",
+                markdown=str(prompt_batch["markdown"] or ""),
+                editor_json=_json_loads(prompt_batch["editor_json"], None),
+                plain_text=str(prompt_batch["plain_text"] or ""),
+                annotation_links=prompt_links,
+            ),
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE prompt_batches
+                SET parent_discussion_thread_id = :discussion_id,
+                    updated_at = :updated_at
+                WHERE id = :prompt_batch_id
+                """
+            ),
+            {
+                "discussion_id": discussion_id,
+                "prompt_batch_id": prompt_batch["id"],
+                "updated_at": now,
+            },
+        )
+    refreshed = _one_or_none(
+        connection,
+        "SELECT id, revision, updated_at FROM discussion_threads WHERE id = :id",
+        {"id": discussion_id},
+    )
+    if refreshed is None:
+        raise WorkspaceRepositoryError("Could not reload discussion.")
+    return _mutation_result(refreshed)
+
+
+def _discussion_source_resource(
+    connection: Connection,
+    command: DiscussionCreateCommand,
+) -> RowMapping | None:
+    if command.source_resource_id is None:
+        return None
+    resource = _one_or_none(
+        connection,
+        """
+        SELECT id, title
+        FROM resources
+        WHERE id = :resource_id AND course_id = :course_id AND deleted_at IS NULL
+        """,
+        {
+            "resource_id": command.source_resource_id,
+            "course_id": command.course_id,
+        },
+    )
+    if resource is None:
+        raise EntityNotFoundError(
+            f"Resource does not exist in course: {command.source_resource_id}"
+        )
+    return resource
+
+
+def _discussion_prompt_batch(
+    connection: Connection,
+    command: DiscussionCreateCommand,
+) -> RowMapping | None:
+    if command.initial_prompt_batch_id is None:
+        return None
+    existing = _one_or_none(
+        connection,
+        """
+        SELECT id, revision, updated_at
+        FROM discussion_threads
+        WHERE initial_prompt_batch_id = :prompt_batch_id AND deleted_at IS NULL
+        """,
+        {"prompt_batch_id": command.initial_prompt_batch_id},
+    )
+    if existing is not None:
+        raise WorkspaceRepositoryError(
+            f"Prompt batch already has discussion: {existing['id']}"
+        )
+    prompt_batch = _one_or_none(
+        connection,
+        """
+        SELECT
+          pb.id, pb.title, pb.source_resource_id, pb.prompt_document_id,
+          d.markdown, d.editor_json, d.plain_text
+        FROM prompt_batches pb
+        JOIN documents d ON d.id = pb.prompt_document_id
+        WHERE pb.id = :prompt_batch_id
+          AND pb.course_id = :course_id
+          AND pb.deleted_at IS NULL
+        """,
+        {
+            "prompt_batch_id": command.initial_prompt_batch_id,
+            "course_id": command.course_id,
+        },
+    )
+    if prompt_batch is None:
+        raise EntityNotFoundError(
+            f"Prompt batch does not exist in course: {command.initial_prompt_batch_id}"
+        )
+    return prompt_batch
 
 
 def create_discussion_message(
@@ -1942,7 +2357,7 @@ def create_discussion_message(
     thread = _one_or_none(
         connection,
         """
-        SELECT id
+        SELECT id, course_id, initial_prompt_batch_id
         FROM discussion_threads
         WHERE id = :id AND deleted_at IS NULL
         """,
@@ -1950,6 +2365,20 @@ def create_discussion_message(
     )
     if thread is None:
         raise EntityNotFoundError(f"Discussion does not exist: {discussion_id}")
+    if command.reply_to_message_id:
+        reply = _one_or_none(
+            connection,
+            """
+            SELECT id
+            FROM discussion_messages
+            WHERE id = :id AND thread_id = :thread_id AND deleted_at IS NULL
+            """,
+            {"id": command.reply_to_message_id, "thread_id": discussion_id},
+        )
+        if reply is None:
+            raise EntityNotFoundError(
+                f"Reply target is not in this discussion: {command.reply_to_message_id}"
+            )
 
     now = _now()
     markdown = command.markdown
@@ -1984,8 +2413,8 @@ def create_discussion_message(
           externally_created_at, created_at, updated_at, deleted_at, revision
         )
         VALUES (
-          :id, :thread_id, NULL, NULL, :role,
-          :body_document_id, :sequence_number, 0,
+          :id, :thread_id, NULL, :reply_to_message_id, :role,
+          :body_document_id, :sequence_number, :imported_from_clipboard,
           NULL, :now, :now, NULL, 1
         )
         RETURNING id, revision, updated_at
@@ -1993,12 +2422,45 @@ def create_discussion_message(
         {
             "id": message_id,
             "thread_id": discussion_id,
+            "reply_to_message_id": command.reply_to_message_id,
             "role": command.role,
             "body_document_id": document_id,
             "sequence_number": sequence_number,
+            "imported_from_clipboard": command.imported_from_clipboard,
             "now": now,
         },
     )
+    annotation_links = list(command.annotation_links)
+    if command.link_prompt_questions and thread["initial_prompt_batch_id"]:
+        included = {link.annotation_id for link in annotation_links}
+        annotation_links.extend(
+            DiscussionMessageAnnotationInput(
+                annotation_id=str(annotation_id),
+                relation="references",
+            )
+            for annotation_id in connection.execute(
+                text(
+                    """
+                    SELECT annotation_id
+                    FROM prompt_batch_items
+                    WHERE prompt_batch_id = :prompt_batch_id
+                    ORDER BY order_index
+                    """
+                ),
+                {"prompt_batch_id": thread["initial_prompt_batch_id"]},
+            ).scalars()
+            if str(annotation_id) not in included
+        )
+    for link in annotation_links:
+        _set_discussion_message_annotation(
+            connection,
+            message_id=message_id,
+            annotation_id=link.annotation_id,
+            relation=link.relation,
+            course_id=str(thread["course_id"]),
+            timestamp=now,
+            update_question_status=link.relation in {"answers", "partially_answers"},
+        )
     connection.execute(
         text(
             """
@@ -2011,7 +2473,142 @@ def create_discussion_message(
     )
     if row is None:
         raise WorkspaceRepositoryError("Could not create discussion message.")
+    if command.role == "assistant" and thread["initial_prompt_batch_id"]:
+        connection.execute(
+            text(
+                """
+                UPDATE prompt_batches
+                SET status = 'answered',
+                    answered_at = COALESCE(answered_at, :now),
+                    updated_at = :now
+                WHERE id = :prompt_batch_id
+                """
+            ),
+            {"prompt_batch_id": thread["initial_prompt_batch_id"], "now": now},
+        )
     return _mutation_result(row)
+
+
+def _set_discussion_message_annotation(
+    connection: Connection,
+    *,
+    message_id: str,
+    annotation_id: str,
+    relation: str,
+    course_id: str,
+    timestamp: str,
+    update_question_status: bool,
+) -> MutationResponse:
+    annotation = _one_or_none(
+        connection,
+        """
+        SELECT a.id, a.revision
+        FROM annotations a
+        JOIN resources r ON r.id = a.resource_id
+        WHERE a.id = :annotation_id
+          AND r.course_id = :course_id
+          AND a.deleted_at IS NULL
+        """,
+        {"annotation_id": annotation_id, "course_id": course_id},
+    )
+    if annotation is None:
+        raise EntityNotFoundError(
+            f"Annotation does not exist in discussion course: {annotation_id}"
+        )
+    connection.execute(
+        text(
+            """
+            DELETE FROM discussion_message_annotations
+            WHERE message_id = :message_id AND annotation_id = :annotation_id
+            """
+        ),
+        {"message_id": message_id, "annotation_id": annotation_id},
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO discussion_message_annotations (
+              message_id, annotation_id, relation, created_at
+            )
+            VALUES (:message_id, :annotation_id, :relation, :created_at)
+            """
+        ),
+        {
+            "message_id": message_id,
+            "annotation_id": annotation_id,
+            "relation": relation,
+            "created_at": timestamp,
+        },
+    )
+    if not update_question_status:
+        return MutationResponse(
+            id=annotation_id,
+            revision=int(annotation["revision"]),
+            updated_at=timestamp,
+        )
+    row = _one_or_none(
+        connection,
+        """
+        UPDATE annotations
+        SET status = :status,
+            answered_at = CASE WHEN :status = 'answered' THEN :timestamp ELSE NULL END,
+            updated_at = :timestamp,
+            revision = revision + 1
+        WHERE id = :annotation_id AND deleted_at IS NULL
+        RETURNING id, revision, updated_at
+        """,
+        {
+            "annotation_id": annotation_id,
+            "status": "answered" if relation == "answers" else "open",
+            "timestamp": timestamp,
+        },
+    )
+    if row is None:
+        raise WorkspaceRepositoryError("Could not update linked question.")
+    return _mutation_result(row)
+
+
+def link_discussion_question(
+    connection: Connection,
+    message_id: str,
+    annotation_id: str,
+    command: DiscussionQuestionLinkCommand,
+) -> MutationResponse:
+    message = _one_or_none(
+        connection,
+        """
+        SELECT dm.id, dt.id AS thread_id, dt.course_id
+        FROM discussion_messages dm
+        JOIN discussion_threads dt ON dt.id = dm.thread_id
+        WHERE dm.id = :message_id
+          AND dm.deleted_at IS NULL
+          AND dt.deleted_at IS NULL
+        """,
+        {"message_id": message_id},
+    )
+    if message is None:
+        raise EntityNotFoundError(f"Discussion message does not exist: {message_id}")
+    now = _now()
+    response = _set_discussion_message_annotation(
+        connection,
+        message_id=message_id,
+        annotation_id=annotation_id,
+        relation=command.relation,
+        course_id=str(message["course_id"]),
+        timestamp=now,
+        update_question_status=command.relation in {"answers", "partially_answers"},
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE discussion_threads
+            SET updated_at = :updated_at, revision = revision + 1
+            WHERE id = :thread_id
+            """
+        ),
+        {"thread_id": message["thread_id"], "updated_at": now},
+    )
+    return response
 
 
 def update_discussion_status(

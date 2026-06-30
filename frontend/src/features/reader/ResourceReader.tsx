@@ -7,17 +7,16 @@ import {
 } from "lucide-react";
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type ReactNode,
 } from "react";
 import {
   fetchResourceContent,
   type ResourceContentResult,
 } from "../../api/trackerApi";
 import { ProgressBar } from "../../components/ProgressBar";
+import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import type { AnnotationKind, Resource } from "../../types/tracker";
@@ -38,89 +37,6 @@ type SelectionState = {
   quote: string;
   sectionTitle?: string;
 };
-
-function markdownBlocks(source: string): ReactNode[] {
-  const lines = source.replace(/\r\n?/g, "\n").split("\n");
-  const nodes: ReactNode[] = [];
-  let paragraph: string[] = [];
-  let code: string[] | null = null;
-  let codeLanguage = "";
-
-  function flushParagraph() {
-    if (!paragraph.length) return;
-    nodes.push(<p key={`p-${nodes.length}`}>{paragraph.join(" ")}</p>);
-    paragraph = [];
-  }
-
-  function flushCode() {
-    if (code === null) return;
-    nodes.push(
-      <pre key={`code-${nodes.length}`} data-language={codeLanguage}>
-        <code>{code.join("\n")}</code>
-      </pre>,
-    );
-    code = null;
-    codeLanguage = "";
-  }
-
-  for (const line of lines) {
-    const fence = line.match(/^```(.*)$/);
-    if (fence) {
-      if (code === null) {
-        flushParagraph();
-        code = [];
-        codeLanguage = fence[1].trim();
-      } else {
-        flushCode();
-      }
-      continue;
-    }
-    if (code !== null) {
-      code.push(line);
-      continue;
-    }
-    const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      const level = heading[1].length;
-      if (level === 1) nodes.push(<h1 key={`h-${nodes.length}`}>{heading[2]}</h1>);
-      if (level === 2) nodes.push(<h2 key={`h-${nodes.length}`}>{heading[2]}</h2>);
-      if (level === 3) nodes.push(<h3 key={`h-${nodes.length}`}>{heading[2]}</h3>);
-      if (level === 4) nodes.push(<h4 key={`h-${nodes.length}`}>{heading[2]}</h4>);
-      continue;
-    }
-    const bullet = line.match(/^\s*[-*]\s+(?:\[[ xX]\]\s+)?(.+)$/);
-    if (bullet) {
-      flushParagraph();
-      nodes.push(<div className="readerBullet" key={`li-${nodes.length}`}>• {bullet[1]}</div>);
-      continue;
-    }
-    const numbered = line.match(/^\s*(\d+)\.\s+(.+)$/);
-    if (numbered) {
-      flushParagraph();
-      nodes.push(
-        <div className="readerBullet" key={`li-${nodes.length}`}>
-          {numbered[1]}. {numbered[2]}
-        </div>,
-      );
-      continue;
-    }
-    const quote = line.match(/^>\s?(.*)$/);
-    if (quote) {
-      flushParagraph();
-      nodes.push(<blockquote key={`q-${nodes.length}`}>{quote[1]}</blockquote>);
-      continue;
-    }
-    if (!line.trim()) {
-      flushParagraph();
-      continue;
-    }
-    paragraph.push(line.trim());
-  }
-  flushParagraph();
-  flushCode();
-  return nodes;
-}
 
 function sectionFromSelection(selection: Selection | null): string | undefined {
   const node = selection?.anchorNode;
@@ -168,11 +84,6 @@ export function ResourceReader({
       cancelled = true;
     };
   }, [resource.id]);
-
-  const renderedMarkdown = useMemo(
-    () => (content?.format === "markdown" ? markdownBlocks(content.content) : null),
-    [content],
-  );
 
   function captureSelection(selectionValue: Selection | null) {
     const quote = selectionValue?.toString().replace(/\s+/g, " ").trim() ?? "";
@@ -279,7 +190,9 @@ export function ResourceReader({
           {error ? <div className="inlineError">{error}</div> : null}
           {!content && !error ? <div className="editorLoading">Loading reader…</div> : null}
           {content?.format === "markdown" ? (
-            <article className="readerDocument">{renderedMarkdown}</article>
+            <MarkdownMath className="readerDocument">
+              {content.content}
+            </MarkdownMath>
           ) : null}
           {content?.format === "text" ? (
             <pre className="readerDocument readerPlainText">{content.content}</pre>

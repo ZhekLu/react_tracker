@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
+import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
 import { StatusBadge } from "../../components/ui/StatusBadge";
@@ -141,7 +142,9 @@ function TaskRow({
         {task.rationale?.plainText ? (
           <details className="taskRationale">
             <summary><Info size={12} /> Why this</summary>
-            <p>{task.rationale.plainText}</p>
+            <MarkdownMath>
+              {task.rationale.markdown ?? task.rationale.plainText}
+            </MarkdownMath>
           </details>
         ) : null}
         {linkedResources.length || linkedQuestions.length ? (

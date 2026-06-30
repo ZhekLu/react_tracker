@@ -1,31 +1,39 @@
-import { lazy, Suspense, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Archive,
   BookOpen,
   Bot,
-  MessageSquarePlus,
-  MessageSquareText,
-  Plus,
+  CheckCircle2,
+  CircleHelp,
   ClipboardPaste,
   Copy,
+  MessageSquarePlus,
+  MessageSquareText,
+  MessageCircleQuestion,
+  Plus,
+  RotateCcw,
   Send,
   UserRound,
-  RotateCcw,
 } from "lucide-react";
 import type { DiscussionMessageInput } from "../../api/trackerApi";
-import type { Course, Discussion } from "../../types/tracker";
+import { MarkdownMath } from "../../components/content/MarkdownMath";
+import type {
+  Annotation,
+  Course,
+  Discussion,
+  DiscussionQuestionRelation,
+} from "../../types/tracker";
 import { discussionFollowups } from "../../lib/discussionText";
-
-const RichNoteEditor = lazy(() =>
-  import("../../components/editor/RichNoteEditor").then((module) => ({
-    default: module.RichNoteEditor,
-  })),
-);
 
 type DiscussionsViewProps = {
   course: Course;
   focusedResourceId: string;
   onAddMessage: (discussionId: string, input: DiscussionMessageInput) => void;
+  onAskMessageQuestion: (
+    discussionResourceId: string,
+    messageId: string,
+    messagePreview: string,
+  ) => void;
   onCreateDiscussion: (resourceId: string) => void;
   onDiscussionStatusChange: (
     discussion: Discussion,
@@ -35,6 +43,11 @@ type DiscussionsViewProps = {
   onImportClipboard: (resourceId: string) => void;
   onCopy: (text: string, label: string) => void;
   onOpenResource: (resourceId: string) => void;
+  onQuestionLink: (
+    messageId: string,
+    annotationId: string,
+    relation: DiscussionQuestionRelation,
+  ) => void;
 };
 
 function messageRoleLabel(role: Discussion["messages"][number]["role"]): string {
@@ -43,42 +56,92 @@ function messageRoleLabel(role: Discussion["messages"][number]["role"]): string 
   return role[0].toUpperCase() + role.slice(1);
 }
 
+function questionText(annotation: Annotation): string {
+  return (
+    annotation.body?.markdown ||
+    annotation.body?.plainText ||
+    annotation.anchor?.quote ||
+    "Question without text"
+  );
+}
+
 export function DiscussionsView({
   course,
   focusedResourceId,
   onAddMessage,
+  onAskMessageQuestion,
   onCreateDiscussion,
   onDiscussionStatusChange,
   onFocusResource,
   onImportClipboard,
   onCopy,
   onOpenResource,
+  onQuestionLink,
 }: DiscussionsViewProps) {
-  const resources = course.resources.filter((resource) => resource.kind !== "exam_question");
-  const selectedResourceId =
-    focusedResourceId ||
-    course.discussions[0]?.resourceId ||
-    resources[0]?.id ||
-    "";
-  const selectedResource = course.resources.find((resource) => resource.id === selectedResourceId);
-  const discussion = course.discussions.find((item) => item.resourceId === selectedResourceId);
+  const sourceResources = course.resources.filter(
+    (resource) =>
+      !["discussion", "exam_question"].includes(resource.kind),
+  );
+  const discussion =
+    course.discussions.find(
+      (item) =>
+        item.id === focusedResourceId ||
+        item.resourceId === focusedResourceId,
+    ) ??
+    course.discussions.find((item) =>
+      item.sourceResourceIds.includes(focusedResourceId),
+    ) ??
+    course.discussions[0];
+  const selectedSourceId =
+    discussion
+      ? discussion.sourceResourceIds[0] ?? ""
+      : sourceResources.some((resource) => resource.id === focusedResourceId)
+        ? focusedResourceId
+        : sourceResources[0]?.id ?? "";
+  const selectedSource = course.resources.find(
+    (resource) => resource.id === selectedSourceId,
+  );
   const followups = discussion ? discussionFollowups(discussion) : "";
+  const annotationById = useMemo(
+    () => new Map(course.annotations.map((annotation) => [annotation.id, annotation])),
+    [course.annotations],
+  );
+  const resourceById = useMemo(
+    () => new Map(course.resources.map((resource) => [resource.id, resource])),
+    [course.resources],
+  );
+  const questions = (discussion?.questionIds ?? [])
+    .map((id) => annotationById.get(id))
+    .filter((item): item is Annotation => Boolean(item));
+  const latestAssistantMessage = [...(discussion?.messages ?? [])]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const answeredCount = questions.filter(
+    (question) => question.status === "answered",
+  ).length;
 
   return (
     <div className="discussionLayout">
       <header className="viewToolbar">
         <div>
           <p className="eyebrow">Tutor conversations</p>
-          <h2>{course.discussions.length} linked discussion{course.discussions.length === 1 ? "" : "s"}</h2>
+          <h2>
+            {course.discussions.length} discussion
+            {course.discussions.length === 1 ? "" : "s"} · {answeredCount}/
+            {questions.length} linked questions answered
+          </h2>
         </div>
         <label className="discussionResourceSelect">
-          <span>Resource</span>
+          <span>Source resource</span>
           <select
             onChange={(event) => onFocusResource(event.target.value)}
-            value={selectedResourceId}
+            value={selectedSourceId}
           >
-            {resources.map((resource) => (
-              <option key={resource.id} value={resource.id}>{resource.title}</option>
+            <option value="">Course-wide / prompt batch</option>
+            {sourceResources.map((resource) => (
+              <option key={resource.id} value={resource.id}>
+                {resource.title}
+              </option>
             ))}
           </select>
         </label>
@@ -90,113 +153,252 @@ export function DiscussionsView({
             <MessageSquareText size={16} />
             <strong>Conversations</strong>
           </header>
-          {course.discussions.map((item) => {
-            const resource = course.resources.find((candidate) => candidate.id === item.resourceId);
-            return (
-              <button
-                className={item.resourceId === selectedResourceId ? "active" : ""}
-                key={item.id}
-                onClick={() => onFocusResource(item.resourceId)}
-                type="button"
-              >
-                <strong>{resource?.title ?? item.title}</strong>
-                <span>{item.messages.length} messages · {item.status}</span>
-              </button>
-            );
-          })}
+          {course.discussions.map((item) => (
+            <button
+              className={item.id === discussion?.id ? "active" : ""}
+              key={item.id}
+              onClick={() => onFocusResource(item.resourceId)}
+              type="button"
+            >
+              <strong>{item.title}</strong>
+              <span>
+                {item.messages.length} messages · {item.questionIds.length} questions ·{" "}
+                {item.status}
+              </span>
+            </button>
+          ))}
           {!course.discussions.length ? <p>No discussions yet.</p> : null}
+          {selectedSource ? (
+            <button
+              className="newDiscussionButton"
+              onClick={() => onCreateDiscussion(selectedSource.id)}
+              type="button"
+            >
+              <Plus size={14} /> New discussion
+            </button>
+          ) : null}
         </aside>
 
         <section className="discussionMain">
           <header className="discussionHeader">
             <div>
-              <p className="eyebrow">Linked resource</p>
-              <h2>{selectedResource?.title ?? "Choose a resource"}</h2>
+              <p className="eyebrow">Linked source</p>
+              <h2>{discussion?.title ?? selectedSource?.title ?? "Choose a resource"}</h2>
+              {selectedSource ? <span>{selectedSource.title}</span> : null}
             </div>
-            {selectedResource ? (
+            {discussion || selectedSource ? (
               <div className="discussionHeaderActions">
-                <button
-                  className="commandButton subtle"
-                  onClick={() => onOpenResource(selectedResource.id)}
-                  type="button"
-                >
-                  <BookOpen size={15} />
-                  <span>Open source</span>
-                </button>
+                {selectedSource ? (
+                  <button
+                    className="commandButton subtle"
+                    onClick={() => onOpenResource(selectedSource.id)}
+                    type="button"
+                  >
+                    <BookOpen size={15} />
+                    <span>Open source</span>
+                  </button>
+                ) : null}
+                {discussion && followups ? (
+                  <button
+                    className="commandButton subtle"
+                    onClick={() =>
+                      onCopy(followups, "Discussion follow-ups copied")
+                    }
+                    type="button"
+                  >
+                    <Copy size={14} />
+                    <span>Follow-ups</span>
+                  </button>
+                ) : null}
                 {discussion ? (
-                  <>
-                    {followups ? (
-                      <button
-                        className="commandButton subtle"
-                        onClick={() => onCopy(followups, "Discussion follow-ups copied")}
-                        type="button"
-                      >
-                        <Copy size={14} />
-                        <span>Follow-ups</span>
-                      </button>
-                    ) : null}
-                    <button
-                      className="commandButton subtle"
-                      onClick={() =>
-                        onDiscussionStatusChange(
-                          discussion,
-                          discussion.status === "archived" ? "active" : "archived",
-                        )
-                      }
-                      type="button"
-                    >
-                      {discussion.status === "archived" ? (
-                        <RotateCcw size={14} />
-                      ) : (
-                        <Archive size={14} />
-                      )}
-                      <span>
-                        {discussion.status === "archived" ? "Restore" : "Archive"}
-                      </span>
-                    </button>
-                  </>
+                  <button
+                    className="commandButton subtle"
+                    onClick={() =>
+                      onDiscussionStatusChange(
+                        discussion,
+                        discussion.status === "archived" ? "active" : "archived",
+                      )
+                    }
+                    type="button"
+                  >
+                    {discussion.status === "archived" ? (
+                      <RotateCcw size={14} />
+                    ) : (
+                      <Archive size={14} />
+                    )}
+                    <span>
+                      {discussion.status === "archived" ? "Restore" : "Archive"}
+                    </span>
+                  </button>
                 ) : null}
                 <button
-                  className="commandButton subtle"
-                  onClick={() => onImportClipboard(selectedResource.id)}
+                  className="commandButton"
+                  onClick={() =>
+                    onImportClipboard(
+                      discussion?.resourceId ?? selectedSource?.id ?? "",
+                    )
+                  }
                   type="button"
                 >
                   <ClipboardPaste size={14} />
-                  <span>Paste GPT</span>
+                  <span>Paste response</span>
                 </button>
               </div>
             ) : null}
           </header>
 
           {discussion ? (
-            <>
-              <div className="messageStream">
-                {discussion.messages.map((message) => (
-                  <article className={`discussionMessage role-${message.role}`} key={message.id}>
-                    <header>
-                      {message.role === "assistant" ? <Bot size={15} /> : <UserRound size={15} />}
-                      <strong>{messageRoleLabel(message.role)}</strong>
-                      <span>#{message.sequenceNumber}</span>
-                    </header>
-                    <div className="discussionMessageBody">{message.body.plainText}</div>
-                  </article>
-                ))}
-                {!discussion.messages.length ? (
-                  <div className="emptyInline">The thread is ready for its first message.</div>
-                ) : null}
+            <div className="discussionContentGrid">
+              <div>
+                <div className="messageStream">
+                  {discussion.messages.map((message) => (
+                    <article
+                      className={`discussionMessage role-${message.role}`}
+                      key={message.id}
+                    >
+                      <header>
+                        {message.role === "assistant" ? (
+                          <Bot size={15} />
+                        ) : (
+                          <UserRound size={15} />
+                        )}
+                        <strong>{messageRoleLabel(message.role)}</strong>
+                        <span>
+                          #{message.sequenceNumber}
+                          {message.importedFromClipboard ? " · pasted" : ""}
+                        </span>
+                      </header>
+                      <MarkdownMath className="discussionMessageBody">
+                        {message.body.markdown || message.body.plainText}
+                      </MarkdownMath>
+                      {message.annotationLinks.length ||
+                      message.role === "assistant" ? (
+                        <footer>
+                          {message.annotationLinks.length ? (
+                            <span>
+                              {message.annotationLinks.length} linked question
+                              {message.annotationLinks.length === 1 ? "" : "s"}
+                            </span>
+                          ) : null}
+                          {message.role === "assistant" ? (
+                            <button
+                              onClick={() =>
+                                onAskMessageQuestion(
+                                  discussion.resourceId,
+                                  message.id,
+                                  message.body.plainText,
+                                )
+                              }
+                              type="button"
+                            >
+                              <MessageCircleQuestion size={12} /> Ask follow-up
+                            </button>
+                          ) : null}
+                        </footer>
+                      ) : null}
+                    </article>
+                  ))}
+                  {!discussion.messages.length ? (
+                    <div className="emptyInline">
+                      The thread is ready for its first message.
+                    </div>
+                  ) : null}
+                </div>
+                <DiscussionComposer
+                  onSubmit={(input) => onAddMessage(discussion.id, input)}
+                />
               </div>
-              <DiscussionComposer
-                onSubmit={(input) => onAddMessage(discussion.id, input)}
-              />
-            </>
-          ) : selectedResource ? (
+              <aside className="discussionQuestionPanel">
+                <header>
+                  <div>
+                    <p className="eyebrow">Question coverage</p>
+                    <h3>
+                      {answeredCount}/{questions.length} answered
+                    </h3>
+                  </div>
+                  <CircleHelp size={18} />
+                </header>
+                {questions.map((question) => {
+                  const linkedRelation = [...(discussion.messages ?? [])]
+                    .reverse()
+                    .flatMap((message) => message.annotationLinks)
+                    .find((link) => link.annotationId === question.id)?.relation;
+                  const source = resourceById.get(question.resourceId);
+                  return (
+                    <article
+                      className={`discussionQuestion status-${question.status}`}
+                      key={question.id}
+                    >
+                      <header>
+                        <strong>{source?.title ?? "Source question"}</strong>
+                        <span>{linkedRelation ?? question.status}</span>
+                      </header>
+                      <MarkdownMath>{questionText(question)}</MarkdownMath>
+                      <div>
+                        <button
+                          disabled={!latestAssistantMessage}
+                          onClick={() =>
+                            latestAssistantMessage &&
+                            onQuestionLink(
+                              latestAssistantMessage.id,
+                              question.id,
+                              "references",
+                            )
+                          }
+                          type="button"
+                        >
+                          Referenced
+                        </button>
+                        <button
+                          disabled={!latestAssistantMessage}
+                          onClick={() =>
+                            latestAssistantMessage &&
+                            onQuestionLink(
+                              latestAssistantMessage.id,
+                              question.id,
+                              "partially_answers",
+                            )
+                          }
+                          type="button"
+                        >
+                          Partial
+                        </button>
+                        <button
+                          disabled={!latestAssistantMessage}
+                          onClick={() =>
+                            latestAssistantMessage &&
+                            onQuestionLink(
+                              latestAssistantMessage.id,
+                              question.id,
+                              "answers",
+                            )
+                          }
+                          type="button"
+                        >
+                          <CheckCircle2 size={12} /> Answered
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+                {!questions.length ? (
+                  <div className="emptyInline">
+                    This thread has no prompt-batch questions yet.
+                  </div>
+                ) : null}
+              </aside>
+            </div>
+          ) : selectedSource ? (
             <div className="discussionEmpty">
               <MessageSquarePlus size={28} />
               <h3>No discussion for this resource yet</h3>
-              <p>Create one thread; future GPT exchanges will stay in sequence here.</p>
+              <p>
+                Create a thread, or use “Discuss questions” in Notes to preserve a
+                complete prompt/question snapshot.
+              </p>
               <button
                 className="commandButton"
-                onClick={() => onCreateDiscussion(selectedResource.id)}
+                onClick={() => onCreateDiscussion(selectedSource.id)}
                 type="button"
               >
                 <Plus size={15} />
@@ -220,11 +422,9 @@ function DiscussionComposer({
 
   function submit() {
     if (!draft.trim()) return;
-    const element = document.createElement("div");
-    element.innerHTML = draft;
     onSubmit({
       markdown: draft,
-      plainText: element.textContent ?? draft,
+      plainText: draft,
       role,
     });
     setDraft("");
@@ -236,7 +436,9 @@ function DiscussionComposer({
         <label>
           <span>Message type</span>
           <select
-            onChange={(event) => setRole(event.target.value as DiscussionMessageInput["role"])}
+            onChange={(event) =>
+              setRole(event.target.value as DiscussionMessageInput["role"])
+            }
             value={role}
           >
             <option value="assistant">Tutor response</option>
@@ -245,15 +447,25 @@ function DiscussionComposer({
           </select>
         </label>
       </header>
-      <Suspense fallback={<div className="editorLoading">Loading editor...</div>}>
-        <RichNoteEditor
-          initialContent={draft}
-          onChange={setDraft}
-          placeholder="Paste or write the next exchange..."
-        />
-      </Suspense>
+      <textarea
+        aria-label="Discussion message in Markdown"
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder="Paste or write Markdown. Use $...$ or $$...$$ for formulas."
+        rows={8}
+        value={draft}
+      />
+      {draft.trim() ? (
+        <MarkdownMath className="discussionComposerPreview">
+          {draft}
+        </MarkdownMath>
+      ) : null}
       <div className="noteActions">
-        <button className="commandButton" disabled={!draft.trim()} onClick={submit} type="button">
+        <button
+          className="commandButton"
+          disabled={!draft.trim()}
+          onClick={submit}
+          type="button"
+        >
           <Send size={14} />
           <span>Add message</span>
         </button>

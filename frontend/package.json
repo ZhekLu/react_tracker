@@ -13,15 +13,21 @@
   },
   "dependencies": {
     "@tiptap/extension-highlight": "latest",
+    "@tiptap/extension-mathematics": "^3.27.0",
     "@tiptap/extension-placeholder": "latest",
     "@tiptap/extension-task-item": "latest",
     "@tiptap/extension-task-list": "latest",
     "@tiptap/extension-typography": "latest",
     "@tiptap/react": "latest",
     "@tiptap/starter-kit": "latest",
+    "katex": "^0.16.47",
     "lucide-react": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

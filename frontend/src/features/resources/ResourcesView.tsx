@@ -6,6 +6,7 @@ import {
   ClipboardCopy,
   Copy,
   FileText,
+  Files,
   FileScan,
   FolderOpen,
   GraduationCap,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
+import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
 import { StatusBadge } from "../../components/ui/StatusBadge";
@@ -38,6 +40,7 @@ type ResourcesViewProps = {
   onFlagQuestion: (resourceId: string, label: string) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
+  onOpenResourceFile: (resourceId: string, fileIndex: number) => void;
   onResourceStatusChange: (resourceId: string, status: ResourceStatus) => void;
 };
 
@@ -91,6 +94,7 @@ function ResourceRow({
   onFlagQuestion,
   onOpenDiscussion,
   onOpenResource,
+  onOpenResourceFile,
   onStatusChange,
 }: {
   accent: string;
@@ -102,6 +106,7 @@ function ResourceRow({
   onFlagQuestion: (resourceId: string, label: string) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
+  onOpenResourceFile: (resourceId: string, fileIndex: number) => void;
   onStatusChange: (resourceId: string, status: ResourceStatus) => void;
 }) {
   const reward = useCompletionReward();
@@ -128,6 +133,21 @@ function ResourceRow({
           {resource.publicationYear ? <span>{resource.publicationYear}</span> : null}
           {sourcePath ? <span className="fileName" title={sourcePath}>{resource.version?.fileName ?? sourcePath}</span> : null}
         </div>
+        {resource.localFiles.length > 1 ? (
+          <div className="resourceFiles">
+            {resource.localFiles.map((file) => (
+              <button
+                key={file.index}
+                onClick={() => onOpenResourceFile(resource.id, file.index)}
+                title={file.localPath}
+                type="button"
+              >
+                <Files size={12} />
+                {file.isPrimary ? "Main" : file.fileName}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div className="resourceRowMeta">
         {resource.dayIds.length ? (
@@ -166,6 +186,17 @@ function ResourceRow({
         <ProgressBar accent={accent} value={resourceProgress(resource)} />
       </div>
       <div className="resourceRowActions">
+        {resource.canonicalUrl ? (
+          <a
+            className="resourceIconButton"
+            href={resource.canonicalUrl}
+            rel="noreferrer"
+            target="_blank"
+            title="Open paper information page"
+          >
+            <Link2 size={16} />
+          </a>
+        ) : null}
         <button
           className="resourceIconButton"
           disabled={!sourcePath}
@@ -223,6 +254,12 @@ function ResourceRow({
         </button>
       </div>
       <div className="resourceInlineNote">
+        {resource.description?.markdown ? (
+          <details className="resourceDescription">
+            <summary>Paper card and reading guidance</summary>
+            <MarkdownMath>{resource.description.markdown}</MarkdownMath>
+          </details>
+        ) : null}
         <EntityNoteEditor
           key={`${resource.notes[0]?.id ?? resource.id}:${resource.notes[0]?.revision ?? 0}`}
           label="Resource notes"
@@ -252,12 +289,16 @@ export function ResourcesView({
   onNoteSave,
   onOpenDiscussion,
   onOpenResource,
+  onOpenResourceFile,
   onResourceStatusChange,
 }: ResourcesViewProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ResourceFilter>("all");
   const libraryResources = useMemo(
-    () => course.resources.filter((resource) => resource.kind !== "exam_question"),
+    () =>
+      course.resources.filter(
+        (resource) => !["discussion", "exam_question"].includes(resource.kind),
+      ),
     [course.resources],
   );
   const filteredResources = useMemo(() => {
@@ -395,6 +436,7 @@ export function ResourcesView({
                   onNoteSave={onNoteSave}
                   onOpenDiscussion={onOpenDiscussion}
                   onOpenResource={onOpenResource}
+                  onOpenResourceFile={onOpenResourceFile}
                   onStatusChange={onResourceStatusChange}
                   resource={resource}
                 />

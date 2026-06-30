@@ -17,6 +17,7 @@ from ..schemas.workspace import (
     DayStatusCommand,
     DiscussionCreateCommand,
     DiscussionMessageCreateCommand,
+    DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
     ExamStatusCommand,
     MutationResponse,
@@ -113,6 +114,39 @@ def open_resource_file(resource_id: str, connection: Database) -> ResourceOpenRe
         local_path, source_url = workspace_repository.resource_open_target(
             connection,
             resource_id,
+        )
+        target, application = open_resource(
+            local_path=local_path,
+            source_url=source_url,
+        )
+        return ResourceOpenResponse(
+            resource_id=resource_id,
+            target=target,
+            application=application,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+    except ResourceOpenError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.post(
+    "/resources/{resource_id}/files/{file_index}/open",
+    response_model=ResourceOpenResponse,
+)
+def open_resource_local_file(
+    resource_id: str,
+    file_index: int,
+    connection: Database,
+) -> ResourceOpenResponse:
+    try:
+        local_path, source_url = workspace_repository.resource_file_open_target(
+            connection,
+            resource_id,
+            file_index,
         )
         target, application = open_resource(
             local_path=local_path,
@@ -251,6 +285,27 @@ def create_discussion_message(
         return workspace_repository.create_discussion_message(
             connection,
             discussion_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.put(
+    "/discussion-messages/{message_id}/questions/{annotation_id}",
+    response_model=MutationResponse,
+)
+def link_discussion_question(
+    message_id: str,
+    annotation_id: str,
+    command: DiscussionQuestionLinkCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.link_discussion_question(
+            connection,
+            message_id,
+            annotation_id,
             command,
         )
     except workspace_repository.WorkspaceRepositoryError as error:

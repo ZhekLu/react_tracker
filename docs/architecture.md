@@ -41,13 +41,22 @@ Reasons:
     selection, manual resource/exam questions, and idempotent PDF imports.
 11. Replace generated Markdown/HTML wrappers with a sandboxed API-backed
     reader, persisted progress, and selection capture. Done.
+12. Add structured question editing, prompt-batch discussions, answer coverage,
+    and recursive discussion-message questions. Done.
+13. Render Markdown/LaTeX throughout the workspace and add editable Tiptap
+    inline/block mathematics without loading the heavy renderers eagerly. Done.
 
 ## Ownership Rules
 
 - Day skills describe the day objective. They are not copied onto every task.
 - Tasks own workflow state, optionality, rationale, links, and task notes.
 - Resources own reading state, file/URL identity, annotations, resource notes,
-  and ordered discussion threads.
+  and relationships to ordered discussion resources.
+- Discussions are first-class generated resources. Prompt batches seed immutable
+  user messages, while message-question relationships distinguish references,
+  partial answers, and complete answers.
+- Follow-up questions are annotations anchored to discussion messages and use
+  the same queue and prompt-batch workflow as source-document questions.
 - Exam questions own solve state and solution notes.
 - Notes and Discussions are projections over the same API workspace, not
   separate stores.

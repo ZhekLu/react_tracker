@@ -13,6 +13,7 @@ import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
 import { StatusBadge } from "../../components/ui/StatusBadge";
+import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import type {
   Course,
@@ -297,7 +298,12 @@ export function ExamsView({
                     {question.part ? <span>{question.part}</span> : null}
                     {question.points ? <span>{question.points} pts</span> : null}
                   </strong>
-                  <p>{question.topic || question.prompt?.plainText || "Topic not mapped"}</p>
+                  <MarkdownMath>
+                    {question.topic ||
+                      question.prompt?.markdown ||
+                      question.prompt?.plainText ||
+                      "Topic not mapped"}
+                  </MarkdownMath>
                   {!questionResourceById.get(question.id)?.taskIds.length ? (
                     <span className="unmappedLabel">Not linked to the study plan</span>
                   ) : null}

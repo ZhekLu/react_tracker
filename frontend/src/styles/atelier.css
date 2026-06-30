@@ -2441,7 +2441,7 @@ button:disabled {
   background: rgba(255, 255, 255, 0.78);
   box-shadow: var(--shadow-card);
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 180px minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -3957,4 +3957,432 @@ button:disabled {
     flex: 1;
     justify-content: center;
   }
+}
+
+.questionDialogBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(24 28 31 / 48%);
+  backdrop-filter: blur(4px);
+}
+
+.questionDialog {
+  width: min(680px, 100%);
+  padding: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 28px 80px rgb(28 34 38 / 28%);
+}
+
+.questionDialog > header,
+.questionDialog > footer,
+.questionEditBody > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.questionDialog > header {
+  justify-content: space-between;
+}
+
+.questionDialog > header button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.questionDialog > p {
+  margin: 14px 0;
+  color: var(--muted);
+}
+
+.questionDialog textarea,
+.questionEditBody textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 0.9rem/1.55 var(--font-sans);
+}
+
+.questionDialog textarea:focus,
+.questionEditBody textarea:focus {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.questionDialog > footer {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.questionDialog > footer label,
+.questionEditBody label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.questionDialog select,
+.questionEditBody select {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.questionEditBody {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.questionEditBody button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.discussionContentGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 270px);
+  min-height: 0;
+}
+
+.discussionQuestionPanel {
+  padding: 16px;
+  border-left: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-soft) 75%, transparent);
+}
+
+.discussionQuestionPanel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.discussionQuestion {
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--amber);
+  border-radius: 11px;
+  background: var(--surface);
+}
+
+.discussionQuestion.status-answered {
+  border-left-color: var(--green);
+}
+
+.discussionQuestion > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.discussionQuestion > header span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.discussionQuestion > p {
+  margin: 9px 0;
+  white-space: pre-wrap;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.discussionQuestion > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.discussionQuestion button,
+.newDiscussionButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.discussionQuestion button:last-child {
+  color: var(--green-deep);
+}
+
+.newDiscussionButton {
+  margin: 10px;
+  justify-content: center;
+}
+
+.discussionMessage > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.discussionMessage > footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+@media (max-width: 980px) {
+  .discussionContentGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .discussionQuestionPanel {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .questionDialogBackdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .questionDialog {
+    max-height: 92vh;
+    overflow: auto;
+    border-radius: 18px 18px 0 0;
+  }
+
+  .questionDialog > footer {
+    flex-wrap: wrap;
+  }
+}
+
+.markdownMath {
+  min-width: 0;
+  color: inherit;
+  line-height: 1.6;
+}
+
+.markdownMathFallback {
+  white-space: pre-wrap;
+}
+
+.markdownMath > :first-child {
+  margin-top: 0;
+}
+
+.markdownMath > :last-child {
+  margin-bottom: 0;
+}
+
+.markdownMath p,
+.markdownMath ul,
+.markdownMath ol,
+.markdownMath blockquote,
+.markdownMath pre {
+  margin: 0.7em 0;
+}
+
+.markdownMath ul,
+.markdownMath ol {
+  padding-left: 1.5em;
+}
+
+.markdownMath pre {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 10px;
+  background: #15201d;
+  color: #eef7f2;
+}
+
+.markdownMath code:not(pre code) {
+  padding: 0.12em 0.35em;
+  border-radius: 5px;
+  background: var(--surface-tint);
+  font-size: 0.88em;
+}
+
+.markdownMath .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 5px 0;
+}
+
+.questionFormulaPreview {
+  padding: 12px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 11px;
+  background: var(--surface-soft);
+}
+
+.resourceFiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.resourceFiles button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  padding: 4px 7px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resourceDescription {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-soft);
+}
+
+.resourceDescription > summary {
+  cursor: pointer;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.resourceDescription > .markdownMath {
+  max-height: 440px;
+  overflow: auto;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 9px;
+  background: var(--surface);
+  font-size: 0.82rem;
+}
+
+.formulaComposer {
+  display: flex;
+  align-items: end;
+  gap: 7px;
+  padding: 9px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-tint);
+}
+
+.formulaComposer label {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+}
+
+.formulaComposer label span {
+  color: var(--muted);
+  font-size: 0.69rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.formulaComposer input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.formulaComposer button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-weight: 750;
+}
+
+.blockMathIcon {
+  font-family: Georgia, serif;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.richEditorSurface [data-type="inline-math"] {
+  display: inline-flex;
+  padding: 1px 3px;
+  border-radius: 4px;
+  background: var(--blue-soft);
+  cursor: pointer;
+}
+
+.richEditorSurface [data-type="block-math"] {
+  overflow-x: auto;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  cursor: pointer;
+  text-align: center;
+}
+
+.discussionComposer > textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 0.86rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.discussionComposerPreview {
+  max-height: 320px;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-soft);
 }

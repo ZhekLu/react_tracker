@@ -1,4 +1,8 @@
 import Highlight from "@tiptap/extension-highlight";
+import {
+  Mathematics,
+  migrateMathStrings,
+} from "@tiptap/extension-mathematics";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -15,10 +19,11 @@ import {
   ListTodo,
   Quote,
   Redo2,
+  Sigma,
   Strikethrough,
   Undo2,
 } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { IconButton } from "../ui/IconButton";
 
 type RichNoteEditorProps = {
@@ -28,6 +33,11 @@ type RichNoteEditorProps = {
 };
 
 export function RichNoteEditor({ initialContent, placeholder = "Write notes, questions, or GPT follow-ups...", onChange }: RichNoteEditorProps) {
+  const [mathEditor, setMathEditor] = useState<{
+    kind: "inline" | "block";
+    pos?: number;
+  } | null>(null);
+  const [latex, setLatex] = useState("");
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -38,6 +48,23 @@ export function RichNoteEditor({ initialContent, placeholder = "Write notes, que
       TaskList,
       TaskItem.configure({ nested: true }),
       Typography,
+      Mathematics.configure({
+        blockOptions: {
+          onClick: (node, pos) => {
+            setLatex(String(node.attrs.latex ?? ""));
+            setMathEditor({ kind: "block", pos });
+          },
+        },
+        inlineOptions: {
+          onClick: (node, pos) => {
+            setLatex(String(node.attrs.latex ?? ""));
+            setMathEditor({ kind: "inline", pos });
+          },
+        },
+        katexOptions: {
+          throwOnError: false,
+        },
+      }),
     ],
     content: initialContent ?? "",
     editorProps: {
@@ -46,6 +73,7 @@ export function RichNoteEditor({ initialContent, placeholder = "Write notes, que
       },
     },
     immediatelyRender: false,
+    onCreate: ({ editor: activeEditor }) => migrateMathStrings(activeEditor),
     onUpdate: ({ editor: activeEditor }) => onChange?.(activeEditor.getHTML()),
   });
 
@@ -55,6 +83,35 @@ export function RichNoteEditor({ initialContent, placeholder = "Write notes, que
   }, [editor, initialContent]);
 
   if (!editor) return null;
+
+  function openMathEditor(kind: "inline" | "block") {
+    setLatex("");
+    setMathEditor({ kind });
+  }
+
+  function applyFormula() {
+    if (!editor || !mathEditor || !latex.trim()) return;
+    const chain = editor.chain().focus();
+    if (mathEditor.kind === "inline") {
+      if (mathEditor.pos === undefined) {
+        chain.insertInlineMath({ latex: latex.trim() }).run();
+      } else {
+        chain.updateInlineMath({
+          latex: latex.trim(),
+          pos: mathEditor.pos,
+        }).run();
+      }
+    } else if (mathEditor.pos === undefined) {
+      chain.insertBlockMath({ latex: latex.trim() }).run();
+    } else {
+      chain.updateBlockMath({
+        latex: latex.trim(),
+        pos: mathEditor.pos,
+      }).run();
+    }
+    setLatex("");
+    setMathEditor(null);
+  }
 
   const toolbarButton = (
     label: string,
@@ -105,7 +162,54 @@ export function RichNoteEditor({ initialContent, placeholder = "Write notes, que
           {toolbarButton("Numbered list", <ListOrdered size={16} />, () => editor.chain().focus().toggleOrderedList().run(), editor.isActive("orderedList"))}
           {toolbarButton("Task list", <ListTodo size={16} />, () => editor.chain().focus().toggleTaskList().run(), editor.isActive("taskList"))}
         </div>
+        <div className="editorToolGroup">
+          {toolbarButton(
+            "Inline formula",
+            <Sigma size={16} />,
+            () => openMathEditor("inline"),
+            editor.isActive("inlineMath"),
+          )}
+          {toolbarButton(
+            "Block formula",
+            <span className="blockMathIcon">∑</span>,
+            () => openMathEditor("block"),
+            editor.isActive("blockMath"),
+          )}
+        </div>
       </div>
+      {mathEditor ? (
+        <div className="formulaComposer">
+          <label>
+            <span>
+              {mathEditor.pos === undefined ? "Insert" : "Edit"}{" "}
+              {mathEditor.kind} formula
+            </span>
+            <input
+              autoFocus
+              onChange={(event) => setLatex(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  applyFormula();
+                }
+                if (event.key === "Escape") setMathEditor(null);
+              }}
+              placeholder={mathEditor.kind === "inline" ? "V^\\pi(s)" : "\\sum_t \\gamma^t r_t"}
+              value={latex}
+            />
+          </label>
+          <button
+            disabled={!latex.trim()}
+            onClick={applyFormula}
+            type="button"
+          >
+            Apply
+          </button>
+          <button onClick={() => setMathEditor(null)} type="button">
+            Cancel
+          </button>
+        </div>
+      ) : null}
       <EditorContent editor={editor} />
     </section>
   );
