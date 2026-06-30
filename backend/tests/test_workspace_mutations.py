@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from tracker_api.schemas.workspace import (
     ResourceProgressCommand,
 )
 from tracker_api.services.resource_content_service import read_resource_content
+from tracker_api.services.resource_open_service import ResourceOpenError, open_resource
 from tracker_api.services.study_plan_service import sync_study_plan
 
 
@@ -100,6 +102,38 @@ Stop when: the paper is read. {#day01-stop}
             )
         ).scalar_one()
     return result.course_id, str(resource_id)
+
+
+def test_configured_pdf_application_is_used_without_system_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pdf_path = tmp_path / "paper.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4")
+    config_path = get_settings().helper_config_path
+    config_path.write_text(
+        (
+            '{"open_allowed_roots": ["'
+            f'{tmp_path}"], "pdf_app": "Drawboard PDF"'
+            "}"
+        ),
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fail_open(command: list[str], **_kwargs: object) -> None:
+        calls.append(command)
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=command,
+            stderr="application not found",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fail_open)
+    with pytest.raises(ResourceOpenError, match="Drawboard PDF"):
+        open_resource(local_path=str(pdf_path), source_url=None)
+
+    assert calls == [["open", "-a", "Drawboard PDF", str(pdf_path)]]
 
 
 def test_pdf_annotation_import_is_idempotent_and_prompt_snapshot_is_saved(

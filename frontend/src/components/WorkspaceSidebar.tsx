@@ -11,7 +11,9 @@ import {
 } from "lucide-react";
 import type { ComponentType, CSSProperties } from "react";
 import {
+  dayEstimatedMinutes,
   dayDisplayTopic,
+  formatPlannedTime,
   dayTone,
   formatTrackedTime,
   isDayClosed,
@@ -74,8 +76,7 @@ export function WorkspaceSidebar({
   const completedDays = course.days.filter(isDayClosed).length;
   const coveredSkills = course.skills.filter((skill) => skill.covered).length;
   const today = course.days.find((day) => day.date === localDateKey());
-  const nextOpen =
-    course.days.find((day) => !isDayClosed(day) || day.progress.ratio < 1) ?? course.days.at(-1);
+  const nextOpen = course.days.find((day) => !isDayClosed(day));
 
   return (
     <aside className="workspaceSidebar">
@@ -158,7 +159,7 @@ export function WorkspaceSidebar({
             <button
               disabled={!nextOpen}
               onClick={() => nextOpen && scrollToDay(nextOpen.id)}
-              title="Go to the next unfinished day"
+              title="Go to the next day whose workflow status is open"
               type="button"
             >
               <SkipForward size={15} />
@@ -174,6 +175,7 @@ export function WorkspaceSidebar({
             {course.days.map((day) => {
               const tone = dayTone(day);
               const trackedTime = formatTrackedTime(day.trackedSeconds);
+              const plannedTime = formatPlannedTime(dayEstimatedMinutes(day));
               return (
                 <button
                   className={`sidebarDayItem tone-${tone} ${day.id === activeDayId ? "active" : ""}`}
@@ -187,7 +189,11 @@ export function WorkspaceSidebar({
                     <strong>{dayDisplayTopic(day)}</strong>
                     <small>
                       {day.date ?? "No date"}
-                      {trackedTime ? ` · ${trackedTime}` : ""}
+                      {plannedTime
+                        ? ` · ${trackedTime || "0m"} / ${plannedTime}`
+                        : trackedTime
+                          ? ` · ${trackedTime}`
+                          : ""}
                     </small>
                   </span>
                   <span className="sidebarDayProgress" aria-hidden="true">

@@ -35,9 +35,11 @@ import type {
   TaskStatus,
 } from "../../types/tracker";
 import {
+  dayEstimatedMinutes,
   dayTasks,
   dayTone,
   dayToneLabel,
+  formatPlannedTime,
   formatTrackedTime,
   isDayClosed,
 } from "./dayPresentation";
@@ -272,6 +274,9 @@ function DayCard({
 }: DayCardProps) {
   const reward = useCompletionReward();
   const tasks = dayTasks(day);
+  const plannedMinutes = dayEstimatedMinutes(day);
+  const trackedMinutes = day.trackedSeconds / 60;
+  const timeRatio = plannedMinutes ? trackedMinutes / plannedMinutes : 0;
   const isClosed = isDayClosed(day);
   const tone = dayTone(day);
   const stopWhen = day.sections
@@ -322,7 +327,20 @@ function DayCard({
         <span><Check size={14} /> {day.progress.done}/{day.progress.required} core</span>
         <span><CircleHelp size={14} /> {day.openQuestionCount} questions</span>
         <span><Clock3 size={14} /> {tasks.filter((task) => task.status === "later").length} later</span>
-        {day.trackedSeconds ? <span><Timer size={14} /> {formatTrackedTime(day.trackedSeconds)}</span> : null}
+        {plannedMinutes ? (
+          <span
+            className={`dayTimeBudget ${timeRatio >= 1 ? "complete" : ""}`}
+            style={{ "--time-progress": `${Math.min(100, Math.round(timeRatio * 100))}%` } as React.CSSProperties}
+            title={`${Math.round(timeRatio * 100)}% of the planned study time tracked`}
+          >
+            <Timer size={14} />
+            <b>{formatTrackedTime(day.trackedSeconds) || "0m"}</b>
+            <em>/ {formatPlannedTime(plannedMinutes)} planned</em>
+            <i aria-hidden="true"><i /></i>
+          </span>
+        ) : day.trackedSeconds ? (
+          <span><Timer size={14} /> {formatTrackedTime(day.trackedSeconds)}</span>
+        ) : null}
       </div>
       <div className="dayBody">
         <div className="taskList">

@@ -77,11 +77,8 @@ def open_resource(*, local_path: str | None, source_url: str | None) -> tuple[st
         if target.suffix.lower() == ".pdf":
             pdf_app = str(config.get("pdf_app") or "").strip()
             if pdf_app:
-                try:
-                    application = _run_open(["open", "-a", pdf_app, str(target)], pdf_app)
-                    return str(target), application
-                except ResourceOpenError:
-                    pass
+                application = _run_open(["open", "-a", pdf_app, str(target)], pdf_app)
+                return str(target), application
         application = _run_open(["open", str(target)], "system default")
         return str(target), application
 

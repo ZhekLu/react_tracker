@@ -12,7 +12,9 @@ import {
 } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import {
+  dayEstimatedMinutes,
   dayDisplayTopic,
+  formatPlannedTime,
   formatTrackedTime,
 } from "../features/roadmap/dayPresentation";
 import { percent } from "../lib/progress";
@@ -78,6 +80,7 @@ export function AppShell({
   const ActiveViewIcon = activeView.icon;
   const activeDay = course.days.find((day) => day.id === activeDayId) ?? course.days[0];
   const activeDayTasks = activeDay?.sections.flatMap((section) => section.tasks) ?? [];
+  const activeDayPlannedMinutes = activeDay ? dayEstimatedMinutes(activeDay) : 0;
   const activeDayDone = activeDayTasks.filter((task) => task.status === "done").length;
   const headerProgress = view === "roadmap" && activeDay ? activeDay.progress.ratio : courseProgress;
   const completedTasks = course.stats.completedTaskCount;
@@ -107,7 +110,14 @@ export function AppShell({
                   <span>{activeDayDone}/{activeDayTasks.length} tasks</span>
                   {activeDay.openQuestionCount ? <span>{activeDay.openQuestionCount} questions</span> : null}
                   {activeDay.progress.later ? <span>{activeDay.progress.later} later</span> : null}
-                  {activeDay.trackedSeconds ? <span>{formatTrackedTime(activeDay.trackedSeconds)}</span> : null}
+                  {activeDayPlannedMinutes ? (
+                    <span>
+                      {formatTrackedTime(activeDay.trackedSeconds) || "0m"} /{" "}
+                      {formatPlannedTime(activeDayPlannedMinutes)} planned
+                    </span>
+                  ) : activeDay.trackedSeconds ? (
+                    <span>{formatTrackedTime(activeDay.trackedSeconds)}</span>
+                  ) : null}
                   {toggl.trackedSeconds > activeDay.trackedSeconds ? (
                     <span>{formatTrackedTime(toggl.trackedSeconds)} live</span>
                   ) : null}

@@ -64,7 +64,9 @@ discussion threads.
 Local resource opening is controlled by `../toggl_config.json`:
 
 - `open_allowed_roots` limits which local paths the API may open.
-- `pdf_app` selects the desktop PDF application.
+- `pdf_app` selects the desktop PDF application. When it is configured, opening
+  a PDF fails visibly if that application is unavailable instead of silently
+  falling back to Preview.
 - Non-PDF files use the system default application.
 
 Keep those values local and machine-specific. A missing source path is reported

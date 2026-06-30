@@ -6,6 +6,13 @@ export function dayTasks(day: StudyDay): Task[] {
   return day.sections.flatMap((section) => section.tasks);
 }
 
+export function dayEstimatedMinutes(day: StudyDay): number {
+  return dayTasks(day).reduce(
+    (total, task) => total + (task.estimatedMinutes ?? 0),
+    0,
+  );
+}
+
 export function dayDisplayTopic(day: StudyDay): string {
   const topic = day.topic || day.title;
   return topic.replace(new RegExp(`^Day\\s+${day.number}\\s*:\\s*`, "i"), "");
@@ -46,6 +53,15 @@ export function formatTrackedTime(totalSeconds: number): string {
   if (totalSeconds < 60) return "<1m";
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.round((totalSeconds % 3600) / 60);
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
+export function formatPlannedTime(totalMinutes: number): string {
+  if (totalMinutes <= 0) return "";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
   if (hours === 0) return `${minutes}m`;
   if (minutes === 0) return `${hours}h`;
   return `${hours}h ${minutes}m`;
