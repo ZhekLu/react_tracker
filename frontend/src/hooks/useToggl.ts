@@ -4,7 +4,7 @@ import {
   startToggl,
   stopToggl,
   type TogglStatus,
-} from "../api/helperApi";
+} from "../api/trackerApi";
 import type { Course, StudyDay } from "../types/tracker";
 
 const offlineStatus: TogglStatus = {

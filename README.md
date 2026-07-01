@@ -22,13 +22,27 @@ react_tracker/
 
 ## Frontend
 
+For normal use, build and run the complete app as one local server:
+
+```sh
+cd /Users/eugene/Documents/Thesis/Tracker
+make react-app
+```
+
+Open `http://127.0.0.1:8787`. FastAPI serves both the API and the built React
+frontend. PDF collection and Toggl controls are part of this same process;
+`make toggl-server` is only retained for the legacy `tracker.html`.
+
+For frontend development with hot-module reload, use two terminals:
+
 ```sh
 cd /Users/eugene/Documents/Thesis/Tracker/react_tracker/frontend
 npm install
 npm run dev
 ```
 
-The frontend loads courses from the backend API at `http://127.0.0.1:8787/api`.
+Run `make react-api` in the other terminal. The development frontend loads
+courses from the backend API at `http://127.0.0.1:8787/api`.
 Use `VITE_TRACKER_API_BASE` only if the API host changes. The active course is
 selected in the compact sidebar dropdown; Roadmap, Resources, Exams, Notes, and
 Discussions all use the same API-owned workspace.
@@ -68,6 +82,10 @@ Local resource opening is controlled by `../toggl_config.json`:
   a PDF fails visibly if that application is unavailable instead of silently
   falling back to Preview.
 - Non-PDF files use the system default application.
+- PDF annotation collection is extracted and persisted atomically by the API.
+  Its report distinguishes newly saved captures from annotations that were
+  already in SQLite.
+- Toggl status/start/stop, caching, and rate-limit backoff are owned by this API.
 
 Keep those values local and machine-specific. A missing source path is reported
 to the frontend instead of being silently ignored.
@@ -139,7 +157,9 @@ rows. The complete format, patch semantics, and AI-generation rules are in
 ## Daily Workflow
 
 - Use Roadmap for task state, linked source opening, task notes, defer flags, and
-  day notes. Skills belong to the day and are not repeated on every task.
+  day notes. Questions and PDF captures are expanded directly below their linked
+  task, with source, page, conversion, follow-up, answer, and archive actions.
+  Skills belong to the day and are not repeated on every task.
 - Use Resources for grouped library progress, source opening, resource notes,
   reading state, PDF comment/highlight collection, and resource-linked
   discussions. Every source has a visible Ask action and an inline question

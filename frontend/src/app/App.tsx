@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  collectResourcePdfAnnotations,
   createAnnotation,
   createDiscussion,
   createDiscussionMessage,
@@ -19,7 +20,6 @@ import {
   updateTaskStatus,
   upsertNote,
 } from "../api/trackerApi";
-import { collectPdfAnnotations } from "../api/helperApi";
 import { AppShell } from "../components/AppShell";
 import { useToggl } from "../hooks/useToggl";
 import { DiscussionsView } from "../features/discussions/DiscussionsView";
@@ -689,45 +689,44 @@ export function App() {
   function handleCollectPdfAnnotations(resourceId: string) {
     if (!workspace) return;
     const resource = workspace.resources.find((item) => item.id === resourceId);
-    const localPath = resource?.version?.localPath;
-    if (!resource || !localPath) {
+    if (!resource) {
+      setError("This resource is no longer in the active workspace.");
+      return;
+    }
+    if (!resource.version?.localPath) {
       setError("This resource has no local PDF path.");
       return;
     }
     void runMutation(async () => {
-      const imported = await collectPdfAnnotations(localPath);
-      for (const annotation of imported.annotations) {
-        await createAnnotation({
-          anchor: {
-            anchorType: "pdf_rect",
-            annotationKind: annotation.annotationKind,
-            color: annotation.color,
-            metadata: {
-              createdAt: annotation.createdAt,
-              sourceLabel: annotation.sourceLabel,
-              sourcePath: annotation.sourcePath,
-            },
-            pageNumber: annotation.page,
-            quote: annotation.quote || undefined,
-            rect: annotation.rect,
-            rgb: annotation.rgb,
-          },
-          externalId: annotation.id,
-          kind: annotation.isQuestion
-            ? "question"
-            : annotation.quote
-            ? "highlight"
-            : "note",
-          markdown: annotation.comment,
-          origin: "pdf_import",
-          plainText: annotation.comment,
-          resourceId,
-          sourceFingerprint: annotation.id,
-        });
-      }
+      const imported = await collectResourcePdfAnnotations(resourceId);
+      const kindLabels = [
+        imported.kindCounts.question
+          ? `${imported.kindCounts.question} question${
+              imported.kindCounts.question === 1 ? "" : "s"
+            }`
+          : "",
+        imported.kindCounts.highlight
+          ? `${imported.kindCounts.highlight} highlight${
+              imported.kindCounts.highlight === 1 ? "" : "s"
+            }`
+          : "",
+        imported.kindCounts.note
+          ? `${imported.kindCounts.note} note${
+              imported.kindCounts.note === 1 ? "" : "s"
+            }`
+          : "",
+      ].filter(Boolean);
+      const saved =
+        imported.createdCount > 0
+          ? `${imported.createdCount} newly saved`
+          : `${imported.existingCount} already saved`;
       setActionMessage(
-        `Collected ${imported.annotations.length} PDF annotations` +
-          (imported.ignored_count ? `; ignored ${imported.ignored_count} unsupported marks.` : "."),
+        `Found ${imported.extractedCount} PDF capture${
+          imported.extractedCount === 1 ? "" : "s"
+        }${kindLabels.length ? ` (${kindLabels.join(", ")})` : ""}; ${saved}` +
+          (imported.ignoredCount
+            ? `; ignored ${imported.ignoredCount} unsupported marks.`
+            : "."),
       );
     });
   }

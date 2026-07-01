@@ -24,6 +24,10 @@ Endpoints:
 - `POST /api/notes`
 - `POST /api/prompt-batches`
 - `POST /api/resources/{resource_id}/open`
+- `POST /api/resources/{resource_id}/pdf-annotations/collect`
+- `GET /api/integrations/toggl`
+- `POST /api/integrations/toggl/start`
+- `POST /api/integrations/toggl/stop`
 - `POST /api/discussions`
 - `POST /api/discussions/{discussion_id}/messages`
 - `PATCH /api/discussions/{discussion_id}/status`
@@ -34,6 +38,11 @@ Resource opening reads `Tracker/toggl_config.json`. The requested path must be
 inside one of `open_allowed_roots`. PDFs use `pdf_app` when configured; other
 resources use the operating-system default application. This keeps machine
 paths and application choices outside the frontend bundle.
+
+The API also owns PDF annotation extraction/persistence and Toggl integration.
+The separate `toggl_helper.py` server remains only for `tracker.html`. When
+`frontend/dist` exists, FastAPI serves the built React app at `/`, so
+`make react-app` is the normal one-server workflow.
 
 Database workflow from `/Users/eugene/Documents/Thesis/Tracker`:
 

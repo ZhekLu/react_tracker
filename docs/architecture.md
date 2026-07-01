@@ -17,6 +17,8 @@ Reasons:
 - Frontend: Vite, React, TypeScript.
 - Rich editor: Tiptap/ProseMirror.
 - Backend: FastAPI, SQLAlchemy, Pydantic, SQLite.
+- Local integrations: PDF extraction, safe file opening, and Toggl run inside
+  FastAPI. A production build is served by that same process.
 - Backend environment: dedicated `uv` project under `backend/`.
 - Plan input: Markdown files under `../study_plans/`.
 - Generated/imported state: SQLite, not hardcoded HTML.
@@ -48,6 +50,8 @@ Reasons:
 14. Make questions a compact day-oriented navigation surface, expose them
     directly on resources, and extract reviewed candidates from tutor answers.
     Done.
+15. Surface linked questions and PDF captures inline on Roadmap and consolidate
+    PDF/Toggl operations into the main API. Done.
 
 ## Ownership Rules
 

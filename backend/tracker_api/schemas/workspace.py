@@ -253,6 +253,35 @@ class ResourceContentResponse(StrictModel):
     source_path: str
 
 
+class PdfAnnotationCollectionResponse(StrictModel):
+    resource_id: str
+    path: str
+    extracted_count: int
+    created_count: int
+    existing_count: int
+    ignored_count: int
+    ignored: dict[str, int]
+    kind_counts: dict[str, int]
+
+
+class TogglCurrent(StrictModel):
+    id: str | int
+    description: str
+    plan_id: str
+    day_id: str
+    start: str
+
+
+class TogglStatusResponse(StrictModel):
+    configured: bool
+    error: str
+    project_name: str
+    running: bool
+    current: TogglCurrent | None = None
+    totals: dict[str, int]
+    days: dict[str, dict[str, int]]
+
+
 class CourseStats(StrictModel):
     day_count: int
     task_count: int
@@ -421,6 +450,10 @@ class PromptBatchCreateCommand(StrictModel):
     source_day_id: str | None = None
     source_task_id: str | None = None
     annotation_ids: list[str] = Field(default_factory=list)
+
+
+class TogglStartCommand(StrictModel):
+    description: str = Field(min_length=1, max_length=500)
 
 
 class MutationResponse(StrictModel):

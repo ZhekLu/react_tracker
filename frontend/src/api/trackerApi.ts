@@ -326,6 +326,50 @@ export type ResourceOpenResult = {
   application: string;
 };
 
+export type PdfAnnotationCollectionResult = {
+  resourceId: string;
+  path: string;
+  extractedCount: number;
+  createdCount: number;
+  existingCount: number;
+  ignoredCount: number;
+  ignored: Record<string, number>;
+  kindCounts: Partial<Record<AnnotationKind, number>>;
+};
+
+export type TogglStatus = {
+  online: boolean;
+  configured: boolean;
+  running: boolean;
+  error: string;
+  projectName: string;
+  current: {
+    id: string | number;
+    description: string;
+    planId: string;
+    dayId: string;
+    start: string;
+  } | null;
+  totals: Record<string, number>;
+  days: Record<string, Record<string, number>>;
+};
+
+type ApiTogglStatus = {
+  configured: boolean;
+  running: boolean;
+  error: string;
+  project_name: string;
+  current: {
+    id: string | number;
+    description: string;
+    plan_id: string;
+    day_id: string;
+    start: string;
+  } | null;
+  totals: Record<string, number>;
+  days: Record<string, Record<string, number>>;
+};
+
 export type AnnotationCreateInput = {
   resourceId: string;
   kind?: AnnotationKind;
@@ -687,6 +731,27 @@ function workspace(api: ApiCourseWorkspace): Course {
   };
 }
 
+function togglStatus(api: ApiTogglStatus): TogglStatus {
+  return {
+    configured: api.configured,
+    current: api.current
+      ? {
+          dayId: api.current.day_id,
+          description: api.current.description,
+          id: api.current.id,
+          planId: api.current.plan_id,
+          start: api.current.start,
+        }
+      : null,
+    days: api.days,
+    error: api.error,
+    online: true,
+    projectName: api.project_name,
+    running: api.running,
+    totals: api.totals,
+  };
+}
+
 export async function fetchCourses(): Promise<CourseSummary[]> {
   const payload = await requestJson<{ courses: ApiCourseSummary[] }>("/courses");
   return payload.courses.map(courseSummary);
@@ -885,6 +950,74 @@ export async function openResourceFile(
     target: result.target,
     application: result.application,
   };
+}
+
+export async function collectResourcePdfAnnotations(
+  resourceId: string,
+): Promise<PdfAnnotationCollectionResult> {
+  const result = await requestJson<{
+    resource_id: string;
+    path: string;
+    extracted_count: number;
+    created_count: number;
+    existing_count: number;
+    ignored_count: number;
+    ignored: Record<string, number>;
+    kind_counts: Partial<Record<AnnotationKind, number>>;
+  }>(`/resources/${resourceId}/pdf-annotations/collect`, {
+    method: "POST",
+  });
+  return {
+    createdCount: result.created_count,
+    existingCount: result.existing_count,
+    extractedCount: result.extracted_count,
+    ignored: result.ignored,
+    ignoredCount: result.ignored_count,
+    kindCounts: result.kind_counts,
+    path: result.path,
+    resourceId: result.resource_id,
+  };
+}
+
+export async function fetchTogglStatus(): Promise<TogglStatus> {
+  try {
+    return togglStatus(
+      await requestJson<ApiTogglStatus>("/integrations/toggl"),
+    );
+  } catch (caught) {
+    return {
+      configured: false,
+      current: null,
+      days: {},
+      error:
+        caught instanceof Error
+          ? caught.message
+          : "The tracker API is not running.",
+      online: false,
+      projectName: "",
+      running: false,
+      totals: {},
+    };
+  }
+}
+
+export async function startToggl(
+  description: string,
+): Promise<TogglStatus> {
+  return togglStatus(
+    await requestJson<ApiTogglStatus>("/integrations/toggl/start", {
+      body: JSON.stringify({ description }),
+      method: "POST",
+    }),
+  );
+}
+
+export async function stopToggl(): Promise<TogglStatus> {
+  return togglStatus(
+    await requestJson<ApiTogglStatus>("/integrations/toggl/stop", {
+      method: "POST",
+    }),
+  );
 }
 
 export async function upsertNote(input: NoteUpsertInput): Promise<MutationResponse> {

@@ -1687,6 +1687,24 @@ def create_annotation(
     return _mutation_result(row)
 
 
+def annotation_source_fingerprints(
+    connection: Connection,
+    resource_id: str,
+) -> set[str]:
+    rows = _rows(
+        connection,
+        """
+        SELECT source_fingerprint
+        FROM annotations
+        WHERE resource_id = :resource_id
+          AND source_fingerprint IS NOT NULL
+          AND deleted_at IS NULL
+        """,
+        {"resource_id": resource_id},
+    )
+    return {str(row["source_fingerprint"]) for row in rows}
+
+
 def create_prompt_batch(
     connection: Connection,
     command: PromptBatchCreateCommand,

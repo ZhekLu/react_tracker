@@ -49,6 +49,10 @@ def isolated_database(
     )
     monkeypatch.setenv("TRACKER_DATABASE_PATH", str(tmp_path / "tracker.db"))
     monkeypatch.setenv("TRACKER_HELPER_CONFIG_PATH", str(helper_config))
+    monkeypatch.setenv(
+        "TRACKER_HELPER_STATE_PATH",
+        str(tmp_path / "toggl_state.json"),
+    )
     get_settings.cache_clear()
     get_engine.cache_clear()
     yield

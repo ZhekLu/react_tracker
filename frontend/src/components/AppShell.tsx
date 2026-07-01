@@ -179,7 +179,7 @@ export function AppShell({
                 title={
                   toggl.error ||
                   (!toggl.online
-                    ? "Start make toggl-server to enable time tracking"
+                    ? "Start make react-api to enable time tracking"
                     : !toggl.configured
                     ? "Configure toggl_config.json to enable time tracking"
                     : toggl.running

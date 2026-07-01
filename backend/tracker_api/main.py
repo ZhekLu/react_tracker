@@ -3,6 +3,7 @@ from __future__ import annotations
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .api.routes import router
 from .config import get_settings
@@ -21,6 +22,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router)
+    if settings.frontend_dist_path.is_dir():
+        app.mount(
+            "/",
+            StaticFiles(directory=settings.frontend_dist_path, html=True),
+            name="frontend",
+        )
     return app
 
 

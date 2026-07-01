@@ -23,15 +23,29 @@ from ..schemas.workspace import (
     ExamStatusCommand,
     MutationResponse,
     NoteUpsertCommand,
+    PdfAnnotationCollectionResponse,
     PromptBatchCreateCommand,
     ResourceContentResponse,
     ResourceOpenResponse,
     ResourceProgressCommand,
     ResourceStatusCommand,
     TaskStatusCommand,
+    TogglStartCommand,
+    TogglStatusResponse,
+)
+from ..services.pdf_annotation_service import (
+    PdfAnnotationError,
+    collect_resource_pdf_annotations,
 )
 from ..services.resource_content_service import read_resource_content
 from ..services.resource_open_service import ResourceOpenError, open_resource
+from ..services.toggl_service import (
+    TogglConfigurationError,
+    TogglServiceError,
+    public_status,
+    start,
+    stop,
+)
 
 
 class HealthResponse(BaseModel):
@@ -193,6 +207,65 @@ def get_resource_content(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(error),
         ) from error
+
+
+@router.post(
+    "/resources/{resource_id}/pdf-annotations/collect",
+    response_model=PdfAnnotationCollectionResponse,
+)
+def collect_resource_annotations(
+    resource_id: str,
+    connection: Database,
+) -> PdfAnnotationCollectionResponse:
+    try:
+        result = collect_resource_pdf_annotations(connection, resource_id)
+        return PdfAnnotationCollectionResponse(
+            resource_id=result.resource_id,
+            path=str(result.path),
+            extracted_count=result.extracted_count,
+            created_count=result.created_count,
+            existing_count=result.existing_count,
+            ignored_count=result.ignored_count,
+            ignored=result.ignored,
+            kind_counts=result.kind_counts,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+    except PdfAnnotationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.get("/integrations/toggl", response_model=TogglStatusResponse)
+def get_toggl_status() -> TogglStatusResponse:
+    return TogglStatusResponse.model_validate(public_status())
+
+
+def _toggl_error(error: TogglServiceError) -> HTTPException:
+    code = (
+        status.HTTP_422_UNPROCESSABLE_ENTITY
+        if isinstance(error, TogglConfigurationError)
+        else status.HTTP_502_BAD_GATEWAY
+    )
+    return HTTPException(status_code=code, detail=str(error))
+
+
+@router.post("/integrations/toggl/start", response_model=TogglStatusResponse)
+def start_toggl(command: TogglStartCommand) -> TogglStatusResponse:
+    try:
+        return TogglStatusResponse.model_validate(start(command.description))
+    except TogglServiceError as error:
+        raise _toggl_error(error) from error
+
+
+@router.post("/integrations/toggl/stop", response_model=TogglStatusResponse)
+def stop_toggl() -> TogglStatusResponse:
+    try:
+        return TogglStatusResponse.model_validate(stop())
+    except TogglServiceError as error:
+        raise _toggl_error(error) from error
 
 
 @router.patch("/resources/{resource_id}/progress", response_model=MutationResponse)
