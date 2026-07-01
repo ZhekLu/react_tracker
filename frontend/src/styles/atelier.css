@@ -1413,11 +1413,15 @@ button:disabled {
   padding: 0;
   border: 1px solid var(--line);
   border-left: 0;
-  border-radius: 0 6px 6px 0;
+  border-radius: 0;
   background: var(--surface-soft);
   color: var(--muted);
   display: grid;
   place-items: center;
+}
+
+.taskResourceActions > :last-child {
+  border-radius: 0 6px 6px 0;
 }
 
 .taskLink:hover,
@@ -1456,6 +1460,157 @@ button:disabled {
   border-color: color-mix(in srgb, var(--blue) 28%, var(--line));
   background: var(--blue-soft);
   color: var(--blue-deep);
+}
+
+.taskCapturePanel {
+  margin-top: 7px;
+  border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--amber-soft) 34%, #fff);
+  overflow: hidden;
+}
+
+.taskCaptureToggle {
+  width: 100%;
+  min-height: 31px;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.taskCaptureToggle > span {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.taskCaptureToggle strong {
+  min-height: 20px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 8px;
+  font-weight: 780;
+}
+
+.taskCaptureToggle strong.question {
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--line));
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.taskCaptureToggle strong.capture {
+  border-color: color-mix(in srgb, var(--blue) 24%, var(--line));
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+
+.taskCaptureToggle > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 150ms ease;
+}
+
+.taskCaptureToggle > svg.expanded {
+  transform: rotate(180deg);
+}
+
+.taskCaptureList {
+  padding: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--amber) 18%, var(--line));
+  display: grid;
+  gap: 5px;
+}
+
+.taskCaptureCard {
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.taskCaptureCard.kind-question,
+.taskCaptureCard.kind-todo {
+  border-left-color: var(--amber);
+}
+
+.taskCaptureCard.status-answered {
+  border-left-color: var(--green);
+  opacity: 0.72;
+}
+
+.taskCaptureCard > header {
+  min-width: 0;
+  color: var(--muted);
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 5px;
+  align-items: center;
+}
+
+.captureColor {
+  width: 7px;
+  height: 7px;
+  border: 1px solid rgba(23, 33, 29, 0.12);
+  border-radius: 50%;
+  background: var(--capture-color);
+}
+
+.taskCaptureCard > header strong {
+  overflow: hidden;
+  font-size: 8px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskCaptureCard > header small {
+  font-size: 7px;
+  text-transform: capitalize;
+}
+
+.taskCaptureCard > .markdownMath {
+  max-height: 58px;
+  margin-top: 5px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.taskCaptureCard > footer {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.taskCaptureCard > footer button,
+.taskCaptureMore {
+  min-height: 24px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 7px;
+  font-weight: 700;
+}
+
+.taskCaptureMore {
+  justify-self: start;
 }
 
 .dayFocusRail {

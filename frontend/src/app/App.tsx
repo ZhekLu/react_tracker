@@ -141,6 +141,7 @@ export function App() {
   const [questionDraft, setQuestionDraft] = useState<{
     resourceId: string;
     contextLabel: string;
+    initialText?: string;
     anchor?: {
       anchorType: string;
       quote?: string;
@@ -651,10 +652,15 @@ export function App() {
     });
   }
 
-  function handleFlagQuestion(resourceId: string, label: string) {
+  function handleFlagQuestion(
+    resourceId: string,
+    label: string,
+    initialText?: string,
+  ) {
     setQuestionDraft({
       anchor: { anchorType: "resource" },
       contextLabel: label,
+      initialText,
       resourceId,
     });
   }
@@ -936,8 +942,11 @@ export function App() {
         <RoadmapView
           course={workspace}
           onActiveDayChange={setActiveDayId}
+          onAnnotationChange={handleAnnotationChange}
+          onCollectPdfAnnotations={handleCollectPdfAnnotations}
           onDayClosedChange={handleDayClosedChange}
           onDayNoteSave={handleDayNoteSave}
+          onFlagQuestion={handleFlagQuestion}
           onNoteSave={handleNoteSave}
           onOpenDiscussion={handleOpenDiscussion}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
@@ -1068,6 +1077,7 @@ export function App() {
       {questionDraft ? (
         <QuestionDialog
           contextLabel={questionDraft.contextLabel}
+          initialText={questionDraft.initialText}
           onClose={() => setQuestionDraft(null)}
           onSubmit={handleQuestionSubmit}
         />

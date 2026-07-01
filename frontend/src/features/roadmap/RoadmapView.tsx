@@ -1,16 +1,21 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Archive,
   BookOpen,
   Check,
   CheckCircle2,
   CheckCheck,
+  ChevronDown,
   Circle,
   CircleDashed,
   CircleHelp,
   Clock3,
+  FileScan,
   FileQuestion,
   Flag,
+  Highlighter,
   Info,
+  MessageCircleQuestion,
   MessageSquareText,
   NotebookPen,
   RotateCcw,
@@ -25,6 +30,9 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import { statusTone } from "../../lib/progress";
 import type {
+  Annotation,
+  AnnotationKind,
+  AnnotationStatus,
   Course,
   EntityNoteSaveInput,
   ExamQuestion,
@@ -47,8 +55,18 @@ import {
 type RoadmapViewProps = {
   course: Course;
   onActiveDayChange: (dayId: string) => void;
+  onAnnotationChange: (
+    annotation: Annotation,
+    changes: { kind?: AnnotationKind; status?: AnnotationStatus },
+  ) => void;
+  onCollectPdfAnnotations: (resourceId: string) => void;
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
+  onFlagQuestion: (
+    resourceId: string,
+    label: string,
+    initialText?: string,
+  ) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
@@ -74,6 +92,9 @@ type TaskRowProps = {
   examQuestionById: Map<string, ExamQuestion>;
   resourceById: Map<string, Resource>;
   task: Task;
+  onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
+  onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
+  onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
@@ -85,6 +106,9 @@ function TaskRow({
   examQuestionById,
   resourceById,
   task,
+  onAnnotationChange,
+  onCollectPdfAnnotations,
+  onFlagQuestion,
   onNoteSave,
   onOpenDiscussion,
   onOpenResource,
@@ -98,6 +122,21 @@ function TaskRow({
   const linkedQuestions = task.examQuestionIds
     .map((questionId) => examQuestionById.get(questionId))
     .filter((question): question is ExamQuestion => Boolean(question));
+  const captures = linkedResources
+    .flatMap((resource) =>
+      resource.annotations.map((annotation) => ({ annotation, resource })),
+    )
+    .filter(({ annotation }) => annotation.status !== "archived")
+    .sort((left, right) => {
+      const leftQuestion =
+        ["question", "todo"].includes(left.annotation.kind) &&
+        left.annotation.status === "open";
+      const rightQuestion =
+        ["question", "todo"].includes(right.annotation.kind) &&
+        right.annotation.status === "open";
+      if (leftQuestion !== rightQuestion) return leftQuestion ? -1 : 1;
+      return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
+    });
 
   function toggleDone() {
     const nextStatus = task.status === "done" ? "todo" : "done";
@@ -170,6 +209,26 @@ function TaskRow({
                 >
                   <MessageSquareText size={12} />
                 </button>
+                <button
+                  className="taskLinkIcon"
+                  onClick={() => onFlagQuestion(resource.id, resource.title)}
+                  title={`Add a question about ${resource.title}`}
+                  type="button"
+                >
+                  <MessageCircleQuestion size={12} />
+                </button>
+                {resource.version?.localPath
+                  ?.toLowerCase()
+                  .endsWith(".pdf") ? (
+                  <button
+                    className="taskLinkIcon"
+                    onClick={() => onCollectPdfAnnotations(resource.id)}
+                    title={`Collect PDF captures from ${resource.title}`}
+                    type="button"
+                  >
+                    <FileScan size={12} />
+                  </button>
+                ) : null}
               </span>
             ))}
             {linkedQuestions.map((question) => {
@@ -197,6 +256,14 @@ function TaskRow({
               );
             })}
           </div>
+        ) : null}
+        {captures.length ? (
+          <TaskCapturePanel
+            captures={captures}
+            onAnnotationChange={onAnnotationChange}
+            onFlagQuestion={onFlagQuestion}
+            onOpenResource={onOpenResource}
+          />
         ) : null}
         <EntityNoteEditor
           key={`${task.notes[0]?.id ?? task.id}:${task.notes[0]?.revision ?? 0}`}
@@ -245,14 +312,184 @@ function TaskRow({
   );
 }
 
+function annotationText(annotation: Annotation): string {
+  return (
+    annotation.body?.markdown ||
+    annotation.body?.plainText ||
+    annotation.anchor?.quote ||
+    "Capture without text"
+  );
+}
+
+function TaskCapturePanel({
+  captures,
+  onAnnotationChange,
+  onFlagQuestion,
+  onOpenResource,
+}: {
+  captures: Array<{ annotation: Annotation; resource: Resource }>;
+  onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
+  onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
+  onOpenResource: RoadmapViewProps["onOpenResource"];
+}) {
+  const [open, setOpen] = useState(captures.length > 0);
+  const [showAll, setShowAll] = useState(false);
+  const previousCount = useRef(captures.length);
+  const activeQuestions = captures.filter(
+    ({ annotation }) =>
+      ["question", "todo"].includes(annotation.kind) &&
+      annotation.status === "open",
+  );
+  const pdfCaptures = captures.filter(
+    ({ annotation }) => annotation.origin === "pdf_import",
+  );
+  const visible = showAll ? captures : captures.slice(0, 4);
+
+  useEffect(() => {
+    if (captures.length > previousCount.current) setOpen(true);
+    previousCount.current = captures.length;
+  }, [captures.length]);
+
+  return (
+    <section className="taskCapturePanel">
+      <button
+        aria-expanded={open}
+        className="taskCaptureToggle"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        <span>
+          {activeQuestions.length ? (
+            <strong className="question">
+              <CircleHelp size={12} />
+              {activeQuestions.length} active question
+              {activeQuestions.length === 1 ? "" : "s"}
+            </strong>
+          ) : null}
+          {pdfCaptures.length ? (
+            <strong className="capture">
+              <Highlighter size={12} />
+              {pdfCaptures.length} PDF capture
+              {pdfCaptures.length === 1 ? "" : "s"}
+            </strong>
+          ) : null}
+        </span>
+        <ChevronDown className={open ? "expanded" : ""} size={14} />
+      </button>
+      {open ? (
+        <div className="taskCaptureList">
+          {visible.map(({ annotation, resource }) => {
+            const isQuestion = ["question", "todo"].includes(annotation.kind);
+            return (
+              <article
+                className={`taskCaptureCard kind-${annotation.kind} status-${annotation.status}`}
+                key={annotation.id}
+              >
+                <header>
+                  <span
+                    className="captureColor"
+                    style={{
+                      "--capture-color":
+                        annotation.anchor?.color || "var(--course-accent)",
+                    } as React.CSSProperties}
+                  />
+                  <strong>{resource.title}</strong>
+                  <small>
+                    {annotation.anchor?.pageNumber
+                      ? `p. ${annotation.anchor.pageNumber} · `
+                      : ""}
+                    {annotation.kind}
+                  </small>
+                </header>
+                <MarkdownMath>{annotationText(annotation)}</MarkdownMath>
+                <footer>
+                  <button
+                    onClick={() => onOpenResource(resource.id)}
+                    type="button"
+                  >
+                    <BookOpen size={12} /> Open source
+                  </button>
+                  {!isQuestion ? (
+                    <button
+                      onClick={() =>
+                        onAnnotationChange(annotation, { kind: "question" })
+                      }
+                      type="button"
+                    >
+                      <MessageCircleQuestion size={12} /> Make question
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        onAnnotationChange(annotation, {
+                          status:
+                            annotation.status === "answered"
+                              ? "open"
+                              : "answered",
+                        })
+                      }
+                      type="button"
+                    >
+                      {annotation.status === "answered" ? (
+                        <RotateCcw size={12} />
+                      ) : (
+                        <CheckCircle2 size={12} />
+                      )}
+                      {annotation.status === "answered"
+                        ? "Reopen"
+                        : "Answered"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() =>
+                      onFlagQuestion(
+                        resource.id,
+                        resource.title,
+                        annotation.anchor?.quote || annotationText(annotation),
+                      )
+                    }
+                    type="button"
+                  >
+                    <CircleHelp size={12} /> Ask from this
+                  </button>
+                  <button
+                    onClick={() =>
+                      onAnnotationChange(annotation, { status: "archived" })
+                    }
+                    type="button"
+                  >
+                    <Archive size={12} /> Archive
+                  </button>
+                </footer>
+              </article>
+            );
+          })}
+          {captures.length > 4 ? (
+            <button
+              className="taskCaptureMore"
+              onClick={() => setShowAll((current) => !current)}
+              type="button"
+            >
+              {showAll ? "Show fewer" : `Show all ${captures.length}`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 type DayCardProps = {
   accent: string;
   day: StudyDay;
   examQuestionById: Map<string, ExamQuestion>;
   resourceById: Map<string, Resource>;
   skillById: Map<string, Skill>;
+  onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
+  onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onEntityNoteSave: (input: EntityNoteSaveInput) => void;
+  onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
   onClosedChange: (day: StudyDay, closed: boolean) => void;
@@ -265,8 +502,11 @@ function DayCard({
   examQuestionById,
   resourceById,
   skillById,
+  onAnnotationChange,
+  onCollectPdfAnnotations,
   onDayNoteSave,
   onEntityNoteSave,
+  onFlagQuestion,
   onOpenDiscussion,
   onOpenResource,
   onClosedChange,
@@ -350,6 +590,9 @@ function DayCard({
                 dayId={day.id}
                 examQuestionById={examQuestionById}
                 key={task.id}
+                onAnnotationChange={onAnnotationChange}
+                onCollectPdfAnnotations={onCollectPdfAnnotations}
+                onFlagQuestion={onFlagQuestion}
                 onStatusChange={onTaskStatusChange}
                 onNoteSave={onEntityNoteSave}
                 onOpenDiscussion={onOpenDiscussion}
@@ -449,8 +692,11 @@ function DayNotes({
 export function RoadmapView({
   course,
   onActiveDayChange,
+  onAnnotationChange,
+  onCollectPdfAnnotations,
   onDayClosedChange,
   onDayNoteSave,
+  onFlagQuestion,
   onNoteSave,
   onOpenDiscussion,
   onOpenResource,
@@ -513,9 +759,12 @@ export function RoadmapView({
           day={day}
           examQuestionById={examQuestionById}
           key={day.id}
+          onAnnotationChange={onAnnotationChange}
+          onCollectPdfAnnotations={onCollectPdfAnnotations}
           onClosedChange={onDayClosedChange}
           onDayNoteSave={onDayNoteSave}
           onEntityNoteSave={onNoteSave}
+          onFlagQuestion={onFlagQuestion}
           onOpenDiscussion={onOpenDiscussion}
           onOpenResource={onOpenResource}
           onTaskStatusChange={onTaskStatusChange}
