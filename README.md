@@ -106,6 +106,25 @@ make react-plan-validate PLAN=features/study_plan_v1_template.md
 make react-plan-sync PLAN=/absolute/path/to/my_course_plan.md
 ```
 
+For a revised complete plan that replaces the current structural definition,
+use the guarded update command:
+
+```sh
+make react-plan-update PLAN=/absolute/path/to/the_latest_plan.md
+```
+
+It validates first, creates a consistent SQLite backup under
+`react_tracker/data/backups/`, and only then runs the full sync. Stable day,
+task, resource, and skill IDs update in place, preserving progress and
+user-created content. Review the file diff before running it because structure
+omitted from a full plan is soft-deleted.
+
+The current TORL plan is updated with:
+
+```sh
+make react-plan-update PLAN=study_plans/special_course/trustworthy_offline_rl_thesis_first_sprint_2026_latest.md
+```
+
 For a deliberately partial change, use `mode = "patch"` and:
 
 ```sh

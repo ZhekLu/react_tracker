@@ -18,7 +18,6 @@ from .study_plan_registry import (
 PLAN_FORMAT = "study-plan/v1"
 VALID_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 FRONTMATTER = re.compile(r"\A\+\+\+\s*\n(?P<body>.*?)\n\+\+\+\s*(?:\n|\Z)", re.DOTALL)
-ATTRIBUTES = re.compile(r"\s+\{(?P<body>#[a-zA-Z0-9][^{}]*)\}\s*$")
 MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\((<[^>]+>|[^)]+)\)")
 CHECKBOX = re.compile(r"^(?P<indent>\s*)-\s+\[(?P<state>[ xX~>-])\]\s+(?P<body>.+)$")
 DAY_HEADING = re.compile(r"^###\s+(?P<body>.+)$")
@@ -171,21 +170,49 @@ def _string_list(value: object) -> tuple[str, ...]:
     return (str(value).strip(),) if str(value).strip() else ()
 
 
+def _attribute_block(value: str) -> tuple[int, str] | None:
+    for match in re.finditer(r"\{#", value):
+        depth = 0
+        quote: str | None = None
+        escaped = False
+        for index in range(match.start(), len(value)):
+            character = value[index]
+            if quote is not None:
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == quote:
+                    quote = None
+                continue
+            if character in {'"', "'"}:
+                quote = character
+            elif character == "{":
+                depth += 1
+            elif character == "}":
+                depth -= 1
+                if depth == 0:
+                    if value[index + 1 :].strip():
+                        break
+                    return match.start(), value[match.start() + 1 : index]
+    return None
+
+
 def _parse_attributes(
     value: str,
     *,
     line: int,
     diagnostics: list[PlanDiagnostic],
 ) -> tuple[str, dict[str, str | bool]]:
-    match = ATTRIBUTES.search(value)
-    if match is None:
+    block = _attribute_block(value)
+    if block is None:
         return value.strip(), {}
-    body = match.group("body")
+    start, body = block
     try:
         tokens = shlex.split(body)
     except ValueError as error:
         diagnostics.append(PlanDiagnostic("error", "invalid_attributes", str(error), line))
-        return value[: match.start()].strip(), {}
+        return value[:start].strip(), {}
     attributes: dict[str, str | bool] = {}
     for token in tokens:
         if token.startswith("#"):
@@ -195,7 +222,7 @@ def _parse_attributes(
             attributes[key.replace("-", "_")] = raw_value
         else:
             attributes[token.replace("-", "_")] = True
-    return value[: match.start()].strip(), attributes
+    return value[:start].strip(), attributes
 
 
 def _validate_key(

@@ -169,3 +169,32 @@ kind = "paper"
     assert "scheduled_tasks" not in resource.metadata
     task = result.require_plan().days[0].sections[0].tasks[0]
     assert task.rationale == r"Inspect $V^\pi$."
+
+
+def test_parser_keeps_attributes_when_info_contains_latex_braces(
+    tmp_path: Path,
+) -> None:
+    plan_path = tmp_path / "plan.md"
+    plan_path.write_text(
+        r"""
++++
+format = "study-plan/v1"
+id = "latex_info_course"
+mode = "full"
++++
+
+### Day 1: Formula guidance {#day-01}
+
+- [ ] Implement FQE. {#fqe-code type=code minutes=45 info="Regress Q_k toward r + gamma E_pi Q_{k-1}; compare \hat{V}^{\pi}."}
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    result = parse_study_plan(plan_path)
+
+    assert result.errors == []
+    assert result.warnings == []
+    task = result.require_plan().days[0].sections[0].tasks[0]
+    assert task.key == "fqe-code"
+    assert task.estimated_minutes == 45
+    assert r"Q_{k-1}" in task.rationale
