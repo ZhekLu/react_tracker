@@ -25,6 +25,8 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import type {
   Course,
+  Annotation,
+  AnnotationStatus,
   EntityNoteSaveInput,
   Resource,
   ResourceKind,
@@ -35,6 +37,10 @@ type ResourcesViewProps = {
   course: Course;
   onCopyInventory: () => void;
   onCopyResourceQuestions: (resource: Resource) => void;
+  onAnnotationChange: (
+    annotation: Annotation,
+    changes: { status?: AnnotationStatus },
+  ) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
   onFlagQuestion: (resourceId: string, label: string) => void;
@@ -91,6 +97,7 @@ function ResourceRow({
   onNoteSave,
   onCollectPdfAnnotations,
   onCopyResourceQuestions,
+  onAnnotationChange,
   onFlagQuestion,
   onOpenDiscussion,
   onOpenResource,
@@ -103,6 +110,7 @@ function ResourceRow({
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
   onCopyResourceQuestions: (resource: Resource) => void;
+  onAnnotationChange: ResourcesViewProps["onAnnotationChange"];
   onFlagQuestion: (resourceId: string, label: string) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: (resourceId: string) => void;
@@ -110,8 +118,16 @@ function ResourceRow({
   onStatusChange: (resourceId: string, status: ResourceStatus) => void;
 }) {
   const reward = useCompletionReward();
+  const [questionsOpen, setQuestionsOpen] = useState(false);
   const completed = isRead(resource);
   const sourcePath = resource.version?.localPath ?? resource.canonicalUrl ?? undefined;
+  const questions = resource.annotations.filter(
+    (annotation) =>
+      ["question", "todo"].includes(annotation.kind) &&
+      annotation.status !== "archived",
+  );
+  const firstOpenQuestion =
+    questions.find((question) => question.status === "open") ?? questions[0];
 
   function toggleRead() {
     if (!completed) reward.celebrate();
@@ -133,6 +149,22 @@ function ResourceRow({
           {resource.publicationYear ? <span>{resource.publicationYear}</span> : null}
           {sourcePath ? <span className="fileName" title={sourcePath}>{resource.version?.fileName ?? sourcePath}</span> : null}
         </div>
+        {firstOpenQuestion ? (
+          <button
+            className="resourceQuestionPeek"
+            onClick={() => setQuestionsOpen((current) => !current)}
+            title="Show questions for this resource"
+            type="button"
+          >
+            <MessageCircleQuestion size={12} />
+            <span>
+              {firstOpenQuestion.body?.plainText ||
+                firstOpenQuestion.anchor?.quote ||
+                "Question without text"}
+            </span>
+            <strong>{resource.openQuestionCount} open</strong>
+          </button>
+        ) : null}
         {resource.localFiles.length > 1 ? (
           <div className="resourceFiles">
             {resource.localFiles.map((file) => (
@@ -215,23 +247,14 @@ function ResourceRow({
           <MessageSquareText size={16} />
         </button>
         <button
-          className="resourceIconButton"
+          className="resourceQuestionAction"
           onClick={() => onFlagQuestion(resource.id, resource.title)}
           title="Add a question about this resource"
           type="button"
         >
           <MessageCircleQuestion size={16} />
+          <span>Ask</span>
         </button>
-        {resource.openQuestionCount ? (
-          <button
-            className="resourceIconButton"
-            onClick={() => onCopyResourceQuestions(resource)}
-            title="Copy open questions for this resource"
-            type="button"
-          >
-            <Copy size={15} />
-          </button>
-        ) : null}
         {resource.version?.localPath?.toLowerCase().endsWith(".pdf") ? (
           <button
             className="resourceIconButton"
@@ -254,6 +277,97 @@ function ResourceRow({
         </button>
       </div>
       <div className="resourceInlineNote">
+        {questionsOpen || questions.length ? (
+          <details
+            className="resourceQuestionShelf"
+            onToggle={(event) =>
+              setQuestionsOpen(event.currentTarget.open)
+            }
+            open={questionsOpen}
+          >
+            <summary>
+              <span>
+                <MessageCircleQuestion size={14} />
+                Questions
+              </span>
+              <strong>
+                {resource.openQuestionCount} open · {questions.length} saved
+              </strong>
+            </summary>
+            <div className="resourceQuestionShelfBody">
+              <header>
+                <button
+                  onClick={() => onFlagQuestion(resource.id, resource.title)}
+                  type="button"
+                >
+                  <MessageCircleQuestion size={13} /> Add question
+                </button>
+                {resource.openQuestionCount ? (
+                  <button
+                    onClick={() => onCopyResourceQuestions(resource)}
+                    type="button"
+                  >
+                    <Copy size={13} /> Copy open
+                  </button>
+                ) : null}
+              </header>
+              {questions.map((question) => (
+                <article
+                  className={`resourceQuestionMini status-${question.status}`}
+                  key={question.id}
+                >
+                  <span className={`priority-${question.priority}`}>
+                    {question.priority}
+                  </span>
+                  <MarkdownMath>
+                    {question.body?.markdown ||
+                      question.body?.plainText ||
+                      question.anchor?.quote ||
+                      "Question without text"}
+                  </MarkdownMath>
+                  <div>
+                    <button
+                      onClick={() =>
+                        onAnnotationChange(question, {
+                          status:
+                            question.status === "answered"
+                              ? "open"
+                              : "answered",
+                        })
+                      }
+                      type="button"
+                    >
+                      {question.status === "answered" ? (
+                        <Circle size={12} />
+                      ) : (
+                        <CheckCircle2 size={12} />
+                      )}
+                      {question.status === "answered" ? "Reopen" : "Answered"}
+                    </button>
+                    <button
+                      onClick={() => onOpenDiscussion(resource.id)}
+                      type="button"
+                    >
+                      <MessageSquareText size={12} /> Discuss
+                    </button>
+                  </div>
+                </article>
+              ))}
+              {!questions.length ? (
+                <p>No questions yet. Add the first one while the source is fresh.</p>
+              ) : null}
+            </div>
+          </details>
+        ) : (
+          <button
+            className="resourceQuestionEmpty"
+            onClick={() => onFlagQuestion(resource.id, resource.title)}
+            type="button"
+          >
+            <MessageCircleQuestion size={13} />
+            Capture a question about this resource
+          </button>
+        )}
         {resource.description?.markdown ? (
           <details className="resourceDescription">
             <summary>Paper card and reading guidance</summary>
@@ -285,6 +399,7 @@ export function ResourcesView({
   onCopyInventory,
   onCollectPdfAnnotations,
   onCopyResourceQuestions,
+  onAnnotationChange,
   onFlagQuestion,
   onNoteSave,
   onOpenDiscussion,
@@ -432,6 +547,7 @@ export function ResourcesView({
                   key={resource.id}
                   onCollectPdfAnnotations={onCollectPdfAnnotations}
                   onCopyResourceQuestions={onCopyResourceQuestions}
+                  onAnnotationChange={onAnnotationChange}
                   onFlagQuestion={onFlagQuestion}
                   onNoteSave={onNoteSave}
                   onOpenDiscussion={onOpenDiscussion}

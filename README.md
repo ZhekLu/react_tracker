@@ -123,17 +123,22 @@ rows. The complete format, patch semantics, and AI-generation rules are in
   day notes. Skills belong to the day and are not repeated on every task.
 - Use Resources for grouped library progress, source opening, resource notes,
   reading state, PDF comment/highlight collection, and resource-linked
-  discussions. Markdown, HTML, text, code, JSON, and CSV files open in the
-  in-app reader; select text there to save a highlight or structured question.
+  discussions. Every source has a visible Ask action and an inline question
+  shelf. Markdown, HTML, text, code, JSON, and CSV files open in the in-app
+  reader; select text there to save a highlight or structured question.
 - Use Exams for the compact activity map plus per-question solution notes.
 - Use Notes to review and edit notes, active questions, structured annotations,
-  deferred work, and the meeting scratchpad in one place. Question text and
-  priority are editable. Structured copy actions save an immutable prompt-batch
-  snapshot alongside the clipboard text and can start a linked discussion.
+  deferred work, and the meeting scratchpad in one place. The default question
+  queue is compact, grouped and filterable by linked study day, and each day
+  link returns to its roadmap card. Question text and priority are editable.
+  Structured copy actions save an immutable prompt-batch snapshot alongside the
+  clipboard text and can start a linked discussion.
 - Use Discussions to keep ordered tutor exchanges attached to one or more source
   resources. Messages are immutable, render Markdown/LaTeX, and can answer,
   partially answer, or reference one or many questions. New questions can be
-  anchored recursively to any discussion message.
+  anchored recursively to any discussion message. Tutor answers can be scanned
+  for candidate questions with an editable review step. Deleting a discussion
+  is a recoverable soft deletion rather than destructive database removal.
 
 Tiptap notes support editable inline and block formulas. Read-only Markdown
 surfaces use the same lazy KaTeX renderer so formula syntax remains consistent

@@ -16,6 +16,7 @@ from ..schemas.workspace import (
     CourseWorkspace,
     DayStatusCommand,
     DiscussionCreateCommand,
+    DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
     DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
@@ -320,6 +321,22 @@ def update_discussion_status(
 ) -> MutationResponse:
     try:
         return workspace_repository.update_discussion_status(
+            connection,
+            discussion_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.delete("/discussions/{discussion_id}", response_model=MutationResponse)
+def delete_discussion(
+    discussion_id: str,
+    command: DiscussionDeleteCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.delete_discussion(
             connection,
             discussion_id,
             command,

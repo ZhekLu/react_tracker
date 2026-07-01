@@ -920,6 +920,16 @@ export async function createDiscussion(
   });
 }
 
+export async function deleteDiscussion(
+  discussionId: string,
+  revision: number,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/discussions/${discussionId}`, {
+    body: JSON.stringify({ revision }),
+    method: "DELETE",
+  });
+}
+
 export async function createDiscussionMessage(
   discussionId: string,
   input: DiscussionMessageInput,

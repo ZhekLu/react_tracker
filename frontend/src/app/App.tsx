@@ -4,6 +4,7 @@ import {
   createDiscussion,
   createDiscussionMessage,
   createPromptBatch,
+  deleteDiscussion,
   fetchCourses,
   fetchCourseWorkspace,
   linkDiscussionQuestion,
@@ -29,6 +30,7 @@ import { ResourceReader } from "../features/reader/ResourceReader";
 import { RoadmapView } from "../features/roadmap/RoadmapView";
 import { SkillsView } from "../features/skills/SkillsView";
 import { QuestionDialog } from "../features/questions/QuestionDialog";
+import { QuestionExtractionDialog } from "../features/questions/QuestionExtractionDialog";
 import {
   allQuestions,
   annotationContext,
@@ -41,10 +43,16 @@ import {
   type PromptPayload,
 } from "../lib/prompts";
 import { normalizeDiscussionMarkdown } from "../lib/discussionText";
+import {
+  extractedQuestionFingerprint,
+  extractQuestionsFromMarkdown,
+} from "../lib/questionExtraction";
 import type {
   Course,
   CourseSummary,
   DayStatus,
+  Discussion,
+  DiscussionMessage,
   EntityNoteSaveInput,
   ExamQuestion,
   ExamStatus,
@@ -139,6 +147,12 @@ export function App() {
       sectionTitle?: string;
       discussionMessageId?: string;
     };
+  } | null>(null);
+  const [questionExtractionDraft, setQuestionExtractionDraft] = useState<{
+    candidates: string[];
+    contextLabel: string;
+    discussionResourceId: string;
+    messageId: string;
   } | null>(null);
   const broadcastRef = useRef<BroadcastChannel | null>(null);
 
@@ -807,6 +821,66 @@ export function App() {
     });
   }
 
+  function handleDeleteDiscussion(discussion: Discussion) {
+    const fallbackResourceId = discussion.sourceResourceIds[0] ?? "";
+    void (async () => {
+      await runMutation(async () => {
+        await deleteDiscussion(discussion.id, discussion.revision);
+      });
+      setFocusedResourceId(fallbackResourceId);
+      setActionMessage("Discussion deleted.");
+    })();
+  }
+
+  function handleExtractDiscussionQuestions(
+    discussionResourceId: string,
+    message: DiscussionMessage,
+  ) {
+    setQuestionExtractionDraft({
+      candidates: extractQuestionsFromMarkdown(
+        message.body.markdown || message.body.plainText,
+      ),
+      contextLabel: `message #${message.sequenceNumber}`,
+      discussionResourceId,
+      messageId: message.id,
+    });
+  }
+
+  function handleQuestionExtractionSubmit(input: {
+    priority: "low" | "normal" | "high";
+    questions: string[];
+  }) {
+    if (!questionExtractionDraft) return;
+    const draft = questionExtractionDraft;
+    setQuestionExtractionDraft(null);
+    void (async () => {
+      await runMutation(async () => {
+        for (const question of input.questions) {
+          await createAnnotation({
+            anchor: {
+              anchorType: "discussion_message",
+              discussionMessageId: draft.messageId,
+              quote: question,
+            },
+            kind: "question",
+            markdown: question,
+            origin: "gpt_answer_extraction",
+            plainText: question,
+            priority: input.priority,
+            resourceId: draft.discussionResourceId,
+            sourceFingerprint: extractedQuestionFingerprint(
+              draft.messageId,
+              question,
+            ),
+          });
+        }
+      });
+      setActionMessage(
+        `${input.questions.length} question${input.questions.length === 1 ? "" : "s"} saved from the tutor response.`,
+      );
+    })();
+  }
+
   if (loading && !workspace) {
     return <div className="bootPanel">Loading tracker...</div>;
   }
@@ -887,6 +961,7 @@ export function App() {
           }
           onCollectPdfAnnotations={handleCollectPdfAnnotations}
           onFlagQuestion={handleFlagQuestion}
+          onAnnotationChange={handleAnnotationChange}
           onNoteSave={handleNoteSave}
           onOpenDiscussion={handleOpenDiscussion}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
@@ -946,6 +1021,7 @@ export function App() {
           onAnnotationChange={handleAnnotationChange}
           onNoteSave={handleNoteSave}
           onOpenDiscussion={handleOpenDiscussion}
+          onOpenDay={handleOpenDay}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
         />
       ) : null}
@@ -955,7 +1031,9 @@ export function App() {
           focusedResourceId={focusedResourceId}
           onAddMessage={handleAddDiscussionMessage}
           onCreateDiscussion={handleCreateDiscussion}
+          onDeleteDiscussion={handleDeleteDiscussion}
           onDiscussionStatusChange={handleDiscussionStatusChange}
+          onExtractQuestions={handleExtractDiscussionQuestions}
           onQuestionLink={handleDiscussionQuestionLink}
           onAskMessageQuestion={handleAskDiscussionQuestion}
           onImportClipboard={(resourceId) =>
@@ -992,6 +1070,14 @@ export function App() {
           contextLabel={questionDraft.contextLabel}
           onClose={() => setQuestionDraft(null)}
           onSubmit={handleQuestionSubmit}
+        />
+      ) : null}
+      {questionExtractionDraft ? (
+        <QuestionExtractionDialog
+          candidates={questionExtractionDraft.candidates}
+          contextLabel={questionExtractionDraft.contextLabel}
+          onClose={() => setQuestionExtractionDraft(null)}
+          onSubmit={handleQuestionExtractionSubmit}
         />
       ) : null}
     </>

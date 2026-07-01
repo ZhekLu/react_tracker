@@ -407,6 +407,10 @@ class DiscussionStatusCommand(RevisionCommand):
     status: Literal["active", "reviewed", "archived"]
 
 
+class DiscussionDeleteCommand(RevisionCommand):
+    pass
+
+
 class PromptBatchCreateCommand(StrictModel):
     course_id: str
     title: str

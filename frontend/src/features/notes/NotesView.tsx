@@ -1,7 +1,9 @@
 import {
   Archive,
   BookOpen,
+  CalendarDays,
   CheckCircle2,
+  ChevronDown,
   CircleHelp,
   Clock3,
   ClipboardCopy,
@@ -44,6 +46,7 @@ type NotesViewProps = {
   onStartQuestionDiscussion: () => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onOpenDiscussion: (resourceId: string) => void;
+  onOpenDay: (dayId: string) => void;
   onOpenResource: (resourceId: string) => void;
 };
 
@@ -63,13 +66,17 @@ function AnnotationSummaryCard({
   onAnnotationChange,
   onCopyAnnotation,
   onOpenDiscussion,
+  onOpenDay,
   onOpenResource,
+  days,
 }: {
   annotation: Annotation;
+  days: Course["days"];
   resource?: Resource;
   onAnnotationChange: NotesViewProps["onAnnotationChange"];
   onCopyAnnotation: NotesViewProps["onCopyAnnotation"];
   onOpenDiscussion: NotesViewProps["onOpenDiscussion"];
+  onOpenDay: NotesViewProps["onOpenDay"];
   onOpenResource: NotesViewProps["onOpenResource"];
 }) {
   const initialMarkdown =
@@ -77,31 +84,72 @@ function AnnotationSummaryCard({
   const [markdown, setMarkdown] = useState(initialMarkdown);
   const [priority, setPriority] = useState(annotation.priority);
   const editable = ["question", "todo"].includes(annotation.kind);
+  const [expanded, setExpanded] = useState(!editable);
   const dirty =
     markdown !== initialMarkdown || priority !== annotation.priority;
+  const displayText =
+    annotation.body?.plainText ||
+    annotation.anchor?.quote ||
+    "Question without text";
 
   return (
-    <article className={`annotationCard kind-${annotation.kind}`}>
+    <article
+      className={`annotationCard kind-${annotation.kind} status-${annotation.status} ${editable ? "compactQuestionCard" : ""}`}
+    >
       <header>
-        <div>
-          <strong>{resource?.title ?? "Unknown resource"}</strong>
+        <button
+          className="annotationCardToggle"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          {editable ? (
+            <ChevronDown
+              className={expanded ? "expanded" : ""}
+              size={14}
+            />
+          ) : null}
           <span>
-            {annotation.anchor?.pageNumber
-              ? `Page ${annotation.anchor.pageNumber}`
-              : null}
-            {annotation.anchor?.sectionTitle
-              ? ` · ${annotation.anchor.sectionTitle}`
-              : null}
+            <MarkdownMath className="questionSummaryMath">
+              {annotation.body?.markdown || displayText}
+            </MarkdownMath>
+            <small>
+              {resource?.title ?? "Unknown resource"}
+              {annotation.anchor?.pageNumber
+                ? ` · Page ${annotation.anchor.pageNumber}`
+                : ""}
+              {annotation.anchor?.sectionTitle
+                ? ` · ${annotation.anchor.sectionTitle}`
+                : ""}
+            </small>
+          </span>
+        </button>
+        <div className="annotationCardBadges">
+          <span className={`questionPriority priority-${annotation.priority}`}>
+            {annotation.priority}
+          </span>
+          <span className={`annotationKind ${annotation.kind}`}>
+            {annotation.status}
           </span>
         </div>
-        <span className={`annotationKind ${annotation.kind}`}>
-          {annotation.kind} · {annotation.status}
-        </span>
       </header>
-      {annotation.anchor?.quote ? (
+      {days.length ? (
+        <div className="questionDayLinks">
+          {days.map((day) => (
+            <button
+              key={day.id}
+              onClick={() => onOpenDay(day.id)}
+              title={`Open Day ${day.number}`}
+              type="button"
+            >
+              D{day.number}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {expanded && annotation.anchor?.quote ? (
         <blockquote>{annotation.anchor.quote}</blockquote>
       ) : null}
-      {editable ? (
+      {expanded && editable ? (
         <div className="questionEditBody">
           <textarea
             aria-label={`Question for ${resource?.title ?? "resource"}`}
@@ -144,12 +192,12 @@ function AnnotationSummaryCard({
             </button>
           </div>
         </div>
-      ) : annotation.body?.plainText ? (
+      ) : expanded && annotation.body?.plainText ? (
         <MarkdownMath>
           {annotation.body.markdown ?? annotation.body.plainText}
         </MarkdownMath>
       ) : null}
-      <footer>
+      {expanded ? <footer>
         <button onClick={() => onOpenResource(annotation.resourceId)} type="button">
           <BookOpen size={13} /> Open
         </button>
@@ -196,7 +244,7 @@ function AnnotationSummaryCard({
         >
           <Archive size={13} /> Archive
         </button>
-      </footer>
+      </footer> : null}
     </article>
   );
 }
@@ -214,10 +262,14 @@ export function NotesView({
   onStartQuestionDiscussion,
   onNoteSave,
   onOpenDiscussion,
+  onOpenDay,
   onOpenResource,
 }: NotesViewProps) {
-  const [filter, setFilter] = useState<NotesFilter>("all");
+  const [filter, setFilter] = useState<NotesFilter>("questions");
   const [query, setQuery] = useState("");
+  const [questionDayFilter, setQuestionDayFilter] = useState("all");
+  const [questionStatusFilter, setQuestionStatusFilter] =
+    useState<"open" | "all">("open");
   const meetingNote = course.notes.find((note) => note.kind === "meeting");
 
   const dayById = useMemo(() => new Map(course.days.map((day) => [day.id, day])), [course.days]);
@@ -235,6 +287,16 @@ export function NotesView({
   const resourceById = useMemo(
     () => new Map(course.resources.map((resource) => [resource.id, resource])),
     [course.resources],
+  );
+  const discussionByResourceId = useMemo(
+    () =>
+      new Map(
+        course.discussions.map((discussion) => [
+          discussion.resourceId,
+          discussion,
+        ]),
+      ),
+    [course.discussions],
   );
   const questionById = useMemo(
     () =>
@@ -311,6 +373,90 @@ export function NotesView({
     [course.days],
   );
   const normalizedQuery = query.trim().toLowerCase();
+  const questionItems = useMemo(
+    () =>
+      course.annotations
+        .filter(
+          (annotation) =>
+            ["question", "todo"].includes(annotation.kind) &&
+            annotation.status !== "archived",
+        )
+        .map((annotation) => {
+          const resource = resourceById.get(annotation.resourceId);
+          const directDayIds = resource?.dayIds ?? [];
+          const discussion = discussionByResourceId.get(annotation.resourceId);
+          const sourceDayIds =
+            discussion?.sourceResourceIds.flatMap(
+              (resourceId) => resourceById.get(resourceId)?.dayIds ?? [],
+            ) ?? [];
+          const dayIds = [...new Set([...directDayIds, ...sourceDayIds])];
+          return {
+            annotation,
+            days: dayIds
+              .map((dayId) => dayById.get(dayId))
+              .filter(
+                (day): day is Course["days"][number] => Boolean(day),
+              )
+              .sort((left, right) => left.number - right.number),
+            resource,
+          };
+        }),
+    [
+      course.annotations,
+      dayById,
+      discussionByResourceId,
+      resourceById,
+    ],
+  );
+  const openQuestionCount = questionItems.filter(
+    (item) => item.annotation.status === "open",
+  ).length;
+  const questionDays = course.days
+    .map((day) => ({
+      day,
+      count: questionItems.filter(
+        (item) =>
+          item.annotation.status === "open" &&
+          item.days.some((linkedDay) => linkedDay.id === day.id),
+      ).length,
+    }))
+    .filter((item) => item.count > 0);
+  const visibleQuestionItems = questionItems.filter((item) => {
+    if (
+      questionStatusFilter === "open" &&
+      item.annotation.status !== "open"
+    ) {
+      return false;
+    }
+    if (
+      questionDayFilter !== "all" &&
+      !item.days.some((day) => day.id === questionDayFilter)
+    ) {
+      return false;
+    }
+    return (
+      !normalizedQuery ||
+      `${item.resource?.title ?? ""} ${item.annotation.anchor?.quote ?? ""} ${item.annotation.body?.plainText ?? ""}`
+        .toLowerCase()
+        .includes(normalizedQuery)
+    );
+  });
+  const questionGroups = [...visibleQuestionItems.reduce((groups, item) => {
+    const groupId =
+      questionDayFilter !== "all"
+        ? questionDayFilter
+        : item.days[0]?.id ?? "unassigned";
+    const group = groups.get(groupId) ?? [];
+    group.push(item);
+    groups.set(groupId, group);
+    return groups;
+  }, new Map<string, typeof visibleQuestionItems>()).entries()].sort(
+    ([left], [right]) => {
+      if (left === "unassigned") return 1;
+      if (right === "unassigned") return -1;
+      return (dayById.get(left)?.number ?? 0) - (dayById.get(right)?.number ?? 0);
+    },
+  );
   const filteredNotes = noteContexts.filter((item) => {
     if (filter === "later") return false;
     if (
@@ -343,15 +489,22 @@ export function NotesView({
     <div className="notesLayout">
       <header className="viewToolbar">
         <div>
-          <p className="eyebrow">Study memory</p>
-          <h2>{course.notes.length} notes · {course.annotations.length} annotations</h2>
+          <p className="eyebrow">Question and study memory</p>
+          <h2>
+            {openQuestionCount} open question
+            {openQuestionCount === 1 ? "" : "s"} · {course.notes.length} notes
+          </h2>
         </div>
         <div className="viewToolbarActions">
           <label className="searchField">
             <Search size={16} />
             <input
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search notes and questions"
+              placeholder={
+                filter === "questions"
+                  ? "Search questions and sources"
+                  : "Search notes and questions"
+              }
               type="search"
               value={query}
             />
@@ -376,19 +529,121 @@ export function NotesView({
       </header>
 
       <div className="filterBar" aria-label="Notes filters">
-        {(["all", "questions", "later"] as const).map((item) => (
+        {(["questions", "all", "later"] as const).map((item) => (
           <button
             className={filter === item ? "filterButton active" : "filterButton"}
             key={item}
             onClick={() => setFilter(item)}
             type="button"
           >
-            {item === "all" ? "All notes" : item === "questions" ? "Questions" : "Do later"}
+            {item === "all"
+              ? "All notes"
+              : item === "questions"
+                ? `Questions · ${openQuestionCount}`
+                : "Do later"}
           </button>
         ))}
       </div>
 
-      <section className="meetingScratchpad">
+      {filter === "questions" ? (
+        <section className="questionWorkspace">
+          <header className="questionQueueHeader">
+            <div>
+              <p className="eyebrow">Compact queue</p>
+              <h2>
+                {visibleQuestionItems.length} visible · {questionDays.length} day
+                {questionDays.length === 1 ? "" : "s"} affected
+              </h2>
+            </div>
+            <div className="questionStatusToggle">
+              <button
+                className={questionStatusFilter === "open" ? "active" : ""}
+                onClick={() => setQuestionStatusFilter("open")}
+                type="button"
+              >
+                Open
+              </button>
+              <button
+                className={questionStatusFilter === "all" ? "active" : ""}
+                onClick={() => setQuestionStatusFilter("all")}
+                type="button"
+              >
+                Open + answered
+              </button>
+            </div>
+          </header>
+          <nav className="questionDayRail" aria-label="Filter questions by day">
+            <button
+              className={questionDayFilter === "all" ? "active" : ""}
+              onClick={() => setQuestionDayFilter("all")}
+              type="button"
+            >
+              <strong>{openQuestionCount}</strong>
+              <span>All open</span>
+            </button>
+            {questionDays.map(({ day, count }) => (
+              <button
+                className={questionDayFilter === day.id ? "active" : ""}
+                key={day.id}
+                onClick={() => setQuestionDayFilter(day.id)}
+                type="button"
+              >
+                <strong>{count}</strong>
+                <span>D{day.number}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="questionGroups">
+            {questionGroups.map(([groupId, items]) => {
+              const day = dayById.get(groupId);
+              return (
+                <section className="questionDayGroup" key={groupId}>
+                  <header>
+                    <div>
+                      <CalendarDays size={15} />
+                      <span>
+                        <strong>
+                          {day ? `Day ${day.number}` : "Course-wide"}
+                        </strong>
+                        <small>
+                          {day?.topic || day?.title || "No day link"}
+                        </small>
+                      </span>
+                    </div>
+                    {day ? (
+                      <button onClick={() => onOpenDay(day.id)} type="button">
+                        Open day
+                      </button>
+                    ) : null}
+                  </header>
+                  <div>
+                    {items.map(({ annotation, days, resource }) => (
+                      <AnnotationSummaryCard
+                        annotation={annotation}
+                        days={days}
+                        key={`${annotation.id}:${annotation.revision}`}
+                        onAnnotationChange={onAnnotationChange}
+                        onCopyAnnotation={onCopyAnnotation}
+                        onOpenDay={onOpenDay}
+                        onOpenDiscussion={onOpenDiscussion}
+                        onOpenResource={onOpenResource}
+                        resource={resource}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+            {!questionGroups.length ? (
+              <div className="emptyInline">
+                No questions match this day, status, and search.
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {filter === "all" ? <section className="meetingScratchpad">
         <header className="collectionHeader">
           <div>
             <p className="eyebrow">Supervisor / study meeting</p>
@@ -411,9 +666,9 @@ export function NotesView({
           }
           placeholder="Loose agenda, decisions, questions for the professor, and follow-ups..."
         />
-      </section>
+      </section> : null}
 
-      {filter !== "later" ? (
+      {filter === "all" ? (
         <section className="noteCollection">
           <header className="collectionHeader">
             <h2>Editable notes</h2>
@@ -461,7 +716,7 @@ export function NotesView({
         </section>
       ) : null}
 
-      {filter !== "later" ? (
+      {filter === "all" ? (
         <section className="noteCollection">
           <header className="collectionHeader">
             <h2>Source annotations</h2>
@@ -472,10 +727,16 @@ export function NotesView({
             return (
               <AnnotationSummaryCard
                 annotation={annotation}
+                days={
+                  questionItems.find(
+                    (item) => item.annotation.id === annotation.id,
+                  )?.days ?? []
+                }
                 key={`${annotation.id}:${annotation.revision}`}
                 onAnnotationChange={onAnnotationChange}
                 onCopyAnnotation={onCopyAnnotation}
                 onOpenDiscussion={onOpenDiscussion}
+                onOpenDay={onOpenDay}
                 onOpenResource={onOpenResource}
                 resource={resource}
               />

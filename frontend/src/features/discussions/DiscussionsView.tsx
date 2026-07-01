@@ -13,14 +13,18 @@ import {
   Plus,
   RotateCcw,
   Send,
+  Sparkles,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import type { DiscussionMessageInput } from "../../api/trackerApi";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import type {
   Annotation,
   Course,
   Discussion,
+  DiscussionMessage,
   DiscussionQuestionRelation,
 } from "../../types/tracker";
 import { discussionFollowups } from "../../lib/discussionText";
@@ -35,11 +39,16 @@ type DiscussionsViewProps = {
     messagePreview: string,
   ) => void;
   onCreateDiscussion: (resourceId: string) => void;
+  onDeleteDiscussion: (discussion: Discussion) => void;
   onDiscussionStatusChange: (
     discussion: Discussion,
     status: Discussion["status"],
   ) => void;
   onFocusResource: (resourceId: string) => void;
+  onExtractQuestions: (
+    discussionResourceId: string,
+    message: DiscussionMessage,
+  ) => void;
   onImportClipboard: (resourceId: string) => void;
   onCopy: (text: string, label: string) => void;
   onOpenResource: (resourceId: string) => void;
@@ -71,13 +80,16 @@ export function DiscussionsView({
   onAddMessage,
   onAskMessageQuestion,
   onCreateDiscussion,
+  onDeleteDiscussion,
   onDiscussionStatusChange,
+  onExtractQuestions,
   onFocusResource,
   onImportClipboard,
   onCopy,
   onOpenResource,
   onQuestionLink,
 }: DiscussionsViewProps) {
+  const [pendingDelete, setPendingDelete] = useState<Discussion | null>(null);
   const sourceResources = course.resources.filter(
     (resource) =>
       !["discussion", "exam_question"].includes(resource.kind),
@@ -231,6 +243,16 @@ export function DiscussionsView({
                     </span>
                   </button>
                 ) : null}
+                {discussion ? (
+                  <button
+                    className="commandButton dangerGhost"
+                    onClick={() => setPendingDelete(discussion)}
+                    type="button"
+                  >
+                    <Trash2 size={14} />
+                    <span>Delete</span>
+                  </button>
+                ) : null}
                 <button
                   className="commandButton"
                   onClick={() =>
@@ -281,18 +303,31 @@ export function DiscussionsView({
                             </span>
                           ) : null}
                           {message.role === "assistant" ? (
-                            <button
-                              onClick={() =>
-                                onAskMessageQuestion(
-                                  discussion.resourceId,
-                                  message.id,
-                                  message.body.plainText,
-                                )
-                              }
-                              type="button"
-                            >
-                              <MessageCircleQuestion size={12} /> Ask follow-up
-                            </button>
+                            <span className="messageQuestionActions">
+                              <button
+                                onClick={() =>
+                                  onExtractQuestions(
+                                    discussion.resourceId,
+                                    message,
+                                  )
+                                }
+                                type="button"
+                              >
+                                <Sparkles size={12} /> Extract questions
+                              </button>
+                              <button
+                                onClick={() =>
+                                  onAskMessageQuestion(
+                                    discussion.resourceId,
+                                    message.id,
+                                    message.body.plainText,
+                                  )
+                                }
+                                type="button"
+                              >
+                                <MessageCircleQuestion size={12} /> Ask follow-up
+                              </button>
+                            </span>
                           ) : null}
                         </footer>
                       ) : null}
@@ -408,6 +443,18 @@ export function DiscussionsView({
           ) : null}
         </section>
       </div>
+      {pendingDelete ? (
+        <ConfirmDialog
+          confirmLabel="Delete discussion"
+          description={`“${pendingDelete.title}” and its messages will disappear from the workspace. The database keeps soft-deleted rows for recovery and audit history.`}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => {
+            onDeleteDiscussion(pendingDelete);
+            setPendingDelete(null);
+          }}
+          title="Delete this discussion?"
+        />
+      ) : null}
     </div>
   );
 }

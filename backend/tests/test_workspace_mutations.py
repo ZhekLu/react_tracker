@@ -14,6 +14,7 @@ from tracker_api.repositories.workspace_repository import (
     create_discussion,
     create_discussion_message,
     create_prompt_batch,
+    delete_discussion,
     get_workspace,
     link_discussion_question,
     resource_content_target,
@@ -25,6 +26,7 @@ from tracker_api.schemas.workspace import (
     AnnotationCommand,
     AnnotationCreateCommand,
     DiscussionCreateCommand,
+    DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
     DiscussionQuestionLinkCommand,
     PromptBatchCreateCommand,
@@ -319,6 +321,58 @@ def test_prompt_discussion_tracks_question_coverage_and_answer_state(
     answered_message = after.discussions[0].messages[1]
     assert answered_message.annotation_links[0].relation == "answers"
     assert followup.id in after.discussions[0].question_ids
+
+
+def test_deleting_discussion_soft_deletes_thread_resource_and_messages(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+            ),
+        )
+        create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown="A disposable answer.",
+            ),
+        )
+        before = get_workspace(connection, course_id)
+        generated_resource_id = before.discussions[0].resource_id
+        deleted = delete_discussion(
+            connection,
+            discussion.id,
+            DiscussionDeleteCommand(revision=before.discussions[0].revision),
+        )
+        after = get_workspace(connection, course_id)
+        rows = connection.execute(
+            text(
+                """
+                SELECT
+                  dt.deleted_at AS thread_deleted_at,
+                  r.deleted_at AS resource_deleted_at,
+                  dm.deleted_at AS message_deleted_at
+                FROM discussion_threads dt
+                JOIN resources r ON r.id = dt.resource_id
+                JOIN discussion_messages dm ON dm.thread_id = dt.id
+                WHERE dt.id = :discussion_id
+                """
+            ),
+            {"discussion_id": discussion.id},
+        ).mappings().one()
+
+    assert deleted.revision == before.discussions[0].revision + 1
+    assert after.discussions == []
+    assert all(item.id != generated_resource_id for item in after.resources)
+    assert rows["thread_deleted_at"]
+    assert rows["resource_deleted_at"]
+    assert rows["message_deleted_at"]
 
 
 def test_question_body_can_be_edited_with_document_revision(tmp_path: Path) -> None:

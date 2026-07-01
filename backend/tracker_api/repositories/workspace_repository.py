@@ -25,6 +25,7 @@ from ..schemas.workspace import (
     DayStatusCommand,
     Discussion,
     DiscussionCreateCommand,
+    DiscussionDeleteCommand,
     DiscussionMessage,
     DiscussionMessageAnnotation,
     DiscussionMessageAnnotationInput,
@@ -2624,3 +2625,107 @@ def update_discussion_status(
         assignments="status = :status",
         params={"status": command.status},
     )
+
+
+def delete_discussion(
+    connection: Connection,
+    discussion_id: str,
+    command: DiscussionDeleteCommand,
+) -> MutationResponse:
+    thread = _one_or_none(
+        connection,
+        """
+        SELECT id, resource_id, initial_prompt_batch_id
+        FROM discussion_threads
+        WHERE id = :id AND revision = :revision AND deleted_at IS NULL
+        """,
+        {"id": discussion_id, "revision": command.revision},
+    )
+    if thread is None:
+        existing = _one_or_none(
+            connection,
+            "SELECT id FROM discussion_threads WHERE id = :id",
+            {"id": discussion_id},
+        )
+        if existing is None:
+            raise EntityNotFoundError(
+                f"Discussion does not exist: {discussion_id}"
+            )
+        raise RevisionConflictError(
+            f"Stale revision for discussion: {discussion_id}"
+        )
+
+    now = _now()
+    connection.execute(
+        text(
+            """
+            UPDATE discussion_messages
+            SET deleted_at = :deleted_at,
+                updated_at = :updated_at,
+                revision = revision + 1
+            WHERE thread_id = :thread_id AND deleted_at IS NULL
+            """
+        ),
+        {
+            "thread_id": discussion_id,
+            "deleted_at": now,
+            "updated_at": now,
+        },
+    )
+    row = _one_or_none(
+        connection,
+        """
+        UPDATE discussion_threads
+        SET status = 'archived',
+            deleted_at = :deleted_at,
+            updated_at = :updated_at,
+            revision = revision + 1
+        WHERE id = :id AND revision = :revision AND deleted_at IS NULL
+        RETURNING id, revision, updated_at
+        """,
+        {
+            "id": discussion_id,
+            "revision": command.revision,
+            "deleted_at": now,
+            "updated_at": now,
+        },
+    )
+    if row is None:
+        raise RevisionConflictError(
+            f"Stale revision for discussion: {discussion_id}"
+        )
+    connection.execute(
+        text(
+            """
+            UPDATE resources
+            SET status = 'archived',
+                deleted_at = :deleted_at,
+                updated_at = :updated_at,
+                revision = revision + 1
+            WHERE id = :resource_id AND deleted_at IS NULL
+            """
+        ),
+        {
+            "resource_id": thread["resource_id"],
+            "deleted_at": now,
+            "updated_at": now,
+        },
+    )
+    if thread["initial_prompt_batch_id"]:
+        connection.execute(
+            text(
+                """
+                UPDATE prompt_batches
+                SET parent_discussion_thread_id = NULL,
+                    updated_at = :updated_at
+                WHERE id = :prompt_batch_id
+                  AND parent_discussion_thread_id = :thread_id
+                """
+            ),
+            {
+                "prompt_batch_id": thread["initial_prompt_batch_id"],
+                "thread_id": discussion_id,
+                "updated_at": now,
+            },
+        )
+    return _mutation_result(row)

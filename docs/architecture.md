@@ -45,6 +45,9 @@ Reasons:
     and recursive discussion-message questions. Done.
 13. Render Markdown/LaTeX throughout the workspace and add editable Tiptap
     inline/block mathematics without loading the heavy renderers eagerly. Done.
+14. Make questions a compact day-oriented navigation surface, expose them
+    directly on resources, and extract reviewed candidates from tutor answers.
+    Done.
 
 ## Ownership Rules
 
@@ -57,6 +60,9 @@ Reasons:
   partial answers, and complete answers.
 - Follow-up questions are annotations anchored to discussion messages and use
   the same queue and prompt-batch workflow as source-document questions.
+- Discussion deletion soft-deletes the generated resource, thread, and messages.
+  This removes it from normal projections while retaining rows for recovery and
+  audit history.
 - Exam questions own solve state and solution notes.
 - Notes and Discussions are projections over the same API workspace, not
   separate stores.
