@@ -8,7 +8,7 @@ type AnnotationChapterGroupsProps = {
     annotation: Annotation,
     changes: { status?: AnnotationStatus },
   ) => void;
-  onDiscuss?: () => void;
+  onDiscuss?: (annotation: Annotation) => void;
 };
 
 export function AnnotationChapterGroups({

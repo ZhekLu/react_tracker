@@ -100,6 +100,7 @@ function questionText(annotation: Annotation): string {
 
 type DiscussionWorkshopPanelProps = {
   activeCaptures: Annotation[];
+  allCapturesCount: number;
   answeredCount: number;
   captureEditorOpen: boolean;
   coverageQuestions: Annotation[];
@@ -111,10 +112,14 @@ type DiscussionWorkshopPanelProps = {
   onQuestionLink: DiscussionsViewProps["onQuestionLink"];
   resource: Resource;
   resourceById: Map<string, Resource>;
+  showHighlights: boolean;
+  studyCaptureCount: number;
+  onShowHighlightsChange: (show: boolean) => void;
 };
 
 function DiscussionWorkshopPanel({
   activeCaptures,
+  allCapturesCount,
   answeredCount,
   captureEditorOpen,
   coverageQuestions,
@@ -126,6 +131,9 @@ function DiscussionWorkshopPanel({
   onQuestionLink,
   resource,
   resourceById,
+  showHighlights,
+  studyCaptureCount,
+  onShowHighlightsChange,
 }: DiscussionWorkshopPanelProps) {
   return (
     <aside className="discussionQuestionPanel discussionWorkshopPanel">
@@ -133,8 +141,11 @@ function DiscussionWorkshopPanel({
         <div>
           <p className="eyebrow">Active notes & questions</p>
           <h3>
-            {activeCaptures.length} capture
-            {activeCaptures.length === 1 ? "" : "s"}
+            {activeCaptures.length}
+            {showHighlights && allCapturesCount !== activeCaptures.length
+              ? `/${allCapturesCount}`
+              : ""}{" "}
+            capture{activeCaptures.length === 1 ? "" : "s"}
           </h3>
         </div>
         <button
@@ -156,6 +167,28 @@ function DiscussionWorkshopPanel({
           }}
           resourceTitle={resource.title}
         />
+      ) : null}
+      {allCapturesCount > studyCaptureCount ? (
+        <div
+          aria-label="Visible capture types"
+          className="workshopCaptureFilter"
+          role="group"
+        >
+          <button
+            className={!showHighlights ? "active" : ""}
+            onClick={() => onShowHighlightsChange(false)}
+            type="button"
+          >
+            Notes & questions · {studyCaptureCount}
+          </button>
+          <button
+            className={showHighlights ? "active" : ""}
+            onClick={() => onShowHighlightsChange(true)}
+            type="button"
+          >
+            All captures · {allCapturesCount}
+          </button>
+        </div>
       ) : null}
       {activeCaptures.length ? (
         <AnnotationChapterGroups
@@ -269,6 +302,7 @@ export function DiscussionsView({
 }: DiscussionsViewProps) {
   const [pendingDelete, setPendingDelete] = useState<Discussion | null>(null);
   const [captureEditorResourceId, setCaptureEditorResourceId] = useState("");
+  const [allCaptureResourceId, setAllCaptureResourceId] = useState("");
   const sourceResources = course.resources.filter(
     (resource) =>
       !["discussion", "exam_question"].includes(resource.kind),
@@ -307,12 +341,8 @@ export function DiscussionsView({
   const linkedQuestions = (discussion?.questionIds ?? [])
     .map((id) => annotationById.get(id))
     .filter((item): item is Annotation => Boolean(item));
-  const activeCaptures = (selectedSource?.annotations ?? [])
-    .filter(
-      (annotation) =>
-        annotation.status !== "archived" &&
-        ["note", "question", "todo"].includes(annotation.kind),
-    )
+  const allActiveCaptures = (selectedSource?.annotations ?? [])
+    .filter((annotation) => annotation.status !== "archived")
     .sort((left, right) => {
       const leftOpenQuestion =
         ["question", "todo"].includes(left.kind) && left.status === "open";
@@ -323,11 +353,16 @@ export function DiscussionsView({
       }
       return left.createdAt.localeCompare(right.createdAt);
     });
+  const studyCaptures = allActiveCaptures.filter((annotation) =>
+    ["note", "question", "todo"].includes(annotation.kind),
+  );
+  const showHighlights = allCaptureResourceId === selectedSourceId;
+  const activeCaptures = showHighlights ? allActiveCaptures : studyCaptures;
   const coverageQuestions = [
     ...new Map(
       [
         ...linkedQuestions,
-        ...activeCaptures.filter((annotation) =>
+        ...allActiveCaptures.filter((annotation) =>
           ["question", "todo"].includes(annotation.kind),
         ),
       ].map((annotation) => [annotation.id, annotation]),
@@ -613,6 +648,7 @@ export function DiscussionsView({
               {selectedSource ? (
                 <DiscussionWorkshopPanel
                   activeCaptures={activeCaptures}
+                  allCapturesCount={allActiveCaptures.length}
                   answeredCount={answeredCount}
                   captureEditorOpen={captureEditorOpen}
                   coverageQuestions={coverageQuestions}
@@ -624,6 +660,11 @@ export function DiscussionsView({
                   onQuestionLink={onQuestionLink}
                   resource={selectedSource}
                   resourceById={resourceById}
+                  showHighlights={showHighlights}
+                  studyCaptureCount={studyCaptures.length}
+                  onShowHighlightsChange={(show) =>
+                    setAllCaptureResourceId(show ? selectedSourceId : "")
+                  }
                 />
               ) : null}
             </div>
@@ -647,6 +688,7 @@ export function DiscussionsView({
               </div>
               <DiscussionWorkshopPanel
                 activeCaptures={activeCaptures}
+                allCapturesCount={allActiveCaptures.length}
                 answeredCount={answeredCount}
                 captureEditorOpen={captureEditorOpen}
                 coverageQuestions={coverageQuestions}
@@ -656,6 +698,11 @@ export function DiscussionsView({
                 onQuestionLink={onQuestionLink}
                 resource={selectedSource}
                 resourceById={resourceById}
+                showHighlights={showHighlights}
+                studyCaptureCount={studyCaptures.length}
+                onShowHighlightsChange={(show) =>
+                  setAllCaptureResourceId(show ? selectedSourceId : "")
+                }
               />
             </div>
           ) : null}

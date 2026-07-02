@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
+import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
@@ -261,7 +262,9 @@ function TaskRow({
           <TaskCapturePanel
             captures={captures}
             onAnnotationChange={onAnnotationChange}
-            onFlagQuestion={onFlagQuestion}
+            onOpenDiscussion={(resourceId) =>
+              onOpenDiscussion(resourceId, task.id)
+            }
             onOpenResource={onOpenResource}
           />
         ) : null}
@@ -312,38 +315,42 @@ function TaskRow({
   );
 }
 
-function annotationText(annotation: Annotation): string {
-  return (
-    annotation.body?.markdown ||
-    annotation.body?.plainText ||
-    annotation.anchor?.quote ||
-    "Capture without text"
-  );
-}
-
 function TaskCapturePanel({
   captures,
   onAnnotationChange,
-  onFlagQuestion,
+  onOpenDiscussion,
   onOpenResource,
 }: {
   captures: Array<{ annotation: Annotation; resource: Resource }>;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
-  onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
+  onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: RoadmapViewProps["onOpenResource"];
 }) {
   const [open, setOpen] = useState(captures.length > 0);
-  const [showAll, setShowAll] = useState(false);
   const previousCount = useRef(captures.length);
   const activeQuestions = captures.filter(
     ({ annotation }) =>
       ["question", "todo"].includes(annotation.kind) &&
       annotation.status === "open",
   );
-  const pdfCaptures = captures.filter(
-    ({ annotation }) => annotation.origin === "pdf_import",
+  const importedCaptures = captures.filter(({ annotation }) =>
+    ["drawboard_cloud", "drawboard_cloud_ink", "pdf_import"].includes(
+      annotation.origin,
+    ),
   );
-  const visible = showAll ? captures : captures.slice(0, 4);
+  const captureGroups = [
+    ...captures
+      .reduce((groups, capture) => {
+        const current = groups.get(capture.resource.id) ?? {
+          annotations: [] as Annotation[],
+          resource: capture.resource,
+        };
+        current.annotations.push(capture.annotation);
+        groups.set(capture.resource.id, current);
+        return groups;
+      }, new Map<string, { annotations: Annotation[]; resource: Resource }>())
+      .values(),
+  ];
 
   useEffect(() => {
     if (captures.length > previousCount.current) setOpen(true);
@@ -366,113 +373,43 @@ function TaskCapturePanel({
               {activeQuestions.length === 1 ? "" : "s"}
             </strong>
           ) : null}
-          {pdfCaptures.length ? (
+          {importedCaptures.length ? (
             <strong className="capture">
               <Highlighter size={12} />
-              {pdfCaptures.length} PDF capture
-              {pdfCaptures.length === 1 ? "" : "s"}
+              {importedCaptures.length} PDF capture
+              {importedCaptures.length === 1 ? "" : "s"}
+            </strong>
+          ) : null}
+          {!activeQuestions.length && !importedCaptures.length ? (
+            <strong className="capture">
+              <Archive size={12} />
+              {captures.length} capture{captures.length === 1 ? "" : "s"}
             </strong>
           ) : null}
         </span>
         <ChevronDown className={open ? "expanded" : ""} size={14} />
       </button>
       {open ? (
-        <div className="taskCaptureList">
-          {visible.map(({ annotation, resource }) => {
-            const isQuestion = ["question", "todo"].includes(annotation.kind);
-            return (
-              <article
-                className={`taskCaptureCard kind-${annotation.kind} status-${annotation.status}`}
-                key={annotation.id}
-              >
-                <header>
-                  <span
-                    className="captureColor"
-                    style={{
-                      "--capture-color":
-                        annotation.anchor?.color || "var(--course-accent)",
-                    } as React.CSSProperties}
-                  />
-                  <strong>{resource.title}</strong>
-                  <small>
-                    {annotation.anchor?.pageNumber
-                      ? `p. ${annotation.anchor.pageNumber} · `
-                      : ""}
-                    {annotation.kind}
-                  </small>
-                </header>
-                <MarkdownMath>{annotationText(annotation)}</MarkdownMath>
-                <footer>
-                  <button
-                    onClick={() => onOpenResource(resource.id)}
-                    type="button"
-                  >
-                    <BookOpen size={12} /> Open source
-                  </button>
-                  {!isQuestion ? (
-                    <button
-                      onClick={() =>
-                        onAnnotationChange(annotation, { kind: "question" })
-                      }
-                      type="button"
-                    >
-                      <MessageCircleQuestion size={12} /> Make question
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() =>
-                        onAnnotationChange(annotation, {
-                          status:
-                            annotation.status === "answered"
-                              ? "open"
-                              : "answered",
-                        })
-                      }
-                      type="button"
-                    >
-                      {annotation.status === "answered" ? (
-                        <RotateCcw size={12} />
-                      ) : (
-                        <CheckCircle2 size={12} />
-                      )}
-                      {annotation.status === "answered"
-                        ? "Reopen"
-                        : "Answered"}
-                    </button>
-                  )}
-                  <button
-                    onClick={() =>
-                      onFlagQuestion(
-                        resource.id,
-                        resource.title,
-                        annotation.anchor?.quote || annotationText(annotation),
-                      )
-                    }
-                    type="button"
-                  >
-                    <CircleHelp size={12} /> Ask from this
-                  </button>
-                  <button
-                    onClick={() =>
-                      onAnnotationChange(annotation, { status: "archived" })
-                    }
-                    type="button"
-                  >
-                    <Archive size={12} /> Archive
-                  </button>
-                </footer>
-              </article>
-            );
-          })}
-          {captures.length > 4 ? (
-            <button
-              className="taskCaptureMore"
-              onClick={() => setShowAll((current) => !current)}
-              type="button"
-            >
-              {showAll ? "Show fewer" : `Show all ${captures.length}`}
-            </button>
-          ) : null}
+        <div className="taskCaptureGroupedList">
+          {captureGroups.map(({ annotations, resource }) => (
+            <section className="taskCaptureResourceGroup" key={resource.id}>
+              <header>
+                <button
+                  onClick={() => onOpenResource(resource.id)}
+                  type="button"
+                >
+                  <BookOpen size={12} />
+                  <span>{resource.title}</span>
+                </button>
+                <strong>{annotations.length}</strong>
+              </header>
+              <AnnotationChapterGroups
+                annotations={annotations}
+                onAnnotationChange={onAnnotationChange}
+                onDiscuss={() => onOpenDiscussion(resource.id)}
+              />
+            </section>
+          ))}
         </div>
       ) : null}
     </section>

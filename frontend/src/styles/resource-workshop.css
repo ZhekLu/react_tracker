@@ -502,6 +502,58 @@
   font-size: 8px;
 }
 
+.taskCaptureGroupedList {
+  padding: 0 8px 8px;
+  display: grid;
+  gap: 7px;
+}
+
+.taskCaptureResourceGroup {
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.68);
+  display: grid;
+  gap: 6px;
+}
+
+.taskCaptureResourceGroup > header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.taskCaptureResourceGroup > header button {
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 8px;
+  font-weight: 760;
+}
+
+.taskCaptureResourceGroup > header button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskCaptureResourceGroup > header strong {
+  min-width: 22px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: var(--surface-soft);
+  color: var(--faint);
+  font-size: 8px;
+  text-align: center;
+}
+
 .discussionTaskPin {
   margin-top: 12px;
   padding: 10px 12px;
@@ -614,6 +666,33 @@
 
 .discussionWorkshopPanel .inlineCaptureEditor > footer {
   justify-content: flex-start;
+}
+
+.workshopCaptureFilter {
+  margin-bottom: 8px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+}
+
+.workshopCaptureFilter button {
+  min-height: 26px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 7px;
+  font-weight: 760;
+}
+
+.workshopCaptureFilter button.active {
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(30, 46, 43, 0.08);
+  color: var(--ink-soft);
 }
 
 .discussionWorkshopPanel .compactCaptureMeta {
