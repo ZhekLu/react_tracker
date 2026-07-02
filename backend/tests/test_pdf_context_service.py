@@ -119,6 +119,9 @@ def test_red_ink_context_image_uses_full_page_width(
         str(tmp_path / "annotation-images"),
     )
     get_settings.cache_clear()
+    source = pymupdf.open(path)
+    page_height = source[1].rect.height
+    source.close()
     ink = DrawboardInk(
         fingerprint="drawboard-document-red-ink",
         source_revision="1",
@@ -126,13 +129,25 @@ def test_red_ink_context_image_uses_full_page_width(
         color="red",
         rgb=[1.0, 0.3, 0.36],
         created_at="2026-07-02T12:00:00Z",
-        rect=[70.0, 90.0, 190.0, 120.0],
+        rect=[
+            70.0,
+            page_height - 120.0,
+            190.0,
+            page_height - 90.0,
+        ],
         ink_vertices=[
             [
                 [
-                    [72.0, 100.0],
-                    [100.0, 94.0, 130.0, 112.0, 160.0, 102.0],
-                    [190.0, 110.0],
+                    [72.0, page_height - 100.0],
+                    [
+                        100.0,
+                        page_height - 94.0,
+                        130.0,
+                        page_height - 112.0,
+                        160.0,
+                        page_height - 102.0,
+                    ],
+                    [190.0, page_height - 110.0],
                 ]
             ]
         ],
@@ -153,3 +168,35 @@ def test_red_ink_context_image_uses_full_page_width(
     assert output.read_bytes().startswith(b"\x89PNG")
     assert pixmap.width > pixmap.height
     get_settings.cache_clear()
+
+
+def test_drawboard_margin_coordinates_are_flipped_for_text_context(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "book.pdf"
+    _context_pdf(path)
+    document = pymupdf.open(path)
+    page_height = document[2].rect.height
+    document.close()
+    capture = Capture(
+        fingerprint="cloud-margin-note",
+        page=3,
+        quote="",
+        comment="Why?",
+        rect=[
+            5.0,
+            page_height - 95.0,
+            45.0,
+            page_height - 80.0,
+        ],
+    )
+
+    contexts = extract_pdf_annotation_contexts(
+        path,
+        [capture],
+        drawboard_coordinates=True,
+    )
+
+    context = contexts[capture.fingerprint]
+    assert context.context_sentence == "A clue identifies the current bandit task."
+    assert context.match_method == "nearest_line"

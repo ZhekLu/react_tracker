@@ -333,6 +333,7 @@ export type PdfAnnotationCollectionResult = {
   createdCount: number;
   updatedCount: number;
   existingCount: number;
+  removedCount: number;
   ignoredCount: number;
   ignored: Record<string, number>;
   kindCounts: Partial<Record<AnnotationKind, number>>;
@@ -963,6 +964,7 @@ export async function collectResourcePdfAnnotations(
     created_count: number;
     updated_count: number;
     existing_count: number;
+    removed_count: number;
     ignored_count: number;
     ignored: Record<string, number>;
     kind_counts: Partial<Record<AnnotationKind, number>>;
@@ -973,6 +975,7 @@ export async function collectResourcePdfAnnotations(
     createdCount: result.created_count,
     updatedCount: result.updated_count,
     existingCount: result.existing_count,
+    removedCount: result.removed_count,
     extractedCount: result.extracted_count,
     ignored: result.ignored,
     ignoredCount: result.ignored_count,

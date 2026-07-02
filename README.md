@@ -196,9 +196,13 @@ After editing a full plan, load it with `make react-plan-update PLAN=...`. For a
 resource with this URL, the normal **Open** action resolves the shared document
 and opens its cloud document ID in the Drawboard PDF macOS app. **Collect PDF
 notes** reads the current cloud annotations instead of the local file, so marks
-synced from an iPad are included. Re-running collection is safe: unchanged marks
-are reused and changed cloud marks refresh their source anchors without
-duplicating them or resetting their tracker status.
+synced from an iPad are included. Keep the local `path`: it supplies searchable
+book text, outline structure, and a clean page background, but its annotations
+are not imported while a Drawboard URL is configured. Re-running collection is
+safe: unchanged marks are reused, changed cloud marks refresh their source
+anchors without duplicating them or resetting their tracker status, and marks
+removed from the cloud are soft-deleted from the tracker. Manual tracker notes
+are never removed by cloud reconciliation.
 
 Text highlights, underlines, and inserted text notes become searchable tracker
 captures; red marks and text ending in `?` become questions. Ink, shapes, and
@@ -208,11 +212,13 @@ matches each quote to its containing sentence plus one sentence on either side.
 The compact list shows the containing sentence; opening a capture reveals the
 exact marked text and surrounding context.
 
-Red cloud ink is treated as a question. The tracker renders a full-width local
-page crop, overlays the cloud stroke in its exact RGB colour, and keeps generous
-vertical margin around it. Other ink remains counted but skipped because it has
-no searchable text. Exact annotation RGB values are preserved for UI accents;
-the coarse colour names remain available only for question/type rules.
+Red cloud ink is treated as a question. Drawboard's bottom-origin ink
+coordinates are converted to the PDF's top-origin page geometry before the
+tracker renders a full-width crop, overlays the cloud stroke in its exact RGB
+colour, and keeps generous vertical margin around it. Other ink remains counted
+but skipped because it has no searchable text. Exact annotation RGB values are
+preserved for UI accents; the coarse colour names remain available only for
+question/type rules.
 
 The anonymous sharing credentials are cached with owner-only permissions in the
 gitignored `drawboard_state.json`. Generated handwriting crops live in the

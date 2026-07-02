@@ -260,6 +260,7 @@ class PdfAnnotationCollectionResponse(StrictModel):
     created_count: int
     updated_count: int
     existing_count: int
+    removed_count: int
     ignored_count: int
     ignored: dict[str, int]
     kind_counts: dict[str, int]

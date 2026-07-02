@@ -1972,6 +1972,53 @@ def upsert_imported_annotation(
     return "updated"
 
 
+def soft_delete_stale_imported_annotations(
+    connection: Connection,
+    resource_id: str,
+    active_cloud_fingerprints: set[str],
+) -> int:
+    stale_ids = [
+        str(row["id"])
+        for row in _rows(
+            connection,
+            """
+            SELECT id, origin, source_fingerprint
+            FROM annotations
+            WHERE resource_id = :resource_id
+              AND origin IN (
+                'drawboard_cloud',
+                'drawboard_cloud_ink',
+                'pdf_import'
+              )
+              AND deleted_at IS NULL
+            """,
+            {"resource_id": resource_id},
+        )
+        if (
+            str(row["origin"]) == "pdf_import"
+            or str(row["source_fingerprint"] or "")
+            not in active_cloud_fingerprints
+        )
+    ]
+    if not stale_ids:
+        return 0
+    now = _now()
+    for annotation_id in stale_ids:
+        connection.execute(
+            text(
+                """
+                UPDATE annotations
+                SET deleted_at = :now,
+                    updated_at = :now,
+                    revision = revision + 1
+                WHERE id = :id AND deleted_at IS NULL
+                """
+            ),
+            {"id": annotation_id, "now": now},
+        )
+    return len(stale_ids)
+
+
 def annotation_source_fingerprints(
     connection: Connection,
     resource_id: str,

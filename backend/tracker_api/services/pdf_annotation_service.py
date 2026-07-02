@@ -68,6 +68,7 @@ class PdfCollection:
     created_count: int
     updated_count: int
     existing_count: int
+    removed_count: int
     ignored: dict[str, int]
     kind_counts: dict[str, int]
 
@@ -429,6 +430,7 @@ def collect_resource_pdf_annotations(
                 contexts = extract_pdf_annotation_contexts(
                     safe_path,
                     [*cloud_extraction.captures, *cloud_extraction.red_ink],
+                    drawboard_coordinates=True,
                 )
             except (PdfContextError, ResourceOpenError):
                 contexts = {}
@@ -447,7 +449,7 @@ def collect_resource_pdf_annotations(
             context = contexts.get(cloud_capture.fingerprint)
             sync_revision = (
                 f"{cloud_capture.source_revision}:"
-                f"{'book-context-v1' if context else 'plain-v1'}"
+                f"{'book-context-v2' if context else 'plain-v1'}"
             )
             command = _drawboard_annotation_command(
                 resource_id,
@@ -470,7 +472,7 @@ def collect_resource_pdf_annotations(
             context = contexts.get(ink.fingerprint)
             sync_revision = (
                 f"{ink.source_revision}:"
-                f"{'book-ink-context-v1' if context else 'ink-plain-v1'}"
+                f"{'book-ink-context-v2' if context else 'ink-plain-v1'}"
             )
             command = _drawboard_ink_command(
                 resource_id,
@@ -490,6 +492,16 @@ def collect_resource_pdf_annotations(
                 source_revision=sync_revision,
             )
             counts[outcome] += 1
+        active_cloud_fingerprints = {
+            capture.fingerprint for capture in cloud_extraction.captures
+        } | {ink.fingerprint for ink in cloud_extraction.red_ink}
+        removed_count = (
+            workspace_repository.soft_delete_stale_imported_annotations(
+                connection,
+                resource_id,
+                active_cloud_fingerprints,
+            )
+        )
         return PdfCollection(
             resource_id=resource_id,
             path=cloud_extraction.source_url,
@@ -499,6 +511,7 @@ def collect_resource_pdf_annotations(
             created_count=counts["created"],
             updated_count=counts["updated"],
             existing_count=counts["existing"],
+            removed_count=removed_count,
             ignored=cloud_extraction.ignored,
             kind_counts=cloud_kind_counts,
         )
@@ -534,6 +547,7 @@ def collect_resource_pdf_annotations(
         created_count=created_count,
         updated_count=0,
         existing_count=len(local_extraction.captures) - created_count,
+        removed_count=0,
         ignored=local_extraction.ignored,
         kind_counts=kind_counts,
     )

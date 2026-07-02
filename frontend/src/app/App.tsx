@@ -765,6 +765,9 @@ export function App() {
         imported.existingCount
           ? `${imported.existingCount} already current`
           : "",
+        imported.removedCount
+          ? `${imported.removedCount} removed from the cloud source`
+          : "",
       ].filter(Boolean);
       const ignored = Object.entries(imported.ignored)
         .filter(([, count]) => count > 0)

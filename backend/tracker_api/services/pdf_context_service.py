@@ -9,6 +9,8 @@ from typing import Any, Protocol, cast
 
 import pymupdf
 
+from .pdf_ink_image_service import drawboard_rect_to_pdf
+
 PART_TITLE = re.compile(r"^[IVXLC]+\s+\S")
 SENTENCE_BREAK = re.compile(
     r"(?<=[.!?])\s+(?=(?:[A-Z0-9“\"'(\[]|Exercise\s|Figure\s))"
@@ -261,6 +263,8 @@ def _nearest_line_hint(page: Any, rect: list[float]) -> str:
 def _sentence_context(
     page: Any,
     capture: ContextCapture,
+    *,
+    drawboard_coordinates: bool,
 ) -> tuple[str, str, str, str]:
     sentences = _sentences(page.get_text("text", sort=True))
     if not sentences:
@@ -275,7 +279,12 @@ def _sentence_context(
             sentences[last + 1] if last + 1 < len(sentences) else "",
             "exact_quote",
         )
-    hint = capture.quote or _nearest_line_hint(page, capture.rect)
+    rect = (
+        drawboard_rect_to_pdf(capture.rect, page.rect.height)
+        if drawboard_coordinates
+        else capture.rect
+    )
+    hint = capture.quote or _nearest_line_hint(page, rect)
     index = _best_sentence_index(sentences, hint)
     if index is None:
         return "", "", "", "unavailable"
@@ -290,6 +299,8 @@ def _sentence_context(
 def extract_pdf_annotation_contexts(
     path: Path,
     captures: Iterable[ContextCapture],
+    *,
+    drawboard_coordinates: bool = False,
 ) -> dict[str, PdfAnnotationContext]:
     pdf_path = path.expanduser().resolve()
     try:
@@ -308,6 +319,7 @@ def extract_pdf_annotation_contexts(
             before, sentence, after, match_method = _sentence_context(
                 page,
                 capture,
+                drawboard_coordinates=drawboard_coordinates,
             )
             contexts[capture.fingerprint] = PdfAnnotationContext(
                 chapter_number=chapter.number if chapter else None,

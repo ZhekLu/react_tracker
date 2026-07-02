@@ -231,6 +231,7 @@ def collect_resource_annotations(
             created_count=result.created_count,
             updated_count=result.updated_count,
             existing_count=result.existing_count,
+            removed_count=result.removed_count,
             ignored_count=result.ignored_count,
             ignored=result.ignored,
             kind_counts=result.kind_counts,

@@ -38,10 +38,30 @@ def _flatten_numbers(value: object) -> list[float]:
     return []
 
 
-def _ink_points(ink_vertices: list[Any]) -> list[pymupdf.Point]:
+def drawboard_rect_to_pdf(
+    rect: list[float],
+    page_height: float,
+) -> list[float]:
+    if len(rect) != 4:
+        return rect
+    return [
+        rect[0],
+        page_height - rect[3],
+        rect[2],
+        page_height - rect[1],
+    ]
+
+
+def _ink_points(
+    ink_vertices: list[Any],
+    page_height: float,
+) -> list[pymupdf.Point]:
     numbers = _flatten_numbers(ink_vertices)
     return [
-        pymupdf.Point(numbers[index], numbers[index + 1])  # type: ignore[no-untyped-call]
+        pymupdf.Point(  # type: ignore[no-untyped-call]
+            numbers[index],
+            page_height - numbers[index + 1],
+        )
         for index in range(0, len(numbers) - 1, 2)
     ]
 
@@ -64,7 +84,7 @@ def _render_ink(
             height=source_page.rect.height,
         )
         overlay_page.show_pdf_page(overlay_page.rect, source_document, ink.page - 1)
-        points = _ink_points(ink.ink_vertices)
+        points = _ink_points(ink.ink_vertices, source_page.rect.height)
         if len(points) >= 2:
             overlay_page.draw_polyline(
                 points,
@@ -72,10 +92,11 @@ def _render_ink(
                 width=1.6,
                 overlay=True,
             )
-        y0 = max(0.0, (ink.rect[1] if ink.rect else 0.0) - margin)
+        pdf_rect = drawboard_rect_to_pdf(ink.rect, source_page.rect.height)
+        y0 = max(0.0, (pdf_rect[1] if pdf_rect else 0.0) - margin)
         y1 = min(
             source_page.rect.height,
-            (ink.rect[3] if ink.rect else source_page.rect.height) + margin,
+            (pdf_rect[3] if pdf_rect else source_page.rect.height) + margin,
         )
         clip = pymupdf.Rect(  # type: ignore[no-untyped-call]
             0,

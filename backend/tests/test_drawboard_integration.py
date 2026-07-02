@@ -293,17 +293,26 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
             ),
             {"resource_id": resource_id},
         ).mappings().one()
+    current = DrawboardExtraction(
+        source_url=SHARE_URL,
+        document_id=DOCUMENT_ID,
+        captures=[],
+        red_ink=[],
+        ignored={},
+    )
     with transaction() as connection:
-        connection.execute(
+        removed = collect_resource_pdf_annotations(connection, resource_id)
+        active_after_removal = connection.execute(
             text(
                 """
-                UPDATE annotations
-                SET deleted_at = '2026-07-02T12:00:00Z'
-                WHERE resource_id = :resource_id
+                SELECT COUNT(*)
+                FROM annotations
+                WHERE resource_id = :resource_id AND deleted_at IS NULL
                 """
             ),
             {"resource_id": resource_id},
-        )
+        ).scalar_one()
+    current = _cloud_extraction("Why exactly?", "2")
     with transaction() as connection:
         revived = collect_resource_pdf_annotations(connection, resource_id)
         active_count = connection.execute(
@@ -328,6 +337,8 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
     assert row["plain_text"] == "Why exactly?"
     assert row["page_number"] == 11
     assert '"sourceRevision":"2"' in row["selector_json"]
+    assert removed.removed_count == 1
+    assert active_after_removal == 0
     assert revived.updated_count == 1
     assert active_count == 1
 
