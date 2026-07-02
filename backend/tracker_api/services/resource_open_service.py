@@ -6,6 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from ..config import get_settings
+from .drawboard_service import (
+    DrawboardError,
+    drawboard_deep_link,
+    is_drawboard_cloud_url,
+    resolve_drawboard_document_id,
+)
 
 
 class ResourceOpenError(RuntimeError):
@@ -72,15 +78,28 @@ def safe_local_resource_path(local_path: str) -> Path:
 
 def open_resource(*, local_path: str | None, source_url: str | None) -> tuple[str, str]:
     config = _load_config()
+    if is_drawboard_cloud_url(source_url):
+        assert source_url is not None
+        try:
+            document_id = resolve_drawboard_document_id(source_url)
+            cloud_target = drawboard_deep_link(document_id)
+        except DrawboardError as error:
+            raise ResourceOpenError(str(error)) from error
+        application = _run_open(["open", cloud_target], "Drawboard PDF cloud")
+        return source_url, application
+
     if local_path:
-        target = safe_local_resource_path(local_path)
-        if target.suffix.lower() == ".pdf":
+        local_target = safe_local_resource_path(local_path)
+        if local_target.suffix.lower() == ".pdf":
             pdf_app = str(config.get("pdf_app") or "").strip()
             if pdf_app:
-                application = _run_open(["open", "-a", pdf_app, str(target)], pdf_app)
-                return str(target), application
-        application = _run_open(["open", str(target)], "system default")
-        return str(target), application
+                application = _run_open(
+                    ["open", "-a", pdf_app, str(local_target)],
+                    pdf_app,
+                )
+                return str(local_target), application
+        application = _run_open(["open", str(local_target)], "system default")
+        return str(local_target), application
 
     if source_url:
         application = _run_open(["open", source_url], "default browser")

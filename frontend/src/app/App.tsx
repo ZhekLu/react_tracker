@@ -693,8 +693,8 @@ export function App() {
       setError("This resource is no longer in the active workspace.");
       return;
     }
-    if (!resource.version?.localPath) {
-      setError("This resource has no local PDF path.");
+    if (!resource.version?.localPath && !resource.version?.sourceUrl) {
+      setError("This resource has no local PDF path or cloud PDF URL.");
       return;
     }
     void runMutation(async () => {
@@ -716,16 +716,31 @@ export function App() {
             }`
           : "",
       ].filter(Boolean);
-      const saved =
-        imported.createdCount > 0
+      const saved = [
+        imported.createdCount
           ? `${imported.createdCount} newly saved`
-          : `${imported.existingCount} already saved`;
+          : "",
+        imported.updatedCount
+          ? `${imported.updatedCount} refreshed`
+          : "",
+        imported.existingCount
+          ? `${imported.existingCount} already current`
+          : "",
+      ].filter(Boolean);
+      const ignored = Object.entries(imported.ignored)
+        .filter(([, count]) => count > 0)
+        .map(([kind, count]) => `${count} ${kind}`)
+        .join(", ");
       setActionMessage(
         `Found ${imported.extractedCount} PDF capture${
           imported.extractedCount === 1 ? "" : "s"
-        }${kindLabels.length ? ` (${kindLabels.join(", ")})` : ""}; ${saved}` +
+        }${kindLabels.length ? ` (${kindLabels.join(", ")})` : ""}; ${
+          saved.join(", ") || "nothing changed"
+        }` +
           (imported.ignoredCount
-            ? `; ignored ${imported.ignoredCount} unsupported marks.`
+            ? `; skipped ${imported.ignoredCount} unsupported graphical mark${
+                imported.ignoredCount === 1 ? "" : "s"
+              }${ignored ? ` (${ignored})` : ""}.`
             : "."),
       );
     });

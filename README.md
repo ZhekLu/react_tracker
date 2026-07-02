@@ -179,6 +179,37 @@ rows. The complete format, patch semantics, and AI-generation rules are in
   for candidate questions with an editable review step. Deleting a discussion
   is a recoverable soft deletion rather than destructive database removal.
 
+### Drawboard cloud PDFs
+
+A resource may keep its local archival path and use a Drawboard sharing URL as
+its live annotation source:
+
+```toml
+[resources.rl-book]
+title = "Reinforcement Learning: An Introduction, second edition"
+path = "/absolute/path/to/RLbook2020.pdf"
+url = "https://pdf.drawboard.com/documents/links/.../consume"
+kind = "book"
+```
+
+After editing a full plan, load it with `make react-plan-update PLAN=...`. For a
+resource with this URL, the normal **Open** action resolves the shared document
+and opens its cloud document ID in the Drawboard PDF macOS app. **Collect PDF
+notes** reads the current cloud annotations instead of the local file, so marks
+synced from an iPad are included. Re-running collection is safe: unchanged marks
+are reused and changed cloud marks refresh their source anchors without
+duplicating them or resetting their tracker status.
+
+Text highlights, underlines, and inserted text notes become searchable tracker
+captures; red marks and text ending in `?` become questions. Ink, shapes, and
+links are reported by type but skipped because they do not contain searchable
+text. The anonymous sharing credentials are cached with owner-only permissions
+in the gitignored `drawboard_state.json`.
+
+The cloud reader is a compatibility integration with Drawboard's current web
+client rather than a documented public API. If Drawboard changes that protocol,
+collection fails visibly and leaves existing tracker annotations untouched.
+
 Tiptap notes support editable inline and block formulas. Read-only Markdown
 surfaces use the same lazy KaTeX renderer so formula syntax remains consistent
 across notes, questions, plans, resource descriptions, and discussions.

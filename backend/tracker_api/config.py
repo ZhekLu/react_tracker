@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://127.0.0.1:5174"
     helper_config_path: Path = Field(default=TRACKER_ROOT / "toggl_config.json")
     helper_state_path: Path = Field(default=TRACKER_ROOT / "toggl_state.json")
+    drawboard_state_path: Path = Field(default=TRACKER_ROOT / "drawboard_state.json")
     frontend_dist_path: Path = Field(default=PROJECT_ROOT / "frontend" / "dist")
 
     @property

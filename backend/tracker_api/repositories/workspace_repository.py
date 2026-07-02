@@ -14,6 +14,7 @@ from sqlalchemy import Connection, RowMapping, text
 from ..schemas.workspace import (
     Annotation,
     AnnotationAnchor,
+    AnnotationAnchorCreate,
     AnnotationCommand,
     AnnotationCreateCommand,
     CourseListResponse,
@@ -1569,6 +1570,53 @@ def update_annotation(
     return response
 
 
+def _insert_annotation_anchor(
+    connection: Connection,
+    *,
+    annotation_id: str,
+    resource_version_id: str | None,
+    anchor: AnnotationAnchorCreate,
+    timestamp: str,
+) -> None:
+    connection.execute(
+        text(
+            """
+            INSERT INTO annotation_anchors (
+              annotation_id, resource_version_id, anchor_type, quote,
+              section_id, section_title, source_line_start, source_line_end,
+              page_number, rect_json, discussion_message_id, dom_selector,
+              text_prefix, text_suffix, start_offset, end_offset, color,
+              rgb_json, annotation_kind, selector_json, created_at, updated_at
+            )
+            VALUES (
+              :annotation_id, :resource_version_id, :anchor_type, :quote,
+              NULL, :section_title, :source_line_start, :source_line_end,
+              :page_number, :rect_json, :discussion_message_id, NULL,
+              NULL, NULL, NULL, NULL, :color,
+              :rgb_json, :annotation_kind, :selector_json, :now, :now
+            )
+            """
+        ),
+        {
+            "annotation_id": annotation_id,
+            "resource_version_id": resource_version_id,
+            "anchor_type": anchor.anchor_type,
+            "quote": anchor.quote,
+            "section_title": anchor.section_title,
+            "source_line_start": anchor.source_line_start,
+            "source_line_end": anchor.source_line_end,
+            "page_number": anchor.page_number,
+            "rect_json": _json_dumps(anchor.rect),
+            "discussion_message_id": anchor.discussion_message_id,
+            "color": anchor.color,
+            "rgb_json": _json_dumps(anchor.rgb),
+            "annotation_kind": anchor.annotation_kind,
+            "selector_json": _json_dumps(anchor.metadata),
+            "now": timestamp,
+        },
+    )
+
+
 def create_annotation(
     connection: Connection,
     command: AnnotationCreateCommand,
@@ -1645,46 +1693,261 @@ def create_annotation(
         raise WorkspaceRepositoryError("Could not create annotation.")
     anchor = command.anchor
     if anchor is not None:
-        connection.execute(
-            text(
-                """
-                INSERT INTO annotation_anchors (
-                  annotation_id, resource_version_id, anchor_type, quote,
-                  section_id, section_title, source_line_start, source_line_end,
-                  page_number, rect_json, discussion_message_id, dom_selector,
-                  text_prefix, text_suffix, start_offset, end_offset, color,
-                  rgb_json, annotation_kind, selector_json, created_at, updated_at
-                )
-                VALUES (
-                  :annotation_id, :resource_version_id, :anchor_type, :quote,
-                  NULL, :section_title, :source_line_start, :source_line_end,
-                  :page_number, :rect_json, :discussion_message_id, NULL,
-                  NULL, NULL, NULL, NULL, :color,
-                  :rgb_json, :annotation_kind, :selector_json, :now, :now
-                )
-                """
+        _insert_annotation_anchor(
+            connection,
+            annotation_id=annotation_id,
+            resource_version_id=(
+                anchor.resource_version_id
+                or cast(str | None, resource["current_version_id"])
             ),
-            {
-                "annotation_id": annotation_id,
-                "resource_version_id": (
-                    anchor.resource_version_id or resource["current_version_id"]
-                ),
-                "anchor_type": anchor.anchor_type,
-                "quote": anchor.quote,
-                "section_title": anchor.section_title,
-                "source_line_start": anchor.source_line_start,
-                "source_line_end": anchor.source_line_end,
-                "page_number": anchor.page_number,
-                "rect_json": _json_dumps(anchor.rect),
-                "discussion_message_id": anchor.discussion_message_id,
-                "color": anchor.color,
-                "rgb_json": _json_dumps(anchor.rgb),
-                "annotation_kind": anchor.annotation_kind,
-                "selector_json": _json_dumps(anchor.metadata),
-                "now": now,
-            },
+            anchor=anchor,
+            timestamp=now,
         )
     return _mutation_result(row)
+
+
+def _refresh_imported_anchor(
+    connection: Connection,
+    existing: RowMapping,
+    command: AnnotationCreateCommand,
+    *,
+    timestamp: str,
+) -> None:
+    anchor = command.anchor
+    if anchor is None:
+        return
+    annotation_id = str(existing["id"])
+    if existing["anchor_annotation_id"] is None:
+        resource_version_id = connection.execute(
+            text(
+                """
+                SELECT current_version_id
+                FROM resources
+                WHERE id = :resource_id AND deleted_at IS NULL
+                """
+            ),
+            {"resource_id": command.resource_id},
+        ).scalar_one_or_none()
+        _insert_annotation_anchor(
+            connection,
+            annotation_id=annotation_id,
+            resource_version_id=anchor.resource_version_id or resource_version_id,
+            anchor=anchor,
+            timestamp=timestamp,
+        )
+        return
+    connection.execute(
+        text(
+            """
+            UPDATE annotation_anchors
+            SET anchor_type = :anchor_type,
+                quote = :quote,
+                page_number = :page_number,
+                rect_json = :rect_json,
+                color = :color,
+                rgb_json = :rgb_json,
+                annotation_kind = :annotation_kind,
+                selector_json = :selector_json,
+                updated_at = :now
+            WHERE annotation_id = :annotation_id
+            """
+        ),
+        {
+            "anchor_type": anchor.anchor_type,
+            "quote": anchor.quote,
+            "page_number": anchor.page_number,
+            "rect_json": _json_dumps(anchor.rect),
+            "color": anchor.color,
+            "rgb_json": _json_dumps(anchor.rgb),
+            "annotation_kind": anchor.annotation_kind,
+            "selector_json": _json_dumps(anchor.metadata),
+            "now": timestamp,
+            "annotation_id": annotation_id,
+        },
+    )
+
+
+def _refresh_imported_document(
+    connection: Connection,
+    *,
+    document_id: str,
+    markdown: str,
+    plain_text: str,
+    timestamp: str,
+) -> None:
+    content_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "editor_json": None,
+                "markdown": markdown,
+                "plain_text": plain_text,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    document_row = _one_or_none(
+        connection,
+        """
+        UPDATE documents
+        SET canonical_format = 'markdown',
+            markdown = :markdown,
+            editor_json = NULL,
+            plain_text = :plain_text,
+            content_hash = :content_hash,
+            updated_at = :now,
+            revision = revision + 1
+        WHERE id = :document_id AND deleted_at IS NULL
+        RETURNING revision
+        """,
+        {
+            "document_id": document_id,
+            "markdown": markdown,
+            "plain_text": plain_text,
+            "content_hash": content_hash,
+            "now": timestamp,
+        },
+    )
+    if document_row is None:
+        raise EntityNotFoundError(
+            f"Annotation document does not exist: {document_id}"
+        )
+    _insert_document_revision(
+        connection,
+        document_id=document_id,
+        revision=int(document_row["revision"]),
+        markdown=markdown,
+        editor_json=None,
+        plain_text=plain_text,
+        content_hash=content_hash,
+        reason="imported_annotation_body_refreshed",
+        timestamp=timestamp,
+    )
+
+
+def _refresh_imported_body(
+    connection: Connection,
+    existing: RowMapping,
+    command: AnnotationCreateCommand,
+    previous_metadata: dict[str, Any],
+    *,
+    timestamp: str,
+) -> None:
+    source_content = command.plain_text or command.markdown
+    if not source_content:
+        return
+    previous_source_content = str(previous_metadata.get("sourceContent") or "")
+    body_document_id = cast(str | None, existing["body_document_id"])
+    body_is_unedited = (
+        body_document_id is None
+        or str(existing["body_plain_text"] or "") == previous_source_content
+    )
+    if not body_is_unedited:
+        return
+    markdown = command.markdown or source_content
+    plain_text = command.plain_text or markdown
+    if body_document_id is not None:
+        _refresh_imported_document(
+            connection,
+            document_id=body_document_id,
+            markdown=markdown,
+            plain_text=plain_text,
+            timestamp=timestamp,
+        )
+        return
+    body_document_id = _create_document(
+        connection,
+        markdown=markdown,
+        editor_json=None,
+        plain_text=plain_text,
+        reason="imported_annotation_body_created",
+        timestamp=timestamp,
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE annotations
+            SET body_document_id = :body_document_id
+            WHERE id = :annotation_id
+            """
+        ),
+        {
+            "annotation_id": str(existing["id"]),
+            "body_document_id": body_document_id,
+        },
+    )
+
+
+def upsert_imported_annotation(
+    connection: Connection,
+    command: AnnotationCreateCommand,
+    *,
+    source_revision: str,
+) -> str:
+    if not command.source_fingerprint:
+        raise WorkspaceRepositoryError(
+            "Imported annotations require a source fingerprint."
+        )
+    existing = _one_or_none(
+        connection,
+        """
+        SELECT a.id, a.body_document_id, aa.annotation_id AS anchor_annotation_id,
+               aa.selector_json, d.plain_text AS body_plain_text
+        FROM annotations a
+        LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
+        LEFT JOIN documents d ON d.id = a.body_document_id AND d.deleted_at IS NULL
+        WHERE a.resource_id = :resource_id
+          AND a.source_fingerprint = :source_fingerprint
+          AND a.deleted_at IS NULL
+        """,
+        {
+            "resource_id": command.resource_id,
+            "source_fingerprint": command.source_fingerprint,
+        },
+    )
+    if existing is None:
+        create_annotation(connection, command)
+        return "created"
+
+    previous_metadata: dict[str, Any] = _json_loads(
+        existing["selector_json"],
+        {},
+    )
+    if str(previous_metadata.get("sourceRevision") or "") == source_revision:
+        return "existing"
+
+    now = _now()
+    _refresh_imported_anchor(
+        connection,
+        existing,
+        command,
+        timestamp=now,
+    )
+    _refresh_imported_body(
+        connection,
+        existing,
+        command,
+        previous_metadata,
+        timestamp=now,
+    )
+
+    connection.execute(
+        text(
+            """
+            UPDATE annotations
+            SET external_id = :external_id,
+                updated_at = :now,
+                revision = revision + 1
+            WHERE id = :annotation_id
+            """
+        ),
+        {
+            "annotation_id": str(existing["id"]),
+            "external_id": command.external_id,
+            "now": now,
+        },
+    )
+    return "updated"
 
 
 def annotation_source_fingerprints(

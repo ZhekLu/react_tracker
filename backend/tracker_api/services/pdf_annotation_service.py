@@ -14,6 +14,12 @@ from sqlalchemy.engine import Connection
 
 from ..repositories import workspace_repository
 from ..schemas.workspace import AnnotationAnchorCreate, AnnotationCreateCommand
+from .drawboard_service import (
+    DrawboardCapture,
+    DrawboardError,
+    extract_drawboard_annotations,
+    is_drawboard_cloud_url,
+)
 from .resource_open_service import ResourceOpenError, safe_local_resource_path
 
 MARKUP_KINDS = {"Highlight", "Underline", "Squiggly", "StrikeOut"}
@@ -47,9 +53,10 @@ class PdfExtraction:
 @dataclass(frozen=True, slots=True)
 class PdfCollection:
     resource_id: str
-    path: Path
+    path: str
     extracted_count: int
     created_count: int
+    updated_count: int
     existing_count: int
     ignored: dict[str, int]
     kind_counts: dict[str, int]
@@ -268,40 +275,122 @@ def _annotation_command(
     )
 
 
+def _drawboard_annotation_command(
+    resource_id: str,
+    source_url: str,
+    document_id: str,
+    capture: DrawboardCapture,
+) -> AnnotationCreateCommand:
+    kind = (
+        "question"
+        if capture.is_question
+        else "highlight"
+        if capture.quote
+        else "note"
+    )
+    source_content = capture.comment or capture.quote
+    return AnnotationCreateCommand(
+        resource_id=resource_id,
+        kind=kind,
+        origin="drawboard_cloud",
+        external_id=capture.fingerprint,
+        source_fingerprint=capture.fingerprint,
+        markdown=capture.comment,
+        plain_text=capture.comment,
+        anchor=AnnotationAnchorCreate(
+            anchor_type="pdf_rect",
+            quote=capture.quote or None,
+            page_number=capture.page,
+            rect=capture.rect or None,
+            color=capture.color or None,
+            rgb=capture.rgb or None,
+            annotation_kind=capture.annotation_kind,
+            metadata={
+                "createdAt": capture.created_at,
+                "drawboardDocumentId": document_id,
+                "sourceContent": source_content,
+                "sourceLabel": "Drawboard cloud PDF",
+                "sourcePath": source_url,
+                "sourceRevision": capture.source_revision,
+            },
+        ),
+    )
+
+
 def collect_resource_pdf_annotations(
     connection: Connection,
     resource_id: str,
 ) -> PdfCollection:
-    local_path, _source_url = workspace_repository.resource_open_target(
+    local_path, source_url = workspace_repository.resource_open_target(
         connection,
         resource_id,
     )
+    if is_drawboard_cloud_url(source_url):
+        assert source_url is not None
+        try:
+            cloud_extraction = extract_drawboard_annotations(source_url)
+        except DrawboardError as error:
+            raise PdfAnnotationError(str(error)) from error
+        counts = {"created": 0, "existing": 0, "updated": 0}
+        cloud_kind_counts: dict[str, int] = {}
+        for cloud_capture in cloud_extraction.captures:
+            command = _drawboard_annotation_command(
+                resource_id,
+                cloud_extraction.source_url,
+                cloud_extraction.document_id,
+                cloud_capture,
+            )
+            cloud_kind_counts[command.kind] = (
+                cloud_kind_counts.get(command.kind, 0) + 1
+            )
+            outcome = workspace_repository.upsert_imported_annotation(
+                connection,
+                command,
+                source_revision=cloud_capture.source_revision,
+            )
+            counts[outcome] += 1
+        return PdfCollection(
+            resource_id=resource_id,
+            path=cloud_extraction.source_url,
+            extracted_count=len(cloud_extraction.captures),
+            created_count=counts["created"],
+            updated_count=counts["updated"],
+            existing_count=counts["existing"],
+            ignored=cloud_extraction.ignored,
+            kind_counts=cloud_kind_counts,
+        )
+
     if not local_path:
         raise PdfAnnotationError("This resource has no local PDF path.")
     try:
         safe_path = safe_local_resource_path(local_path)
     except ResourceOpenError as error:
         raise PdfAnnotationError(str(error)) from error
-    extraction = extract_pdf_annotations(safe_path)
+    local_extraction = extract_pdf_annotations(safe_path)
     existing = workspace_repository.annotation_source_fingerprints(
         connection,
         resource_id,
     )
     created_count = 0
     kind_counts: dict[str, int] = {}
-    for capture in extraction.captures:
-        command = _annotation_command(resource_id, extraction.path, capture)
+    for local_capture in local_extraction.captures:
+        command = _annotation_command(
+            resource_id,
+            local_extraction.path,
+            local_capture,
+        )
         kind_counts[command.kind] = kind_counts.get(command.kind, 0) + 1
         workspace_repository.create_annotation(connection, command)
-        if capture.fingerprint not in existing:
+        if local_capture.fingerprint not in existing:
             created_count += 1
-            existing.add(capture.fingerprint)
+            existing.add(local_capture.fingerprint)
     return PdfCollection(
         resource_id=resource_id,
-        path=extraction.path,
-        extracted_count=len(extraction.captures),
+        path=str(local_extraction.path),
+        extracted_count=len(local_extraction.captures),
         created_count=created_count,
-        existing_count=len(extraction.captures) - created_count,
-        ignored=extraction.ignored,
+        updated_count=0,
+        existing_count=len(local_extraction.captures) - created_count,
+        ignored=local_extraction.ignored,
         kind_counts=kind_counts,
     )

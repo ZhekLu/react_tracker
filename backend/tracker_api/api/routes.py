@@ -224,6 +224,7 @@ def collect_resource_annotations(
             path=str(result.path),
             extracted_count=result.extracted_count,
             created_count=result.created_count,
+            updated_count=result.updated_count,
             existing_count=result.existing_count,
             ignored_count=result.ignored_count,
             ignored=result.ignored,
