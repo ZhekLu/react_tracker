@@ -157,9 +157,10 @@ rows. The complete format, patch semantics, and AI-generation rules are in
 ## Daily Workflow
 
 - Use Roadmap for task state, linked source opening, task notes, defer flags, and
-  day notes. Questions and PDF captures are expanded directly below their linked
-  task, with source, page, conversion, follow-up, answer, and archive actions.
-  Skills belong to the day and are not repeated on every task.
+  day notes. Questions and PDF captures are grouped compactly by resource and
+  chapter directly below their linked task; open an individual capture only
+  when its context or actions are needed. Skills belong to the day and are not
+  repeated on every task.
 - Use Resources for grouped library progress, source opening, resource notes,
   reading state, PDF comment/highlight collection, and resource-linked
   discussions. Every source has a visible Ask action and an inline question
@@ -176,8 +177,12 @@ rows. The complete format, patch semantics, and AI-generation rules are in
   resources. Messages are immutable, render Markdown/LaTeX, and can answer,
   partially answer, or reference one or many questions. New questions can be
   anchored recursively to any discussion message. Tutor answers can be scanned
-  for candidate questions with an editable review step. Deleting a discussion
-  is a recoverable soft deletion rather than destructive database removal.
+  for candidate questions with an editable review step. Pasted tutor responses
+  normalize common ChatGPT display-math delimiters and automatically link the
+  active questions of a directly opened resource. Explicit `Q1` / `Question 1`
+  answer sections place the closest linked question beside the answer with
+  reference, partial, and done controls. Deleting a discussion is a recoverable
+  soft deletion rather than destructive database removal.
 
 ### Drawboard cloud PDFs
 

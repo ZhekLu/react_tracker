@@ -38,7 +38,11 @@ import type {
   DiscussionQuestionRelation,
   Resource,
 } from "../../types/tracker";
-import { discussionFollowups } from "../../lib/discussionText";
+import {
+  discussionAnswerSections,
+  discussionFollowups,
+  matchAnswerSectionsToQuestions,
+} from "../../lib/discussionText";
 
 type DiscussionsViewProps = {
   course: Course;
@@ -95,6 +99,131 @@ function questionText(annotation: Annotation): string {
     annotation.body?.plainText ||
     annotation.anchor?.quote ||
     "Question without text"
+  );
+}
+
+function DiscussionMessageContent({
+  annotationById,
+  message,
+  onQuestionLink,
+  resourceById,
+}: {
+  annotationById: Map<string, Annotation>;
+  message: DiscussionMessage;
+  onQuestionLink: DiscussionsViewProps["onQuestionLink"];
+  resourceById: Map<string, Resource>;
+}) {
+  const markdown = message.body.markdown || message.body.plainText;
+  const linkedQuestions = message.annotationLinks
+    .map((link) => annotationById.get(link.annotationId))
+    .filter((item): item is Annotation =>
+      Boolean(item && ["question", "todo"].includes(item.kind)),
+    );
+  const parsed = discussionAnswerSections(markdown);
+  if (message.role !== "assistant" || !parsed.sections.length) {
+    return (
+      <MarkdownMath className="discussionMessageBody">
+        {markdown}
+      </MarkdownMath>
+    );
+  }
+  const sectionMatches = new Map(
+    matchAnswerSectionsToQuestions(
+      parsed.sections,
+      linkedQuestions.map((question) => ({
+        id: question.id,
+        text: questionText(question),
+      })),
+    ).map((match) => [match.sectionLabel, match.questionId]),
+  );
+  return (
+    <div className="discussionStructuredAnswer">
+      {parsed.preamble ? (
+        <MarkdownMath className="discussionMessageBody">
+          {parsed.preamble}
+        </MarkdownMath>
+      ) : null}
+      {parsed.sections.map((section) => {
+        const questionId = sectionMatches.get(section.label);
+        const question = questionId
+          ? annotationById.get(questionId)
+          : undefined;
+        const relation = question
+          ? message.annotationLinks.find(
+              (link) => link.annotationId === question.id,
+            )?.relation
+          : undefined;
+        const source = question
+          ? resourceById.get(question.resourceId)
+          : undefined;
+        return (
+          <section className="discussionAnswerSection" key={section.label}>
+            {question ? (
+              <aside
+                className={`inlineAnsweredQuestion status-${question.status}`}
+              >
+                <header>
+                  <span>{section.label} · linked question</span>
+                  <strong>{relation ?? question.status}</strong>
+                </header>
+                <MarkdownMath>{questionText(question)}</MarkdownMath>
+                <footer>
+                  <span>
+                    {source?.title ?? "Source"}
+                    {question.anchor?.pageNumber
+                      ? ` · p. ${question.anchor.pageNumber}`
+                      : ""}
+                  </span>
+                  <div>
+                    <button
+                      className={relation === "references" ? "active" : ""}
+                      onClick={() =>
+                        onQuestionLink(
+                          message.id,
+                          question.id,
+                          "references",
+                        )
+                      }
+                      type="button"
+                    >
+                      Referenced
+                    </button>
+                    <button
+                      className={
+                        relation === "partially_answers" ? "active" : ""
+                      }
+                      onClick={() =>
+                        onQuestionLink(
+                          message.id,
+                          question.id,
+                          "partially_answers",
+                        )
+                      }
+                      type="button"
+                    >
+                      Partial
+                    </button>
+                    <button
+                      className={relation === "answers" ? "active" : ""}
+                      onClick={() =>
+                        onQuestionLink(message.id, question.id, "answers")
+                      }
+                      type="button"
+                    >
+                      <CheckCircle2 size={12} />
+                      Done
+                    </button>
+                  </div>
+                </footer>
+              </aside>
+            ) : null}
+            <MarkdownMath className="discussionMessageBody">
+              {section.markdown}
+            </MarkdownMath>
+          </section>
+        );
+      })}
+    </div>
   );
 }
 
@@ -592,9 +721,12 @@ export function DiscussionsView({
                           {message.importedFromClipboard ? " · pasted" : ""}
                         </span>
                       </header>
-                      <MarkdownMath className="discussionMessageBody">
-                        {message.body.markdown || message.body.plainText}
-                      </MarkdownMath>
+                      <DiscussionMessageContent
+                        annotationById={annotationById}
+                        message={message}
+                        onQuestionLink={onQuestionLink}
+                        resourceById={resourceById}
+                      />
                       {message.annotationLinks.length ||
                       message.role === "assistant" ? (
                         <footer>

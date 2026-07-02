@@ -805,12 +805,60 @@ export function App() {
     });
   }
 
+  function activeQuestionLinks(
+    discussion: Discussion | undefined,
+    fallbackResourceId: string,
+  ): NonNullable<DiscussionMessageInput["annotationLinks"]> {
+    if (!workspace) return [];
+    const sourceIds = new Set(
+      discussion?.sourceResourceIds.length
+        ? discussion.sourceResourceIds
+        : [fallbackResourceId],
+    );
+    return workspace.annotations
+      .filter(
+        (annotation) =>
+          sourceIds.has(annotation.resourceId) &&
+          ["question", "todo"].includes(annotation.kind) &&
+          annotation.status !== "archived",
+      )
+      .map((annotation) => ({
+        annotationId: annotation.id,
+        relation: "references" as const,
+      }));
+  }
+
   function handleAddDiscussionMessage(
     discussionId: string,
     input: DiscussionMessageInput,
   ) {
+    const discussion = workspace?.discussions.find(
+      (item) => item.id === discussionId,
+    );
+    const markdown = normalizeDiscussionMarkdown(input.markdown);
+    const automaticLinks =
+      input.role === "assistant"
+        ? activeQuestionLinks(
+            discussion,
+            discussion?.sourceResourceIds[0] ?? "",
+          )
+        : [];
+    const annotationLinks = [
+      ...(input.annotationLinks ?? []),
+      ...automaticLinks.filter(
+        (automatic) =>
+          !(input.annotationLinks ?? []).some(
+            (provided) => provided.annotationId === automatic.annotationId,
+          ),
+      ),
+    ];
     void runMutation(async () => {
-      await createDiscussionMessage(discussionId, input);
+      await createDiscussionMessage(discussionId, {
+        ...input,
+        annotationLinks,
+        markdown,
+        plainText: markdown,
+      });
     });
   }
 
@@ -834,7 +882,12 @@ export function App() {
             courseId: workspace.id,
             sourceResourceId: resourceId,
           }));
+        const annotationLinks = activeQuestionLinks(
+          existingDiscussion,
+          existingDiscussion?.sourceResourceIds[0] ?? resourceId,
+        );
         await createDiscussionMessage(discussion.id, {
+          annotationLinks,
           importedFromClipboard: true,
           linkPromptQuestions: true,
           markdown,
