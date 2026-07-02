@@ -502,6 +502,185 @@
   font-size: 8px;
 }
 
+.discussionTaskPin {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--course-accent) 24%, var(--line));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--course-accent) 5%, #fff);
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.discussionTaskPin > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--course-accent);
+}
+
+.discussionTaskPinBody {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.discussionTaskPinBody h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.discussionTaskMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.discussionTaskMeta span {
+  min-height: 21px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 8px;
+  font-weight: 720;
+}
+
+.discussionTaskMeta span[class^="status-"] {
+  color: var(--blue-deep);
+  text-transform: capitalize;
+}
+
+.discussionTaskMeta .status-done {
+  color: var(--green-deep);
+}
+
+.discussionTaskMeta .status-later,
+.discussionTaskMeta .status-skipped {
+  color: var(--amber-deep);
+}
+
+.discussionTaskPin details {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.discussionTaskPin summary {
+  width: max-content;
+  cursor: pointer;
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 760;
+}
+
+.discussionTaskPin details .markdownMath {
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+.discussionWorkshopPanel {
+  align-self: start;
+  max-height: calc(100vh - 155px);
+  padding: 12px;
+  overflow-y: auto;
+  position: sticky;
+  top: 86px;
+}
+
+.discussionWorkshopPanel > header h3 {
+  margin: 2px 0 0;
+  font-size: 11px;
+}
+
+.discussionWorkshopPanel > header .captureIconButton.active {
+  border-color: color-mix(in srgb, var(--blue) 32%, var(--line));
+  color: var(--blue-deep);
+}
+
+.discussionWorkshopPanel .inlineCaptureEditor {
+  margin-bottom: 8px;
+  padding: 9px;
+}
+
+.discussionWorkshopPanel .inlineCaptureEditor > header strong {
+  max-width: 190px;
+}
+
+.discussionWorkshopPanel .inlineCaptureEditor > footer {
+  justify-content: flex-start;
+}
+
+.discussionWorkshopPanel .compactCaptureMeta {
+  max-width: 78px;
+}
+
+.discussionWorkshopPanel .compactCaptureMain {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.discussionWorkshopPanel .compactCaptureMain > svg {
+  display: none;
+}
+
+.discussionCoverage {
+  margin-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.discussionCoverage > summary {
+  min-height: 36px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 8px;
+  font-weight: 760;
+}
+
+.discussionCoverage > summary::-webkit-details-marker {
+  display: none;
+}
+
+.discussionCoverage > summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.discussionCoverage > summary strong {
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--faint);
+}
+
+.discussionCoverageList {
+  display: grid;
+  gap: 6px;
+}
+
+.discussionCoverageList .discussionQuestion {
+  padding: 8px;
+  margin: 0;
+  border-radius: 8px;
+}
+
+.discussionCoverageList .discussionQuestion > p,
+.discussionCoverageList .discussionQuestion > .markdownMath {
+  margin: 6px 0;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
 @media (max-width: 700px) {
   .compactCaptureMeta {
     max-width: 90px;
@@ -514,5 +693,10 @@
 
   .inlineCaptureEditor > footer {
     justify-content: flex-start;
+  }
+
+  .discussionWorkshopPanel {
+    max-height: none;
+    position: static;
   }
 }

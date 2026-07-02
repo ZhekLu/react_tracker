@@ -10,34 +10,58 @@ import {
   MessageSquarePlus,
   MessageSquareText,
   MessageCircleQuestion,
+  Pin,
   Plus,
   RotateCcw,
   Send,
   Sparkles,
+  Timer,
   Trash2,
   UserRound,
+  X,
 } from "lucide-react";
 import type { DiscussionMessageInput } from "../../api/trackerApi";
+import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
+import {
+  InlineCaptureEditor,
+  type ResourceCaptureInput,
+} from "../../components/annotations/InlineCaptureEditor";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import type {
   Annotation,
+  AnnotationKind,
+  AnnotationStatus,
   Course,
   Discussion,
   DiscussionMessage,
   DiscussionQuestionRelation,
+  Resource,
 } from "../../types/tracker";
 import { discussionFollowups } from "../../lib/discussionText";
 
 type DiscussionsViewProps = {
   course: Course;
   focusedResourceId: string;
+  focusedTaskId: string;
   onAddMessage: (discussionId: string, input: DiscussionMessageInput) => void;
+  onAnnotationChange: (
+    annotation: Annotation,
+    changes: {
+      kind?: AnnotationKind;
+      status?: AnnotationStatus;
+      priority?: Annotation["priority"];
+      markdown?: string;
+      plainText?: string;
+      documentRevision?: number;
+    },
+  ) => void;
   onAskMessageQuestion: (
     discussionResourceId: string,
     messageId: string,
     messagePreview: string,
   ) => void;
+  onCreateCapture: (resourceId: string, input: ResourceCaptureInput) => void;
   onCreateDiscussion: (resourceId: string) => void;
   onDeleteDiscussion: (discussion: Discussion) => void;
   onDiscussionStatusChange: (
@@ -74,11 +98,165 @@ function questionText(annotation: Annotation): string {
   );
 }
 
+type DiscussionWorkshopPanelProps = {
+  activeCaptures: Annotation[];
+  answeredCount: number;
+  captureEditorOpen: boolean;
+  coverageQuestions: Annotation[];
+  discussion?: Discussion;
+  latestAssistantMessage?: DiscussionMessage;
+  onAnnotationChange: DiscussionsViewProps["onAnnotationChange"];
+  onCaptureEditorOpenChange: (open: boolean) => void;
+  onCreateCapture: DiscussionsViewProps["onCreateCapture"];
+  onQuestionLink: DiscussionsViewProps["onQuestionLink"];
+  resource: Resource;
+  resourceById: Map<string, Resource>;
+};
+
+function DiscussionWorkshopPanel({
+  activeCaptures,
+  answeredCount,
+  captureEditorOpen,
+  coverageQuestions,
+  discussion,
+  latestAssistantMessage,
+  onAnnotationChange,
+  onCaptureEditorOpenChange,
+  onCreateCapture,
+  onQuestionLink,
+  resource,
+  resourceById,
+}: DiscussionWorkshopPanelProps) {
+  return (
+    <aside className="discussionQuestionPanel discussionWorkshopPanel">
+      <header>
+        <div>
+          <p className="eyebrow">Active notes & questions</p>
+          <h3>
+            {activeCaptures.length} capture
+            {activeCaptures.length === 1 ? "" : "s"}
+          </h3>
+        </div>
+        <button
+          aria-label={captureEditorOpen ? "Close capture editor" : "Add resource capture"}
+          className={captureEditorOpen ? "captureIconButton active" : "captureIconButton"}
+          onClick={() => onCaptureEditorOpenChange(!captureEditorOpen)}
+          title={captureEditorOpen ? "Close editor" : "Add note or question"}
+          type="button"
+        >
+          {captureEditorOpen ? <X size={14} /> : <Plus size={14} />}
+        </button>
+      </header>
+      {captureEditorOpen ? (
+        <InlineCaptureEditor
+          onCancel={() => onCaptureEditorOpenChange(false)}
+          onSubmit={(input) => {
+            onCreateCapture(resource.id, input);
+            onCaptureEditorOpenChange(false);
+          }}
+          resourceTitle={resource.title}
+        />
+      ) : null}
+      {activeCaptures.length ? (
+        <AnnotationChapterGroups
+          annotations={activeCaptures}
+          onAnnotationChange={onAnnotationChange}
+        />
+      ) : (
+        <div className="emptyInline">
+          No active notes or questions yet. Add one without leaving the workshop.
+        </div>
+      )}
+      {discussion && coverageQuestions.length ? (
+        <details className="discussionCoverage">
+          <summary>
+            <span>
+              <CircleHelp size={13} />
+              Answer coverage
+            </span>
+            <strong>
+              {answeredCount}/{coverageQuestions.length}
+            </strong>
+          </summary>
+          <div className="discussionCoverageList">
+            {coverageQuestions.map((question) => {
+              const linkedRelation = [...discussion.messages]
+                .reverse()
+                .flatMap((message) => message.annotationLinks)
+                .find((link) => link.annotationId === question.id)?.relation;
+              const source = resourceById.get(question.resourceId);
+              return (
+                <article
+                  className={`discussionQuestion status-${question.status}`}
+                  key={question.id}
+                >
+                  <header>
+                    <strong>{source?.title ?? "Source question"}</strong>
+                    <span>{linkedRelation ?? question.status}</span>
+                  </header>
+                  <MarkdownMath>{questionText(question)}</MarkdownMath>
+                  <div>
+                    <button
+                      disabled={!latestAssistantMessage}
+                      onClick={() =>
+                        latestAssistantMessage &&
+                        onQuestionLink(
+                          latestAssistantMessage.id,
+                          question.id,
+                          "references",
+                        )
+                      }
+                      type="button"
+                    >
+                      Referenced
+                    </button>
+                    <button
+                      disabled={!latestAssistantMessage}
+                      onClick={() =>
+                        latestAssistantMessage &&
+                        onQuestionLink(
+                          latestAssistantMessage.id,
+                          question.id,
+                          "partially_answers",
+                        )
+                      }
+                      type="button"
+                    >
+                      Partial
+                    </button>
+                    <button
+                      disabled={!latestAssistantMessage}
+                      onClick={() =>
+                        latestAssistantMessage &&
+                        onQuestionLink(
+                          latestAssistantMessage.id,
+                          question.id,
+                          "answers",
+                        )
+                      }
+                      type="button"
+                    >
+                      <CheckCircle2 size={12} /> Answered
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
+    </aside>
+  );
+}
+
 export function DiscussionsView({
   course,
   focusedResourceId,
+  focusedTaskId,
   onAddMessage,
+  onAnnotationChange,
   onAskMessageQuestion,
+  onCreateCapture,
   onCreateDiscussion,
   onDeleteDiscussion,
   onDiscussionStatusChange,
@@ -90,11 +268,12 @@ export function DiscussionsView({
   onQuestionLink,
 }: DiscussionsViewProps) {
   const [pendingDelete, setPendingDelete] = useState<Discussion | null>(null);
+  const [captureEditorResourceId, setCaptureEditorResourceId] = useState("");
   const sourceResources = course.resources.filter(
     (resource) =>
       !["discussion", "exam_question"].includes(resource.kind),
   );
-  const discussion =
+  const focusedDiscussion =
     course.discussions.find(
       (item) =>
         item.id === focusedResourceId ||
@@ -102,8 +281,10 @@ export function DiscussionsView({
     ) ??
     course.discussions.find((item) =>
       item.sourceResourceIds.includes(focusedResourceId),
-    ) ??
-    course.discussions[0];
+    );
+  const discussion =
+    focusedDiscussion ??
+    (focusedResourceId ? undefined : course.discussions[0]);
   const selectedSourceId =
     discussion
       ? discussion.sourceResourceIds[0] ?? ""
@@ -113,6 +294,7 @@ export function DiscussionsView({
   const selectedSource = course.resources.find(
     (resource) => resource.id === selectedSourceId,
   );
+  const captureEditorOpen = captureEditorResourceId === selectedSourceId;
   const followups = discussion ? discussionFollowups(discussion) : "";
   const annotationById = useMemo(
     () => new Map(course.annotations.map((annotation) => [annotation.id, annotation])),
@@ -122,15 +304,66 @@ export function DiscussionsView({
     () => new Map(course.resources.map((resource) => [resource.id, resource])),
     [course.resources],
   );
-  const questions = (discussion?.questionIds ?? [])
+  const linkedQuestions = (discussion?.questionIds ?? [])
     .map((id) => annotationById.get(id))
     .filter((item): item is Annotation => Boolean(item));
+  const activeCaptures = (selectedSource?.annotations ?? [])
+    .filter(
+      (annotation) =>
+        annotation.status !== "archived" &&
+        ["note", "question", "todo"].includes(annotation.kind),
+    )
+    .sort((left, right) => {
+      const leftOpenQuestion =
+        ["question", "todo"].includes(left.kind) && left.status === "open";
+      const rightOpenQuestion =
+        ["question", "todo"].includes(right.kind) && right.status === "open";
+      if (leftOpenQuestion !== rightOpenQuestion) {
+        return leftOpenQuestion ? -1 : 1;
+      }
+      return left.createdAt.localeCompare(right.createdAt);
+    });
+  const coverageQuestions = [
+    ...new Map(
+      [
+        ...linkedQuestions,
+        ...activeCaptures.filter((annotation) =>
+          ["question", "todo"].includes(annotation.kind),
+        ),
+      ].map((annotation) => [annotation.id, annotation]),
+    ).values(),
+  ];
+  const taskContext = (() => {
+    if (!focusedTaskId || !selectedSourceId) return null;
+    for (const day of course.days) {
+      for (const section of day.sections) {
+        const task = section.tasks.find((item) => item.id === focusedTaskId);
+        if (!task) continue;
+        const linkedResourceIds = new Set(task.resourceIds);
+        if (
+          !linkedResourceIds.has(selectedSourceId) &&
+          !(
+            selectedSource?.parentResourceId &&
+            linkedResourceIds.has(selectedSource.parentResourceId)
+          )
+        ) {
+          return null;
+        }
+        return { day, section, task };
+      }
+    }
+    return null;
+  })();
   const latestAssistantMessage = [...(discussion?.messages ?? [])]
     .reverse()
     .find((message) => message.role === "assistant");
-  const answeredCount = questions.filter(
+  const answeredCount = coverageQuestions.filter(
     (question) => question.status === "answered",
   ).length;
+
+  function handleCaptureEditorOpenChange(open: boolean) {
+    setCaptureEditorResourceId(open ? selectedSourceId : "");
+  }
 
   return (
     <div className="discussionLayout">
@@ -140,7 +373,7 @@ export function DiscussionsView({
           <h2>
             {course.discussions.length} discussion
             {course.discussions.length === 1 ? "" : "s"} · {answeredCount}/
-            {questions.length} linked questions answered
+            {coverageQuestions.length} resource questions answered
           </h2>
         </div>
         <label className="discussionResourceSelect">
@@ -269,6 +502,40 @@ export function DiscussionsView({
             ) : null}
           </header>
 
+          {taskContext ? (
+            <section className="discussionTaskPin">
+              <Pin aria-hidden="true" size={16} />
+              <div className="discussionTaskPinBody">
+                <p className="eyebrow">
+                  Pinned task · Day {taskContext.day.number} ·{" "}
+                  {taskContext.section.title}
+                </p>
+                <h3>{taskContext.task.title}</h3>
+                <div className="discussionTaskMeta">
+                  <span className={`status-${taskContext.task.status}`}>
+                    {taskContext.task.status.replaceAll("_", " ")}
+                  </span>
+                  {taskContext.task.estimatedMinutes ? (
+                    <span>
+                      <Timer size={11} />
+                      {taskContext.task.estimatedMinutes}m planned
+                    </span>
+                  ) : null}
+                  {selectedSource ? <span>{selectedSource.title}</span> : null}
+                </div>
+                {taskContext.task.rationale?.plainText ? (
+                  <details>
+                    <summary>Why this task</summary>
+                    <MarkdownMath>
+                      {taskContext.task.rationale.markdown ??
+                        taskContext.task.rationale.plainText}
+                    </MarkdownMath>
+                  </details>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
           {discussion ? (
             <div className="discussionContentGrid">
               <div>
@@ -343,102 +610,53 @@ export function DiscussionsView({
                   onSubmit={(input) => onAddMessage(discussion.id, input)}
                 />
               </div>
-              <aside className="discussionQuestionPanel">
-                <header>
-                  <div>
-                    <p className="eyebrow">Question coverage</p>
-                    <h3>
-                      {answeredCount}/{questions.length} answered
-                    </h3>
-                  </div>
-                  <CircleHelp size={18} />
-                </header>
-                {questions.map((question) => {
-                  const linkedRelation = [...(discussion.messages ?? [])]
-                    .reverse()
-                    .flatMap((message) => message.annotationLinks)
-                    .find((link) => link.annotationId === question.id)?.relation;
-                  const source = resourceById.get(question.resourceId);
-                  return (
-                    <article
-                      className={`discussionQuestion status-${question.status}`}
-                      key={question.id}
-                    >
-                      <header>
-                        <strong>{source?.title ?? "Source question"}</strong>
-                        <span>{linkedRelation ?? question.status}</span>
-                      </header>
-                      <MarkdownMath>{questionText(question)}</MarkdownMath>
-                      <div>
-                        <button
-                          disabled={!latestAssistantMessage}
-                          onClick={() =>
-                            latestAssistantMessage &&
-                            onQuestionLink(
-                              latestAssistantMessage.id,
-                              question.id,
-                              "references",
-                            )
-                          }
-                          type="button"
-                        >
-                          Referenced
-                        </button>
-                        <button
-                          disabled={!latestAssistantMessage}
-                          onClick={() =>
-                            latestAssistantMessage &&
-                            onQuestionLink(
-                              latestAssistantMessage.id,
-                              question.id,
-                              "partially_answers",
-                            )
-                          }
-                          type="button"
-                        >
-                          Partial
-                        </button>
-                        <button
-                          disabled={!latestAssistantMessage}
-                          onClick={() =>
-                            latestAssistantMessage &&
-                            onQuestionLink(
-                              latestAssistantMessage.id,
-                              question.id,
-                              "answers",
-                            )
-                          }
-                          type="button"
-                        >
-                          <CheckCircle2 size={12} /> Answered
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-                {!questions.length ? (
-                  <div className="emptyInline">
-                    This thread has no prompt-batch questions yet.
-                  </div>
-                ) : null}
-              </aside>
+              {selectedSource ? (
+                <DiscussionWorkshopPanel
+                  activeCaptures={activeCaptures}
+                  answeredCount={answeredCount}
+                  captureEditorOpen={captureEditorOpen}
+                  coverageQuestions={coverageQuestions}
+                  discussion={discussion}
+                  latestAssistantMessage={latestAssistantMessage}
+                  onAnnotationChange={onAnnotationChange}
+                  onCaptureEditorOpenChange={handleCaptureEditorOpenChange}
+                  onCreateCapture={onCreateCapture}
+                  onQuestionLink={onQuestionLink}
+                  resource={selectedSource}
+                  resourceById={resourceById}
+                />
+              ) : null}
             </div>
           ) : selectedSource ? (
-            <div className="discussionEmpty">
-              <MessageSquarePlus size={28} />
-              <h3>No discussion for this resource yet</h3>
-              <p>
-                Create a thread, or use “Discuss questions” in Notes to preserve a
-                complete prompt/question snapshot.
-              </p>
-              <button
-                className="commandButton"
-                onClick={() => onCreateDiscussion(selectedSource.id)}
-                type="button"
-              >
-                <Plus size={15} />
-                <span>Create discussion</span>
-              </button>
+            <div className="discussionContentGrid">
+              <div className="discussionEmpty">
+                <MessageSquarePlus size={28} />
+                <h3>No discussion for this resource yet</h3>
+                <p>
+                  Create a thread, or use “Discuss questions” in Notes to preserve a
+                  complete prompt/question snapshot.
+                </p>
+                <button
+                  className="commandButton"
+                  onClick={() => onCreateDiscussion(selectedSource.id)}
+                  type="button"
+                >
+                  <Plus size={15} />
+                  <span>Create discussion</span>
+                </button>
+              </div>
+              <DiscussionWorkshopPanel
+                activeCaptures={activeCaptures}
+                answeredCount={answeredCount}
+                captureEditorOpen={captureEditorOpen}
+                coverageQuestions={coverageQuestions}
+                onAnnotationChange={onAnnotationChange}
+                onCaptureEditorOpenChange={handleCaptureEditorOpenChange}
+                onCreateCapture={onCreateCapture}
+                onQuestionLink={onQuestionLink}
+                resource={selectedSource}
+                resourceById={resourceById}
+              />
             </div>
           ) : null}
         </section>

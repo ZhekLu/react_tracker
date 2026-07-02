@@ -82,6 +82,7 @@ function navigationFromUrl() {
     view: rawView && trackerViews.has(rawView) ? rawView : "roadmap",
     dayId: params.get("day") ?? "",
     resourceId: params.get("resource") ?? "",
+    taskId: params.get("task") ?? "",
   };
 }
 
@@ -133,6 +134,9 @@ export function App() {
   const [activeDayId, setActiveDayId] = useState(initialNavigation.dayId);
   const [focusedResourceId, setFocusedResourceId] = useState(
     initialNavigation.resourceId,
+  );
+  const [focusedTaskId, setFocusedTaskId] = useState(
+    initialNavigation.taskId,
   );
   const [readerResourceId, setReaderResourceId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -268,6 +272,7 @@ export function App() {
       setView(navigation.view);
       setActiveDayId(navigation.dayId);
       setFocusedResourceId(navigation.resourceId);
+      setFocusedTaskId(navigation.taskId);
     }
     window.addEventListener("popstate", restoreNavigation);
     return () => window.removeEventListener("popstate", restoreNavigation);
@@ -281,6 +286,7 @@ export function App() {
     if (view === "roadmap" && activeDayId) params.set("day", activeDayId);
     if (view === "discussions" && focusedResourceId) {
       params.set("resource", focusedResourceId);
+      if (focusedTaskId) params.set("task", focusedTaskId);
     }
     const nextUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState(null, "", nextUrl);
@@ -299,7 +305,7 @@ export function App() {
       `<rect width="64" height="64" rx="16" fill="${escapedAccent}"/>` +
       `<path d="M18 19h28v7H18zm0 12h28v7H18zm0 12h18v7H18z" fill="white"/>` +
       `</svg>`;
-  }, [activeDayId, focusedResourceId, view, workspace]);
+  }, [activeDayId, focusedResourceId, focusedTaskId, view, workspace]);
 
   useEffect(() => {
     function handleKeyboardNavigation(event: KeyboardEvent) {
@@ -383,6 +389,7 @@ export function App() {
     setError(null);
     setActionMessage(null);
     setFocusedResourceId("");
+    setFocusedTaskId("");
     setReaderResourceId("");
     setActiveDayId("");
     setCourseId(nextCourseId);
@@ -467,6 +474,7 @@ export function App() {
       });
     });
     setFocusedResourceId(payload.sourceResourceId ?? "");
+    setFocusedTaskId(payload.sourceTaskId ?? "");
     setView("discussions");
     setActionMessage("Prompt copied. Paste the tutor response into this discussion.");
   }
@@ -544,9 +552,15 @@ export function App() {
     );
   }
 
-  function handleOpenDiscussion(resourceId: string) {
+  function handleOpenDiscussion(resourceId: string, taskId?: string) {
     setFocusedResourceId(resolveDiscussionResourceId(resourceId));
+    setFocusedTaskId(taskId ?? "");
     setView("discussions");
+  }
+
+  function handleFocusDiscussionResource(resourceId: string) {
+    setFocusedResourceId(resourceId);
+    setFocusedTaskId("");
   }
 
   async function handleOpenResource(resourceId: string) {
@@ -820,6 +834,7 @@ export function App() {
         });
       });
       setFocusedResourceId(resourceId);
+      setFocusedTaskId("");
       setView("discussions");
       setActionMessage("Clipboard discussion imported.");
     } catch (caught) {
@@ -1077,7 +1092,10 @@ export function App() {
         <DiscussionsView
           course={workspace}
           focusedResourceId={focusedResourceId}
+          focusedTaskId={focusedTaskId}
           onAddMessage={handleAddDiscussionMessage}
+          onAnnotationChange={handleAnnotationChange}
+          onCreateCapture={handleCreateResourceCapture}
           onCreateDiscussion={handleCreateDiscussion}
           onDeleteDiscussion={handleDeleteDiscussion}
           onDiscussionStatusChange={handleDiscussionStatusChange}
@@ -1088,7 +1106,7 @@ export function App() {
             void handleImportDiscussionFromClipboard(resourceId)
           }
           onCopy={(text, label) => void handleCopy(text, label)}
-          onFocusResource={setFocusedResourceId}
+          onFocusResource={handleFocusDiscussionResource}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
         />
       ) : null}

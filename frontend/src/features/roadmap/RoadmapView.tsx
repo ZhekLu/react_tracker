@@ -68,7 +68,7 @@ type RoadmapViewProps = {
     initialText?: string,
   ) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
-  onOpenDiscussion: (resourceId: string) => void;
+  onOpenDiscussion: (resourceId: string, taskId?: string) => void;
   onOpenResource: (resourceId: string) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
@@ -96,7 +96,7 @@ type TaskRowProps = {
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
   onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
   onNoteSave: (input: EntityNoteSaveInput) => void;
-  onOpenDiscussion: (resourceId: string) => void;
+  onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
   onStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
@@ -203,7 +203,7 @@ function TaskRow({
                 </button>
                 <button
                   className="taskLinkIcon"
-                  onClick={() => onOpenDiscussion(resource.id)}
+                  onClick={() => onOpenDiscussion(resource.id, task.id)}
                   title={`Open discussion for ${resource.title}`}
                   type="button"
                 >
@@ -246,7 +246,7 @@ function TaskRow({
                   </button>
                   <button
                     className="taskLinkIcon"
-                    onClick={() => onOpenDiscussion(sourceResourceId)}
+                    onClick={() => onOpenDiscussion(sourceResourceId, task.id)}
                     title={`Open discussion for ${question.label}`}
                     type="button"
                   >
@@ -490,7 +490,7 @@ type DayCardProps = {
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onEntityNoteSave: (input: EntityNoteSaveInput) => void;
   onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
-  onOpenDiscussion: (resourceId: string) => void;
+  onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
   onClosedChange: (day: StudyDay, closed: boolean) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
