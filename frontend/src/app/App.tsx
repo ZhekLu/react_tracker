@@ -266,6 +266,12 @@ export function App() {
   }, [activeCourseId]);
 
   useEffect(() => {
+    if (!actionMessage) return;
+    const timeout = window.setTimeout(() => setActionMessage(null), 5_000);
+    return () => window.clearTimeout(timeout);
+  }, [actionMessage]);
+
+  useEffect(() => {
     function restoreNavigation() {
       const navigation = navigationFromUrl();
       if (navigation.courseId) setCourseId(navigation.courseId);
@@ -993,7 +999,19 @@ export function App() {
       view={view}
     >
       {error ? <div className="inlineError">{error}</div> : null}
-      {actionMessage ? <div className="actionToast">{actionMessage}</div> : null}
+      {actionMessage ? (
+        <div aria-live="polite" className="actionToast" role="status">
+          <span>{actionMessage}</span>
+          <button
+            aria-label="Dismiss notification"
+            onClick={() => setActionMessage(null)}
+            title="Dismiss"
+            type="button"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       {mutating ? <div className="savingPill">Saving...</div> : null}
       {view === "roadmap" ? (
         <RoadmapView
