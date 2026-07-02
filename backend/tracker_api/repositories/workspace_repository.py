@@ -354,11 +354,14 @@ def _annotations(
         """,
         {"course_id": course_id},
     ):
-        metadata = {
-            "selector": _json_loads(row["selector_json"], None),
-            "rgb": _json_loads(row["rgb_json"], None),
-        }
-        metadata = {key: value for key, value in metadata.items() if value is not None}
+        selector_metadata: dict[str, Any] = _json_loads(
+            row["selector_json"],
+            {},
+        )
+        metadata = dict(selector_metadata)
+        rgb: list[float] | None = _json_loads(row["rgb_json"], None)
+        if rgb is not None:
+            metadata["rgb"] = rgb
         anchor = None
         if row["anchor_type"] is not None:
             anchor = AnnotationAnchor(
@@ -1742,6 +1745,7 @@ def _refresh_imported_anchor(
             UPDATE annotation_anchors
             SET anchor_type = :anchor_type,
                 quote = :quote,
+                section_title = :section_title,
                 page_number = :page_number,
                 rect_json = :rect_json,
                 color = :color,
@@ -1755,6 +1759,7 @@ def _refresh_imported_anchor(
         {
             "anchor_type": anchor.anchor_type,
             "quote": anchor.quote,
+            "section_title": anchor.section_title,
             "page_number": anchor.page_number,
             "rect_json": _json_dumps(anchor.rect),
             "color": anchor.color,
@@ -1891,14 +1896,14 @@ def upsert_imported_annotation(
     existing = _one_or_none(
         connection,
         """
-        SELECT a.id, a.body_document_id, aa.annotation_id AS anchor_annotation_id,
-               aa.selector_json, d.plain_text AS body_plain_text
+        SELECT a.id, a.body_document_id, a.deleted_at,
+               aa.annotation_id AS anchor_annotation_id, aa.selector_json,
+               d.plain_text AS body_plain_text
         FROM annotations a
         LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
         LEFT JOIN documents d ON d.id = a.body_document_id AND d.deleted_at IS NULL
         WHERE a.resource_id = :resource_id
           AND a.source_fingerprint = :source_fingerprint
-          AND a.deleted_at IS NULL
         """,
         {
             "resource_id": command.resource_id,
@@ -1913,7 +1918,15 @@ def upsert_imported_annotation(
         existing["selector_json"],
         {},
     )
-    if str(previous_metadata.get("sourceRevision") or "") == source_revision:
+    previous_sync_revision = str(
+        previous_metadata.get("syncRevision")
+        or previous_metadata.get("sourceRevision")
+        or ""
+    )
+    if (
+        existing["deleted_at"] is None
+        and previous_sync_revision == source_revision
+    ):
         return "existing"
 
     now = _now()
@@ -1936,6 +1949,11 @@ def upsert_imported_annotation(
             """
             UPDATE annotations
             SET external_id = :external_id,
+                kind = CASE WHEN :revive THEN :kind ELSE kind END,
+                status = CASE WHEN :revive THEN 'open' ELSE status END,
+                priority = CASE WHEN :revive THEN :priority ELSE priority END,
+                origin = CASE WHEN :revive THEN :origin ELSE origin END,
+                deleted_at = NULL,
                 updated_at = :now,
                 revision = revision + 1
             WHERE id = :annotation_id
@@ -1944,6 +1962,10 @@ def upsert_imported_annotation(
         {
             "annotation_id": str(existing["id"]),
             "external_id": command.external_id,
+            "kind": command.kind,
+            "origin": command.origin,
+            "priority": command.priority,
+            "revive": existing["deleted_at"] is not None,
             "now": now,
         },
     )
@@ -2344,6 +2366,22 @@ def resource_open_target(
     if row is None:
         raise EntityNotFoundError(f"Resource does not exist: {resource_id}")
     return cast(str | None, row["local_path"]), cast(str | None, row["source_url"])
+
+
+def resource_kind(connection: Connection, resource_id: str) -> str:
+    value = connection.execute(
+        text(
+            """
+            SELECT kind
+            FROM resources
+            WHERE id = :resource_id AND deleted_at IS NULL
+            """
+        ),
+        {"resource_id": resource_id},
+    ).scalar_one_or_none()
+    if value is None:
+        raise EntityNotFoundError(f"Resource does not exist: {resource_id}")
+    return str(value)
 
 
 def resource_file_open_target(

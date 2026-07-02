@@ -202,9 +202,22 @@ duplicating them or resetting their tracker status.
 
 Text highlights, underlines, and inserted text notes become searchable tracker
 captures; red marks and text ending in `?` become questions. Ink, shapes, and
-links are reported by type but skipped because they do not contain searchable
-text. The anonymous sharing credentials are cached with owner-only permissions
-in the gitignored `drawboard_state.json`.
+links are reported by type. For book resources with a readable local PDF, the
+importer uses the embedded outline to group captures by chapter/subchapter and
+matches each quote to its containing sentence plus one sentence on either side.
+The compact list shows the containing sentence; opening a capture reveals the
+exact marked text and surrounding context.
+
+Red cloud ink is treated as a question. The tracker renders a full-width local
+page crop, overlays the cloud stroke in its exact RGB colour, and keeps generous
+vertical margin around it. Other ink remains counted but skipped because it has
+no searchable text. Exact annotation RGB values are preserved for UI accents;
+the coarse colour names remain available only for question/type rules.
+
+The anonymous sharing credentials are cached with owner-only permissions in the
+gitignored `drawboard_state.json`. Generated handwriting crops live in the
+gitignored `react_tracker/data/annotation_images/` directory and are served only
+by the local tracker API.
 
 The cloud reader is a compatibility integration with Drawboard's current web
 client rather than a documented public API. If Drawboard changes that protocol,

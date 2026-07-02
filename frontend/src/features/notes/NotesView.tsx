@@ -13,10 +13,15 @@ import {
   RotateCcw,
   Search,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
+import {
+  annotationDisplayText,
+  annotationRgbCss,
+  metadataText,
+} from "../../components/annotations/annotationDisplay";
 import type {
   Annotation,
   AnnotationKind,
@@ -88,14 +93,20 @@ function AnnotationSummaryCard({
   const [expanded, setExpanded] = useState(!editable);
   const dirty =
     markdown !== initialMarkdown || priority !== annotation.priority;
-  const displayText =
-    annotation.body?.plainText ||
-    annotation.anchor?.quote ||
-    "Question without text";
+  const displayText = annotationDisplayText(annotation);
+  const rgb = annotationRgbCss(annotation);
+  const contextBefore = metadataText(annotation, "contextBefore");
+  const contextAfter = metadataText(annotation, "contextAfter");
+  const contextImageUrl = metadataText(annotation, "contextImageUrl");
 
   return (
     <article
-      className={`annotationCard kind-${annotation.kind} status-${annotation.status} ${editable ? "compactQuestionCard" : ""}`}
+      className={`annotationCard kind-${annotation.kind} status-${annotation.status} ${editable ? "compactQuestionCard" : ""} ${rgb ? "exactCaptureColor" : ""}`}
+      style={
+        rgb
+          ? ({ "--capture-color": rgb } as CSSProperties)
+          : undefined
+      }
     >
       <header>
         <button
@@ -147,8 +158,20 @@ function AnnotationSummaryCard({
           ))}
         </div>
       ) : null}
-      {expanded && annotation.anchor?.quote ? (
-        <blockquote>{annotation.anchor.quote}</blockquote>
+      {expanded ? (
+        <div className="annotationExpandedContext">
+          {contextImageUrl ? (
+            <img
+              alt={`Page ${annotation.anchor?.pageNumber ?? ""} around handwritten question`}
+              src={contextImageUrl}
+            />
+          ) : null}
+          {contextBefore ? <p>{contextBefore}</p> : null}
+          {annotation.anchor?.quote ? (
+            <blockquote>{annotation.anchor.quote}</blockquote>
+          ) : null}
+          {contextAfter ? <p>{contextAfter}</p> : null}
+        </div>
       ) : null}
       {expanded && editable ? (
         <div className="questionEditBody">

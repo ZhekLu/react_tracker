@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.engine import Connection
 
@@ -36,6 +37,10 @@ from ..schemas.workspace import (
 from ..services.pdf_annotation_service import (
     PdfAnnotationError,
     collect_resource_pdf_annotations,
+)
+from ..services.pdf_ink_image_service import (
+    PdfInkImageError,
+    annotation_image_path,
 )
 from ..services.resource_content_service import read_resource_content
 from ..services.resource_open_service import ResourceOpenError, open_resource
@@ -237,6 +242,26 @@ def collect_resource_annotations(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(error),
         ) from error
+
+
+@router.get(
+    "/resources/{resource_id}/annotation-images/{image_id}",
+    response_class=FileResponse,
+)
+def get_annotation_image(resource_id: str, image_id: str) -> FileResponse:
+    try:
+        path = annotation_image_path(resource_id, image_id)
+    except PdfInkImageError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    if not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Annotation image does not exist.",
+        )
+    return FileResponse(path, media_type="image/png")
 
 
 @router.get("/integrations/toggl", response_model=TogglStatusResponse)

@@ -17,8 +17,18 @@ from ..schemas.workspace import AnnotationAnchorCreate, AnnotationCreateCommand
 from .drawboard_service import (
     DrawboardCapture,
     DrawboardError,
+    DrawboardInk,
     extract_drawboard_annotations,
     is_drawboard_cloud_url,
+)
+from .pdf_context_service import (
+    PdfAnnotationContext,
+    PdfContextError,
+    extract_pdf_annotation_contexts,
+)
+from .pdf_ink_image_service import (
+    PdfInkImageError,
+    render_ink_context_images,
 )
 from .resource_open_service import ResourceOpenError, safe_local_resource_path
 
@@ -280,6 +290,8 @@ def _drawboard_annotation_command(
     source_url: str,
     document_id: str,
     capture: DrawboardCapture,
+    context: PdfAnnotationContext | None,
+    sync_revision: str,
 ) -> AnnotationCreateCommand:
     kind = (
         "question"
@@ -289,6 +301,27 @@ def _drawboard_annotation_command(
         else "note"
     )
     source_content = capture.comment or capture.quote
+    metadata: dict[str, Any] = {
+        "createdAt": capture.created_at,
+        "drawboardDocumentId": document_id,
+        "sourceContent": source_content,
+        "sourceLabel": "Drawboard cloud PDF",
+        "sourcePath": source_url,
+        "sourceRevision": capture.source_revision,
+        "syncRevision": sync_revision,
+    }
+    if context is not None:
+        metadata.update(
+            {
+                "chapterNumber": context.chapter_number,
+                "chapterTitle": context.chapter_title,
+                "contextAfter": context.context_after,
+                "contextBefore": context.context_before,
+                "contextMatch": context.match_method,
+                "contextSentence": context.context_sentence,
+                "subchapterTitle": context.subchapter_title,
+            }
+        )
     return AnnotationCreateCommand(
         resource_id=resource_id,
         kind=kind,
@@ -300,19 +333,72 @@ def _drawboard_annotation_command(
         anchor=AnnotationAnchorCreate(
             anchor_type="pdf_rect",
             quote=capture.quote or None,
+            section_title=context.subchapter_title if context else None,
             page_number=capture.page,
             rect=capture.rect or None,
             color=capture.color or None,
             rgb=capture.rgb or None,
             annotation_kind=capture.annotation_kind,
-            metadata={
-                "createdAt": capture.created_at,
-                "drawboardDocumentId": document_id,
-                "sourceContent": source_content,
-                "sourceLabel": "Drawboard cloud PDF",
-                "sourcePath": source_url,
-                "sourceRevision": capture.source_revision,
-            },
+            metadata=metadata,
+        ),
+    )
+
+
+def _context_metadata(
+    context: PdfAnnotationContext | None,
+) -> dict[str, Any]:
+    if context is None:
+        return {}
+    return {
+        "chapterNumber": context.chapter_number,
+        "chapterTitle": context.chapter_title,
+        "contextAfter": context.context_after,
+        "contextBefore": context.context_before,
+        "contextMatch": context.match_method,
+        "contextSentence": context.context_sentence,
+        "subchapterTitle": context.subchapter_title,
+    }
+
+
+def _drawboard_ink_command(
+    resource_id: str,
+    source_url: str,
+    document_id: str,
+    ink: DrawboardInk,
+    context: PdfAnnotationContext | None,
+    image_url: str | None,
+    sync_revision: str,
+) -> AnnotationCreateCommand:
+    markdown = context.context_sentence if context else "Handwritten question"
+    metadata: dict[str, Any] = {
+        "createdAt": ink.created_at,
+        "drawboardDocumentId": document_id,
+        "sourceContent": "",
+        "sourceLabel": "Drawboard cloud PDF",
+        "sourcePath": source_url,
+        "sourceRevision": ink.source_revision,
+        "syncRevision": sync_revision,
+        **_context_metadata(context),
+    }
+    if image_url:
+        metadata["contextImageUrl"] = image_url
+    return AnnotationCreateCommand(
+        resource_id=resource_id,
+        kind="question",
+        origin="drawboard_cloud_ink",
+        external_id=ink.fingerprint,
+        source_fingerprint=ink.fingerprint,
+        markdown=markdown,
+        plain_text=markdown,
+        anchor=AnnotationAnchorCreate(
+            anchor_type="pdf_rect",
+            page_number=ink.page,
+            rect=ink.rect or None,
+            color=ink.color,
+            rgb=ink.rgb,
+            annotation_kind="Ink",
+            section_title=context.subchapter_title if context else None,
+            metadata=metadata,
         ),
     )
 
@@ -331,14 +417,45 @@ def collect_resource_pdf_annotations(
             cloud_extraction = extract_drawboard_annotations(source_url)
         except DrawboardError as error:
             raise PdfAnnotationError(str(error)) from error
+        contexts: dict[str, PdfAnnotationContext] = {}
+        image_urls: dict[str, str] = {}
+        safe_path: Path | None = None
+        if (
+            workspace_repository.resource_kind(connection, resource_id) == "book"
+            and local_path
+        ):
+            try:
+                safe_path = safe_local_resource_path(local_path)
+                contexts = extract_pdf_annotation_contexts(
+                    safe_path,
+                    [*cloud_extraction.captures, *cloud_extraction.red_ink],
+                )
+            except (PdfContextError, ResourceOpenError):
+                contexts = {}
+            if safe_path is not None and cloud_extraction.red_ink:
+                try:
+                    image_urls = render_ink_context_images(
+                        safe_path,
+                        resource_id,
+                        cloud_extraction.red_ink,
+                    )
+                except PdfInkImageError:
+                    image_urls = {}
         counts = {"created": 0, "existing": 0, "updated": 0}
         cloud_kind_counts: dict[str, int] = {}
         for cloud_capture in cloud_extraction.captures:
+            context = contexts.get(cloud_capture.fingerprint)
+            sync_revision = (
+                f"{cloud_capture.source_revision}:"
+                f"{'book-context-v1' if context else 'plain-v1'}"
+            )
             command = _drawboard_annotation_command(
                 resource_id,
                 cloud_extraction.source_url,
                 cloud_extraction.document_id,
                 cloud_capture,
+                context,
+                sync_revision,
             )
             cloud_kind_counts[command.kind] = (
                 cloud_kind_counts.get(command.kind, 0) + 1
@@ -346,13 +463,39 @@ def collect_resource_pdf_annotations(
             outcome = workspace_repository.upsert_imported_annotation(
                 connection,
                 command,
-                source_revision=cloud_capture.source_revision,
+                source_revision=sync_revision,
+            )
+            counts[outcome] += 1
+        for ink in cloud_extraction.red_ink:
+            context = contexts.get(ink.fingerprint)
+            sync_revision = (
+                f"{ink.source_revision}:"
+                f"{'book-ink-context-v1' if context else 'ink-plain-v1'}"
+            )
+            command = _drawboard_ink_command(
+                resource_id,
+                cloud_extraction.source_url,
+                cloud_extraction.document_id,
+                ink,
+                context,
+                image_urls.get(ink.fingerprint),
+                sync_revision,
+            )
+            cloud_kind_counts["question"] = (
+                cloud_kind_counts.get("question", 0) + 1
+            )
+            outcome = workspace_repository.upsert_imported_annotation(
+                connection,
+                command,
+                source_revision=sync_revision,
             )
             counts[outcome] += 1
         return PdfCollection(
             resource_id=resource_id,
             path=cloud_extraction.source_url,
-            extracted_count=len(cloud_extraction.captures),
+            extracted_count=(
+                len(cloud_extraction.captures) + len(cloud_extraction.red_ink)
+            ),
             created_count=counts["created"],
             updated_count=counts["updated"],
             existing_count=counts["existing"],

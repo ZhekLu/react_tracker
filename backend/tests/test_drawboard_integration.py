@@ -256,6 +256,7 @@ def _cloud_extraction(content: str, revision: str) -> DrawboardExtraction:
                 rect=[4.0, 8.0, 5.0, 9.0],
             )
         ],
+        red_ink=[],
         ignored={"Ink": 2},
     )
 
@@ -292,6 +293,29 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
             ),
             {"resource_id": resource_id},
         ).mappings().one()
+    with transaction() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE annotations
+                SET deleted_at = '2026-07-02T12:00:00Z'
+                WHERE resource_id = :resource_id
+                """
+            ),
+            {"resource_id": resource_id},
+        )
+    with transaction() as connection:
+        revived = collect_resource_pdf_annotations(connection, resource_id)
+        active_count = connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM annotations
+                WHERE resource_id = :resource_id AND deleted_at IS NULL
+                """
+            ),
+            {"resource_id": resource_id},
+        ).scalar_one()
 
     assert first.created_count == 1
     assert first.updated_count == 0
@@ -304,6 +328,8 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
     assert row["plain_text"] == "Why exactly?"
     assert row["page_number"] == 11
     assert '"sourceRevision":"2"' in row["selector_json"]
+    assert revived.updated_count == 1
+    assert active_count == 1
 
 
 def test_cloud_resource_open_uses_native_document_before_local_copy(

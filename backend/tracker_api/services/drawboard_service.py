@@ -52,10 +52,31 @@ class DrawboardCapture:
 
 
 @dataclass(frozen=True, slots=True)
+class DrawboardInk:
+    fingerprint: str
+    source_revision: str
+    page: int
+    color: str
+    rgb: list[float]
+    created_at: str
+    rect: list[float]
+    ink_vertices: list[Any]
+
+    @property
+    def quote(self) -> str:
+        return ""
+
+    @property
+    def comment(self) -> str:
+        return ""
+
+
+@dataclass(frozen=True, slots=True)
 class DrawboardExtraction:
     source_url: str
     document_id: str
     captures: list[DrawboardCapture]
+    red_ink: list[DrawboardInk]
     ignored: dict[str, int]
 
 
@@ -352,7 +373,7 @@ def _annotation_color(annotation: dict[str, Any]) -> tuple[str, list[float]]:
         return "", []
     rgb = [int(raw[index : index + 2], 16) / 255 for index in (0, 2, 4)]
     red, green, blue = rgb
-    if red >= 0.85 and green <= 0.55 and blue <= 0.65:
+    if red >= 0.75 and green <= 0.55 and blue <= 0.65:
         return "red", rgb
     if red >= 0.85 and green >= 0.75 and blue <= 0.55:
         return "yellow", rgb
@@ -433,6 +454,64 @@ def _capture(
     )
 
 
+def _ink_capture(
+    item: dict[str, Any],
+    document_id: str,
+    pages: dict[str, int],
+) -> DrawboardInk | None:
+    raw_annotation = item.get("annotation")
+    annotation = (
+        cast(dict[str, Any], raw_annotation)
+        if isinstance(raw_annotation, dict)
+        else item
+    )
+    if str(annotation.get("type") or "") != "Ink":
+        return None
+    color, rgb = _annotation_color(annotation)
+    ink_vertices = annotation.get("inkVertices")
+    if color != "red" or not isinstance(ink_vertices, list):
+        return None
+    annotation_id = str(annotation.get("annotationId") or item.get("id") or "")
+    if not annotation_id:
+        return None
+    page_id = str(annotation.get("pageId") or item.get("pageId") or "")
+    page = pages.get(
+        page_id,
+        _as_int(annotation.get("resourcePageNo") or annotation.get("pageNumber"), 1),
+    )
+    vertices = _flatten_numbers(ink_vertices)
+    rect = []
+    if len(vertices) >= 4:
+        rect = [
+            min(vertices[0::2]),
+            min(vertices[1::2]),
+            max(vertices[0::2]),
+            max(vertices[1::2]),
+        ]
+    source_revision = str(
+        item.get("revision") or annotation.get("revision") or ""
+    )
+    if not source_revision:
+        source_revision = hashlib.sha1(
+            json.dumps(
+                annotation,
+                ensure_ascii=True,
+                sort_keys=True,
+            ).encode("utf-8"),
+            usedforsecurity=False,
+        ).hexdigest()
+    return DrawboardInk(
+        fingerprint=f"drawboard-{document_id}-{annotation_id}",
+        source_revision=source_revision,
+        page=page,
+        color=color,
+        rgb=rgb,
+        created_at=_timestamp(annotation.get("created") or item.get("created")),
+        rect=rect,
+        ink_vertices=ink_vertices,
+    )
+
+
 def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
     credentials = _credentials_for_share_url(source_url)
     access_token = _anonymous_access_token(credentials)
@@ -443,6 +522,7 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
     pages = _page_numbers(document_payload)
     raw_annotations = _annotation_batches(credentials.document_id, access_token)
     captures: list[DrawboardCapture] = []
+    red_ink: list[DrawboardInk] = []
     ignored: dict[str, int] = {}
     for item in raw_annotations:
         raw_annotation = item.get("annotation")
@@ -452,6 +532,13 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
             else item
         )
         annotation_kind = str(annotation.get("type") or "Unknown")
+        if annotation_kind == "Ink":
+            ink = _ink_capture(item, credentials.document_id, pages)
+            if ink is not None:
+                red_ink.append(ink)
+            else:
+                ignored[annotation_kind] = ignored.get(annotation_kind, 0) + 1
+            continue
         capture = _capture(item, credentials.document_id, pages)
         if capture is None:
             ignored[annotation_kind] = ignored.get(annotation_kind, 0) + 1
@@ -465,9 +552,11 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
             capture.annotation_kind,
         )
     )
+    red_ink.sort(key=lambda ink: (ink.page, ink.rect[1] if ink.rect else 0))
     return DrawboardExtraction(
         source_url=source_url,
         document_id=credentials.document_id,
         captures=captures,
+        red_ink=red_ink,
         ignored=ignored,
     )

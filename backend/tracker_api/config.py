@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     helper_config_path: Path = Field(default=TRACKER_ROOT / "toggl_config.json")
     helper_state_path: Path = Field(default=TRACKER_ROOT / "toggl_state.json")
     drawboard_state_path: Path = Field(default=TRACKER_ROOT / "drawboard_state.json")
+    annotation_image_dir: Path = Field(default=DATA_DIR / "annotation_images")
     frontend_dist_path: Path = Field(default=PROJECT_ROOT / "frontend" / "dist")
 
     @property

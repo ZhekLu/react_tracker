@@ -379,6 +379,48 @@
   color: var(--ink-soft);
 }
 
+.compactCaptureImage {
+  width: 100%;
+  max-height: 280px;
+  margin: 5px 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.annotationCard.exactCaptureColor {
+  border-left-color: var(--capture-color);
+}
+
+.annotationExpandedContext {
+  margin: 7px 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.48;
+}
+
+.annotationExpandedContext img {
+  width: 100%;
+  max-height: 320px;
+  margin-bottom: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.annotationExpandedContext p,
+.annotationExpandedContext blockquote {
+  margin: 5px 0;
+}
+
+.annotationExpandedContext blockquote {
+  padding: 6px 9px;
+  border-left: 3px solid var(--capture-color, var(--line-strong));
+  background: color-mix(in srgb, var(--capture-color, var(--blue)) 7%, #fff);
+}
+
 .resourceCaptureRail {
   padding-bottom: 4px;
   display: flex;

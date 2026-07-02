@@ -5,7 +5,7 @@ import {
   Circle,
   MessageSquareText,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { MarkdownMath } from "../content/MarkdownMath";
 import type {
   Annotation,
@@ -14,6 +14,7 @@ import type {
 import {
   annotationDisplayText,
   annotationHasExtendedContext,
+  annotationRgbCss,
   annotationSubchapter,
   metadataText,
 } from "./annotationDisplay";
@@ -34,9 +35,11 @@ export function CompactAnnotationCard({
 }: CompactAnnotationCardProps) {
   const [expanded, setExpanded] = useState(false);
   const color = annotation.anchor?.color || "none";
+  const rgb = annotationRgbCss(annotation);
   const subchapter = annotationSubchapter(annotation);
   const contextBefore = metadataText(annotation, "contextBefore");
   const contextAfter = metadataText(annotation, "contextAfter");
+  const contextImageUrl = metadataText(annotation, "contextImageUrl");
   const displayText = annotationDisplayText(annotation);
   const canAnswer =
     annotation.kind === "question" || annotation.kind === "todo";
@@ -45,6 +48,11 @@ export function CompactAnnotationCard({
   return (
     <article
       className={`compactCaptureCard kind-${annotation.kind} status-${annotation.status} color-${color}`}
+      style={
+        rgb
+          ? ({ "--capture-color": rgb } as CSSProperties)
+          : undefined
+      }
     >
       <span
         aria-label={color === "none" ? "No capture colour" : `${color} capture`}
@@ -117,6 +125,13 @@ export function CompactAnnotationCard({
       </div>
       {expanded ? (
         <div className="compactCaptureContext">
+          {contextImageUrl ? (
+            <img
+              alt={`Page ${annotation.anchor?.pageNumber ?? ""} around handwritten question`}
+              className="compactCaptureImage"
+              src={contextImageUrl}
+            />
+          ) : null}
           {contextBefore ? <p>{contextBefore}</p> : null}
           {annotation.anchor?.quote ? (
             <blockquote>{annotation.anchor.quote}</blockquote>
