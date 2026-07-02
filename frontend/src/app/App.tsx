@@ -21,6 +21,7 @@ import {
   upsertNote,
 } from "../api/trackerApi";
 import { AppShell } from "../components/AppShell";
+import type { ResourceCaptureInput } from "../components/annotations/InlineCaptureEditor";
 import { useToggl } from "../hooks/useToggl";
 import { DiscussionsView } from "../features/discussions/DiscussionsView";
 import { ExamsView } from "../features/exams/ExamsView";
@@ -665,6 +666,30 @@ export function App() {
     });
   }
 
+  function handleCreateResourceCapture(
+    resourceId: string,
+    input: ResourceCaptureInput,
+  ) {
+    void runMutation(async () => {
+      await createAnnotation({
+        anchor: {
+          anchorType: "resource",
+          color: input.color,
+          metadata: { captureSource: "resource_inline" },
+        },
+        kind: input.kind,
+        markdown: input.markdown,
+        origin: "manual_resource",
+        plainText: input.markdown,
+        priority: input.priority,
+        resourceId,
+      });
+      setActionMessage(
+        `${input.kind[0].toUpperCase()}${input.kind.slice(1)} saved to Notes.`,
+      );
+    });
+  }
+
   function handleQuestionSubmit(input: {
     markdown: string;
     priority: "low" | "normal" | "high";
@@ -983,7 +1008,7 @@ export function App() {
             )
           }
           onCollectPdfAnnotations={handleCollectPdfAnnotations}
-          onFlagQuestion={handleFlagQuestion}
+          onCreateCapture={handleCreateResourceCapture}
           onAnnotationChange={handleAnnotationChange}
           onNoteSave={handleNoteSave}
           onOpenDiscussion={handleOpenDiscussion}

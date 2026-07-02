@@ -16,6 +16,7 @@ import {
 import { useMemo, useState } from "react";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
+import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
 import type {
   Annotation,
   AnnotationKind,
@@ -267,6 +268,8 @@ export function NotesView({
 }: NotesViewProps) {
   const [filter, setFilter] = useState<NotesFilter>("questions");
   const [query, setQuery] = useState("");
+  const [annotationResourceFilter, setAnnotationResourceFilter] =
+    useState("all");
   const [questionDayFilter, setQuestionDayFilter] = useState("all");
   const [questionStatusFilter, setQuestionStatusFilter] =
     useState<"open" | "all">("open");
@@ -473,6 +476,13 @@ export function NotesView({
   const filteredAnnotations = course.annotations.filter((annotation) => {
     if (filter === "later") return false;
     if (filter === "questions" && !["question", "todo"].includes(annotation.kind)) return false;
+    if (annotation.status === "archived") return false;
+    if (
+      annotationResourceFilter !== "all" &&
+      annotation.resourceId !== annotationResourceFilter
+    ) {
+      return false;
+    }
     const resource = resourceById.get(annotation.resourceId);
     return (
       !normalizedQuery ||
@@ -481,6 +491,25 @@ export function NotesView({
         .includes(normalizedQuery)
     );
   });
+  const annotationResources = course.resources
+    .map((resource) => ({
+      count: course.annotations.filter(
+        (annotation) =>
+          annotation.resourceId === resource.id &&
+          annotation.status !== "archived",
+      ).length,
+      resource,
+    }))
+    .filter((item) => item.count > 0)
+    .sort((left, right) => left.resource.title.localeCompare(right.resource.title));
+  const annotationsByResource = [
+    ...filteredAnnotations.reduce((groups, annotation) => {
+      const group = groups.get(annotation.resourceId) ?? [];
+      group.push(annotation);
+      groups.set(annotation.resourceId, group);
+      return groups;
+    }, new Map<string, Annotation[]>()).entries(),
+  ];
   const visibleLaterTasks = laterTasks.filter(({ task }) =>
     !normalizedQuery || task.title.toLowerCase().includes(normalizedQuery),
   );
@@ -719,29 +748,87 @@ export function NotesView({
       {filter === "all" ? (
         <section className="noteCollection">
           <header className="collectionHeader">
-            <h2>Source annotations</h2>
+            <div>
+              <p className="eyebrow">By source</p>
+              <h2>Resource captures</h2>
+            </div>
             <span>{filteredAnnotations.length}</span>
           </header>
-          {filteredAnnotations.map((annotation) => {
-            const resource = resourceById.get(annotation.resourceId);
-            return (
-              <AnnotationSummaryCard
-                annotation={annotation}
-                days={
-                  questionItems.find(
-                    (item) => item.annotation.id === annotation.id,
-                  )?.days ?? []
+          <nav
+            aria-label="Filter captures by resource"
+            className="resourceCaptureRail"
+          >
+            <button
+              className={annotationResourceFilter === "all" ? "active" : ""}
+              onClick={() => setAnnotationResourceFilter("all")}
+              type="button"
+            >
+              <strong>
+                {annotationResources.reduce(
+                  (total, item) => total + item.count,
+                  0,
+                )}
+              </strong>
+              <span>All resources</span>
+            </button>
+            {annotationResources.map(({ count, resource }) => (
+              <button
+                className={
+                  annotationResourceFilter === resource.id ? "active" : ""
                 }
-                key={`${annotation.id}:${annotation.revision}`}
-                onAnnotationChange={onAnnotationChange}
-                onCopyAnnotation={onCopyAnnotation}
-                onOpenDiscussion={onOpenDiscussion}
-                onOpenDay={onOpenDay}
-                onOpenResource={onOpenResource}
-                resource={resource}
-              />
-            );
-          })}
+                key={resource.id}
+                onClick={() => setAnnotationResourceFilter(resource.id)}
+                title={resource.title}
+                type="button"
+              >
+                <strong>{count}</strong>
+                <span>{resource.title}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="resourceCaptureCollections">
+            {annotationsByResource.map(([resourceId, annotations]) => {
+              const resource = resourceById.get(resourceId);
+              return (
+                <section className="resourceCaptureCollection" key={resourceId}>
+                  <header>
+                    <div>
+                      <BookOpen size={15} />
+                      <span>
+                        <strong>{resource?.title ?? "Unknown resource"}</strong>
+                        <small>{annotations.length} captures</small>
+                      </span>
+                    </div>
+                    {resource ? (
+                      <div>
+                        <button
+                          onClick={() => onOpenResource(resource.id)}
+                          type="button"
+                        >
+                          Open
+                        </button>
+                        <button
+                          onClick={() => onOpenDiscussion(resource.id)}
+                          type="button"
+                        >
+                          Discuss
+                        </button>
+                      </div>
+                    ) : null}
+                  </header>
+                  <AnnotationChapterGroups
+                    annotations={annotations}
+                    onAnnotationChange={onAnnotationChange}
+                    onDiscuss={
+                      resource
+                        ? () => onOpenDiscussion(resource.id)
+                        : undefined
+                    }
+                  />
+                </section>
+              );
+            })}
+          </div>
           {!filteredAnnotations.length ? <div className="emptyInline">No annotations in this view.</div> : null}
         </section>
       ) : null}
