@@ -579,6 +579,30 @@ export function DiscussionsView({
     setCaptureEditorResourceId(open ? selectedSourceId : "");
   }
 
+  const workshop = selectedSource ? (
+    <DiscussionWorkshopPanel
+      activeCaptures={activeCaptures}
+      allCapturesCount={allActiveCaptures.length}
+      answeredCount={answeredCount}
+      captureEditorOpen={captureEditorOpen}
+      coverageQuestions={coverageQuestions}
+      discussion={discussion}
+      latestAssistantMessage={latestAssistantMessage}
+      onAnnotationChange={onAnnotationChange}
+      onCaptureEditorOpenChange={handleCaptureEditorOpenChange}
+      onCreateCapture={onCreateCapture}
+      onNoteSave={onNoteSave}
+      onQuestionLink={onQuestionLink}
+      resource={selectedSource}
+      resourceById={resourceById}
+      showHighlights={showHighlights}
+      studyCaptureCount={studyCaptures.length}
+      onShowHighlightsChange={(show) =>
+        setAllCaptureResourceId(show ? selectedSourceId : "")
+      }
+    />
+  ) : null;
+
   return (
     <div className="discussionLayout">
       <header className="viewToolbar">
@@ -636,6 +660,7 @@ export function DiscussionsView({
               <Plus size={14} /> New discussion
             </button>
           ) : null}
+          {workshop}
         </aside>
 
         <section className="discussionMain">
@@ -901,29 +926,6 @@ export function DiscussionsView({
                   onSubmit={(input) => onAddMessage(discussion.id, input)}
                 />
               </div>
-              {selectedSource ? (
-                <DiscussionWorkshopPanel
-                  activeCaptures={activeCaptures}
-                  allCapturesCount={allActiveCaptures.length}
-                  answeredCount={answeredCount}
-                  captureEditorOpen={captureEditorOpen}
-                  coverageQuestions={coverageQuestions}
-                  discussion={discussion}
-                  latestAssistantMessage={latestAssistantMessage}
-                  onAnnotationChange={onAnnotationChange}
-                  onCaptureEditorOpenChange={handleCaptureEditorOpenChange}
-                  onCreateCapture={onCreateCapture}
-                  onNoteSave={onNoteSave}
-                  onQuestionLink={onQuestionLink}
-                  resource={selectedSource}
-                  resourceById={resourceById}
-                  showHighlights={showHighlights}
-                  studyCaptureCount={studyCaptures.length}
-                  onShowHighlightsChange={(show) =>
-                    setAllCaptureResourceId(show ? selectedSourceId : "")
-                  }
-                />
-              ) : null}
             </div>
           ) : selectedSource ? (
             <div className="discussionContentGrid">
@@ -943,25 +945,6 @@ export function DiscussionsView({
                   <span>Create discussion</span>
                 </button>
               </div>
-              <DiscussionWorkshopPanel
-                activeCaptures={activeCaptures}
-                allCapturesCount={allActiveCaptures.length}
-                answeredCount={answeredCount}
-                captureEditorOpen={captureEditorOpen}
-                coverageQuestions={coverageQuestions}
-                onAnnotationChange={onAnnotationChange}
-                onCaptureEditorOpenChange={handleCaptureEditorOpenChange}
-                onCreateCapture={onCreateCapture}
-                onNoteSave={onNoteSave}
-                onQuestionLink={onQuestionLink}
-                resource={selectedSource}
-                resourceById={resourceById}
-                showHighlights={showHighlights}
-                studyCaptureCount={studyCaptures.length}
-                onShowHighlightsChange={(show) =>
-                  setAllCaptureResourceId(show ? selectedSourceId : "")
-                }
-              />
             </div>
           ) : null}
         </section>

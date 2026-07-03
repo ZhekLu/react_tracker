@@ -484,8 +484,42 @@
 }
 
 .discussionContentGrid {
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-  gap: 12px;
+  display: block;
+}
+
+.discussionWorkspace {
+  grid-template-columns: clamp(205px, 19vw, 270px) minmax(0, 1fr);
+}
+
+.discussionIndex {
+  min-width: 0;
+  max-height: calc(100vh - 125px);
+  overflow-y: auto;
+}
+
+.discussionMain {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.discussionHeader {
+  align-items: flex-start;
+}
+
+.discussionHeader > div:first-child {
+  min-width: 0;
+}
+
+.discussionHeader h2,
+.discussionHeader > div:first-child > span {
+  overflow-wrap: anywhere;
+}
+
+.discussionHeaderActions {
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .messageStream {
@@ -495,6 +529,8 @@
 .discussionMessage {
   width: 100%;
   max-width: none;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .discussionMessageBody {
@@ -689,8 +725,8 @@
 }
 
 @media (max-width: 980px) {
-  .discussionContentGrid {
-    grid-template-columns: 1fr;
+  .discussionWorkspace {
+    grid-template-columns: 190px minmax(0, 1fr);
   }
 }
 
@@ -910,12 +946,30 @@
 }
 
 .discussionWorkshopPanel {
-  align-self: start;
-  max-height: calc(100vh - 155px);
-  padding: 12px;
-  overflow-y: auto;
-  position: sticky;
-  top: 86px;
+  max-height: none;
+  padding: 10px 8px 12px;
+  overflow: visible;
+  border-top: 1px solid var(--line);
+  border-left: 0;
+  background: color-mix(in srgb, var(--surface-soft) 78%, transparent);
+  position: static;
+}
+
+.discussionIndex > .discussionWorkshopPanel > header {
+  margin-bottom: 8px;
+}
+
+.discussionIndex > .discussionWorkshopPanel .eyebrow {
+  font-size: 6px;
+}
+
+.discussionIndex > .discussionWorkshopPanel .annotationChapterGroup > summary {
+  padding-inline: 6px;
+}
+
+.discussionIndex > .discussionWorkshopPanel .compactCaptureActions {
+  opacity: 1;
+  transform: none;
 }
 
 .discussionWorkshopPanel > header h3 {
@@ -1139,5 +1193,15 @@
   .discussionWorkshopPanel {
     max-height: none;
     position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .discussionWorkspace {
+    grid-template-columns: 1fr;
+  }
+
+  .discussionIndex {
+    max-height: none;
   }
 }
