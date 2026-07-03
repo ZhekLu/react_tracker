@@ -87,6 +87,8 @@ function navigationFromUrl() {
     dayId: params.get("day") ?? "",
     resourceId: params.get("resource") ?? "",
     taskId: params.get("task") ?? "",
+    readerResourceId: params.get("reader") ?? "",
+    readerPage: Math.max(1, Number(params.get("page") ?? "1") || 1),
   };
 }
 
@@ -136,7 +138,10 @@ export function App() {
   const [focusedTaskId, setFocusedTaskId] = useState(
     initialNavigation.taskId,
   );
-  const [readerResourceId, setReaderResourceId] = useState("");
+  const [readerResourceId, setReaderResourceId] = useState(
+    initialNavigation.readerResourceId,
+  );
+  const [readerPage, setReaderPage] = useState(initialNavigation.readerPage);
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -299,6 +304,8 @@ export function App() {
       setActiveDayId(navigation.dayId);
       setFocusedResourceId(navigation.resourceId);
       setFocusedTaskId(navigation.taskId);
+      setReaderResourceId(navigation.readerResourceId);
+      setReaderPage(navigation.readerPage);
     }
     window.addEventListener("popstate", restoreNavigation);
     return () => window.removeEventListener("popstate", restoreNavigation);
@@ -313,6 +320,10 @@ export function App() {
     if (view === "discussions" && focusedResourceId) {
       params.set("resource", focusedResourceId);
       if (focusedTaskId) params.set("task", focusedTaskId);
+    }
+    if (readerResourceId) {
+      params.set("reader", readerResourceId);
+      params.set("page", String(readerPage));
     }
     const nextUrl = `${window.location.pathname}?${params.toString()}`;
     const currentUrl = `${window.location.pathname}${window.location.search}`;
@@ -348,7 +359,15 @@ export function App() {
       `<rect width="64" height="64" rx="16" fill="${escapedAccent}"/>` +
       `<path d="M18 19h28v7H18zm0 12h28v7H18zm0 12h18v7H18z" fill="white"/>` +
       `</svg>`;
-  }, [activeDayId, focusedResourceId, focusedTaskId, view, workspace]);
+  }, [
+    activeDayId,
+    focusedResourceId,
+    focusedTaskId,
+    readerPage,
+    readerResourceId,
+    view,
+    workspace,
+  ]);
 
   useEffect(() => {
     if (!workspace || pendingHistoryScrollRef.current === null) return;
@@ -454,6 +473,7 @@ export function App() {
     setFocusedResourceId("");
     setFocusedTaskId("");
     setReaderResourceId("");
+    setReaderPage(1);
     setActiveDayId("");
     setCourseId(nextCourseId);
     resetWorkspaceScroll();
@@ -655,10 +675,20 @@ export function App() {
 
   async function handleOpenResource(resourceId: string) {
     const resource = workspace?.resources.find((item) => item.id === resourceId);
-    const suffix = resource?.version?.localPath
+    const localPath =
+      resource?.version?.localPath ??
+      resource?.localFiles.find((file) => file.isPrimary)?.localPath ??
+      resource?.localFiles[0]?.localPath;
+    const suffix = localPath
       ?.split(".")
       .at(-1)
       ?.toLowerCase();
+    if (resource?.kind === "slides" && suffix === "pdf") {
+      navigationIntentRef.current = "push";
+      setReaderPage(1);
+      setReaderResourceId(resourceId);
+      return;
+    }
     if (
       resource &&
       suffix &&
@@ -697,11 +727,41 @@ export function App() {
   }
 
   function handleReaderClose(resourceId: string, progressPercent: number) {
+    navigationIntentRef.current = "push";
     setReaderResourceId("");
+    setReaderPage(1);
     void runMutation(async () => {
       await updateResourceProgress(resourceId, progressPercent, {
         capturedAt: new Date().toISOString(),
       });
+    });
+  }
+
+  function handleReaderPageAnnotation(
+    resourceId: string,
+    kind: "note" | "question" | "todo",
+    markdown: string,
+    pageNumber: number,
+    sectionTitle?: string,
+  ) {
+    void runMutation(async () => {
+      await createAnnotation({
+        anchor: {
+          anchorType: "pdf_page",
+          pageNumber,
+          sectionTitle,
+          metadata: { captureSource: "lecture_reader" },
+        },
+        kind,
+        markdown,
+        origin: "lecture_reader",
+        plainText: markdown,
+        priority: "normal",
+        resourceId,
+      });
+      setActionMessage(
+        `${kind[0].toUpperCase()}${kind.slice(1)} saved to slide ${pageNumber}.`,
+      );
     });
   }
 
@@ -1310,6 +1370,7 @@ export function App() {
       {readerResource ? (
         <ResourceReader
           accent={workspace.accent}
+          initialPage={readerPage}
           onClose={(progressPercent) =>
             handleReaderClose(readerResource.id, progressPercent)
           }
@@ -1321,9 +1382,24 @@ export function App() {
               sectionTitle,
             )
           }
+          onCreatePageAnnotation={(
+            kind,
+            markdown,
+            pageNumber,
+            sectionTitle,
+          ) =>
+            handleReaderPageAnnotation(
+              readerResource.id,
+              kind,
+              markdown,
+              pageNumber,
+              sectionTitle,
+            )
+          }
           onOpenExternal={() =>
             void handleOpenResourceExternal(readerResource.id)
           }
+          onPageChange={setReaderPage}
           resource={readerResource}
         />
       ) : null}

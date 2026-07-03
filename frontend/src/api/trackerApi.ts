@@ -438,6 +438,14 @@ export type CourseFileItem = {
   rootName: string;
 };
 
+export type PdfReaderMetadata = {
+  pageCount: number;
+  pages: Array<{ number: number; title: string }>;
+  resourceId: string;
+  sourcePath: string;
+  title: string;
+};
+
 class ApiError extends Error {
   status: number;
 
@@ -857,6 +865,32 @@ export async function fetchCourseFiles(
     relativePath: file.relative_path,
     rootName: file.root_name,
   }));
+}
+
+export async function fetchPdfReaderMetadata(
+  resourceId: string,
+): Promise<PdfReaderMetadata> {
+  const payload = await requestJson<{
+    page_count: number;
+    pages: Array<{ number: number; title: string }>;
+    resource_id: string;
+    source_path: string;
+    title: string;
+  }>(`/resources/${resourceId}/pdf`);
+  return {
+    pageCount: payload.page_count,
+    pages: payload.pages,
+    resourceId: payload.resource_id,
+    sourcePath: payload.source_path,
+    title: payload.title,
+  };
+}
+
+export function pdfReaderPageUrl(
+  resourceId: string,
+  pageNumber: number,
+): string {
+  return `${API_BASE}/resources/${resourceId}/pdf/pages/${pageNumber}`;
 }
 
 export async function openCourseFile(

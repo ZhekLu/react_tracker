@@ -258,6 +258,19 @@ file chip; clicking it opens the current filesystem file in its macOS default
 application. The tracker indexes only the configured folders—it does not copy
 file contents into SQLite or track file versions.
 
+### Keyboard-first lecture reader
+
+Local PDF resources whose plan kind is `slides` open in the full-size in-app
+lecture reader. Use Left/Right or Page Up/Page Down to move between slides;
+Home/End jump to the beginning or end. The current slide is kept in the URL so
+browser Back returns to the exact course/day context.
+
+While the slide has keyboard focus, start typing anywhere to open a slide-linked
+note. Start with `?` for a question or `!` for a todo; otherwise it starts as a
+normal note. `Cmd+Enter` saves and Escape cancels. Notes are stored as ordinary
+resource annotations with the slide number and the extracted slide heading, so
+they immediately appear in the task shelf, Notes, and discussions.
+
 The target relational model, invariants, import identity rules, and phased
 migration order are documented in `../features/db_schema.md`.
 

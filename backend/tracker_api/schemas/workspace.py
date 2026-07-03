@@ -290,6 +290,19 @@ class PdfAnnotationCollectionResponse(StrictModel):
     kind_counts: dict[str, int]
 
 
+class PdfReaderPage(StrictModel):
+    number: int
+    title: str
+
+
+class PdfReaderMetadataResponse(StrictModel):
+    resource_id: str
+    title: str
+    page_count: int
+    pages: list[PdfReaderPage]
+    source_path: str
+
+
 class TogglCurrent(StrictModel):
     id: str | int
     description: str

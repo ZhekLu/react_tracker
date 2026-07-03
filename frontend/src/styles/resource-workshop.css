@@ -323,6 +323,196 @@
   font-size: 7px;
 }
 
+.resourceReader {
+  width: min(1500px, 100%);
+  height: min(980px, calc(100vh - 24px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.resourceReader:has(.selectionCapture) {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.readerHeader > div > small {
+  display: block;
+  max-width: 920px;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--course-accent);
+  font-size: 8px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdfReaderScroll {
+  overflow: hidden;
+  background: #202725;
+}
+
+.pdfSlideStage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 8px;
+}
+
+.pdfSlideStage > img {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.24));
+}
+
+.pdfSlideStage > button {
+  width: 34px;
+  height: 64px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.72);
+  display: grid;
+  place-items: center;
+}
+
+.pdfSlideStage > button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--course-accent) 58%, #fff);
+  background: color-mix(in srgb, var(--course-accent) 24%, #1b2421);
+  color: #fff;
+}
+
+.pdfSlideStage > button:disabled {
+  opacity: 0.22;
+}
+
+.pdfQuickNote {
+  position: absolute;
+  right: 18px;
+  bottom: 72px;
+  z-index: 5;
+  width: min(430px, calc(100% - 36px));
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--course-accent) 34%, var(--line));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 18px 55px rgba(9, 18, 15, 0.3);
+  backdrop-filter: blur(16px);
+}
+
+.pdfQuickNote.kind-question {
+  border-color: color-mix(in srgb, var(--amber) 46%, var(--line));
+}
+
+.pdfQuickNote.kind-todo {
+  border-color: color-mix(in srgb, var(--purple, #7661c7) 42%, var(--line));
+}
+
+.pdfQuickNote > header {
+  margin-bottom: 7px;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 9px;
+  font-weight: 790;
+}
+
+.pdfQuickNote > header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pdfQuickNote > header button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
+.pdfQuickNoteKinds {
+  margin-bottom: 6px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--surface-soft);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+}
+
+.pdfQuickNoteKinds button {
+  min-height: 23px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 7px;
+  font-weight: 760;
+  text-transform: capitalize;
+}
+
+.pdfQuickNoteKinds button.active {
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(19, 31, 26, 0.1);
+  color: var(--course-accent);
+}
+
+.pdfQuickNote textarea {
+  width: 100%;
+  min-height: 112px;
+  padding: 9px 10px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.48;
+}
+
+.pdfQuickNote > .commandButton {
+  width: 100%;
+  margin-top: 7px;
+  justify-content: center;
+}
+
+@media (max-width: 760px) {
+  .readerBackdrop {
+    padding: 0;
+  }
+
+  .resourceReader {
+    height: 100vh;
+    border-radius: 0;
+  }
+
+  .pdfSlideStage {
+    padding: 4px;
+    grid-template-columns: 26px minmax(0, 1fr) 26px;
+    gap: 3px;
+  }
+
+  .pdfSlideStage > button {
+    width: 26px;
+    height: 52px;
+  }
+}
+
 @media (max-width: 900px) {
   .sidebarCollapseButton {
     display: none;

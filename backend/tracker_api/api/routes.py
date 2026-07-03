@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.engine import Connection
 
@@ -31,6 +31,8 @@ from ..schemas.workspace import (
     MutationResponse,
     NoteUpsertCommand,
     PdfAnnotationCollectionResponse,
+    PdfReaderMetadataResponse,
+    PdfReaderPage,
     PromptBatchCreateCommand,
     ResourceContentResponse,
     ResourceOpenResponse,
@@ -52,6 +54,11 @@ from ..services.pdf_annotation_service import (
 from ..services.pdf_ink_image_service import (
     PdfInkImageError,
     annotation_image_path,
+)
+from ..services.pdf_reader_service import (
+    PdfReaderError,
+    pdf_metadata,
+    render_pdf_page,
 )
 from ..services.resource_content_service import read_resource_content
 from ..services.resource_open_service import ResourceOpenError, open_resource
@@ -280,6 +287,68 @@ def get_resource_content(
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error
     except ResourceOpenError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.get(
+    "/resources/{resource_id}/pdf",
+    response_model=PdfReaderMetadataResponse,
+)
+def get_resource_pdf_metadata(
+    resource_id: str,
+    connection: Database,
+) -> PdfReaderMetadataResponse:
+    try:
+        title, _version_id, local_path = (
+            workspace_repository.resource_content_target(
+                connection,
+                resource_id,
+            )
+        )
+        metadata = pdf_metadata(local_path)
+        return PdfReaderMetadataResponse(
+            resource_id=resource_id,
+            title=title,
+            page_count=metadata.page_count,
+            pages=[
+                PdfReaderPage(number=page.number, title=page.title)
+                for page in metadata.pages
+            ],
+            source_path=str(metadata.path),
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+    except PdfReaderError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.get("/resources/{resource_id}/pdf/pages/{page_number}")
+def get_resource_pdf_page(
+    resource_id: str,
+    page_number: int,
+    connection: Database,
+) -> Response:
+    try:
+        _title, _version_id, local_path = (
+            workspace_repository.resource_content_target(
+                connection,
+                resource_id,
+            )
+        )
+        return Response(
+            content=render_pdf_page(local_path, page_number),
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+    except PdfReaderError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(error),
