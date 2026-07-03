@@ -1,12 +1,11 @@
-import { lazy, Suspense, useState } from "react";
-import { FilePenLine, Save } from "lucide-react";
+import { useState } from "react";
+import { FilePenLine, Highlighter, Pencil } from "lucide-react";
+import { DiscussionMarkdownSurface } from "../editor/DiscussionMarkdownSurface";
+import {
+  discussionHighlights,
+  discussionHighlightsMarkdown,
+} from "../../lib/discussionHighlights";
 import type { Note } from "../../types/tracker";
-
-const RichNoteEditor = lazy(() =>
-  import("../editor/RichNoteEditor").then((module) => ({
-    default: module.RichNoteEditor,
-  })),
-);
 
 type EntityNoteEditorProps = {
   label?: string;
@@ -19,6 +18,12 @@ function noteContent(note?: Note): string {
   return note?.document.markdown ?? note?.document.plainText ?? "";
 }
 
+function noteContentType(content: string): "html" | "markdown" {
+  return /^\s*<(?:p|h[1-6]|ul|ol|pre|blockquote)\b/i.test(content)
+    ? "html"
+    : "markdown";
+}
+
 export function EntityNoteEditor({
   label = "Notes",
   note,
@@ -28,39 +33,93 @@ export function EntityNoteEditor({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(noteContent(note));
   const [savedContent, setSavedContent] = useState(noteContent(note));
+  const [editing, setEditing] = useState(!savedContent.trim());
+  const [highlightsOnly, setHighlightsOnly] = useState(false);
+  const highlights = discussionHighlights(savedContent);
+  const contentType = noteContentType(savedContent);
 
-  function save() {
-    onSave(draft);
-    setSavedContent(draft);
+  function save(markdown: string) {
+    onSave(markdown);
+    setDraft(markdown);
+    setSavedContent(markdown);
+    setEditing(false);
   }
 
   return (
-    <details className="entityNoteEditor" onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <details
+      className={`entityNoteEditor ${highlightsOnly ? "highlightsOnly" : ""}`}
+      onToggle={(event) => {
+        const nextOpen = event.currentTarget.open;
+        setOpen(nextOpen);
+        if (nextOpen && !savedContent.trim()) setEditing(true);
+      }}
+    >
       <summary>
         <FilePenLine size={14} />
         <span>{label}</span>
         {savedContent.trim() ? <span className="notePresent">saved</span> : null}
+        {highlights.length ? (
+          <button
+            aria-label={
+              highlightsOnly ? "Show full note" : "Show note highlights only"
+            }
+            className={highlightsOnly ? "noteHighlightToggle active" : "noteHighlightToggle"}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setHighlightsOnly((current) => !current);
+            }}
+            title={highlightsOnly ? "Show full note" : "Highlights only"}
+            type="button"
+          >
+            <Highlighter size={12} />
+          </button>
+        ) : null}
       </summary>
       {open ? (
         <div className="entityNoteEditorBody">
-          <Suspense fallback={<div className="editorLoading">Loading editor...</div>}>
-            <RichNoteEditor
-              initialContent={draft}
-              onChange={setDraft}
+          {editing ? (
+            <DiscussionMarkdownSurface
+              contentType={noteContentType(draft)}
+              editable
+              markdown={draft}
+              onCancel={() => setEditing(false)}
+              onSave={save}
               placeholder={placeholder}
             />
-          </Suspense>
-          <div className="noteActions">
+          ) : (
+            <>
+              <DiscussionMarkdownSurface
+                className="entityNotePreview"
+                contentType={highlightsOnly ? "markdown" : contentType}
+                markdown={
+                  highlightsOnly
+                    ? discussionHighlightsMarkdown(savedContent)
+                    : savedContent
+                }
+              />
+              <div className="noteActions">
+                <button
+                  className="commandButton subtle"
+                  onClick={() => setEditing(true)}
+                  type="button"
+                >
+                  <Pencil size={13} />
+                  <span>Edit</span>
+                </button>
+              </div>
+            </>
+          )}
+          {!editing && !savedContent.trim() ? (
             <button
               className="commandButton"
-              disabled={draft === savedContent}
-              onClick={save}
+              onClick={() => setEditing(true)}
               type="button"
             >
-              <Save size={14} />
-              <span>Save</span>
+              <Pencil size={13} />
+              <span>Write note</span>
             </button>
-          </div>
+          ) : null}
         </div>
       ) : null}
     </details>

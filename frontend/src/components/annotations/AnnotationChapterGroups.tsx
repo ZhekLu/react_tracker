@@ -11,6 +11,7 @@ import { CompactAnnotationCard } from "./CompactAnnotationCard";
 
 type AnnotationChapterGroupsProps = {
   annotations: Annotation[];
+  flat?: boolean;
   onAnnotationChange: (
     annotation: Annotation,
     changes: { status?: AnnotationStatus },
@@ -21,10 +22,27 @@ type AnnotationChapterGroupsProps = {
 
 export function AnnotationChapterGroups({
   annotations,
+  flat = false,
   onAnnotationChange,
   onDiscuss,
   onNoteSave,
 }: AnnotationChapterGroupsProps) {
+  if (flat) {
+    return (
+      <div className="annotationFlatList">
+        {annotations.map((annotation) => (
+          <CompactAnnotationCard
+            annotation={annotation}
+            key={`${annotation.id}:${annotation.revision}`}
+            onAnnotationChange={onAnnotationChange}
+            onDiscuss={onDiscuss}
+            onNoteSave={onNoteSave}
+          />
+        ))}
+      </div>
+    );
+  }
+
   const groups = [...annotations.reduce((items, annotation) => {
     const chapter = annotationChapter(annotation);
     const group = items.get(chapter) ?? [];

@@ -16,10 +16,12 @@ type FormulaDraft = {
 
 export function DiscussionMarkdownSurfaceImpl({
   className = "",
+  contentType = "markdown",
   editable = false,
   markdown,
   onCancel,
   onSave,
+  placeholder,
 }: DiscussionMarkdownSurfaceProps) {
   const [formulaDraft, setFormulaDraft] = useState<FormulaDraft | null>(null);
   const [lastShortcut, setLastShortcut] = useState<
@@ -29,13 +31,13 @@ export function DiscussionMarkdownSurfaceImpl({
     () =>
       discussionEditorExtensions((kind, latex, position) => {
         if (editable) setFormulaDraft({ kind, latex, position });
-      }),
-    [editable],
+      }, placeholder),
+    [editable, placeholder],
   );
   const editor = useEditor(
     {
       content: markdown,
-      contentType: "markdown",
+      contentType,
       editable,
       extensions,
       editorProps: {
@@ -47,16 +49,16 @@ export function DiscussionMarkdownSurfaceImpl({
       },
       immediatelyRender: false,
     },
-    [editable],
+    [editable, placeholder],
   );
 
   useEffect(() => {
     if (!editor || editor.getMarkdown() === markdown) return;
     editor.commands.setContent(markdown, {
-      contentType: "markdown",
+      contentType,
       emitUpdate: false,
     });
-  }, [editor, markdown]);
+  }, [contentType, editor, markdown]);
 
   if (!editor) return null;
   const activeEditor = editor;
@@ -67,9 +69,8 @@ export function DiscussionMarkdownSurfaceImpl({
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
     const key = event.key.toLowerCase();
-    const control = event.ctrlKey;
     const command = event.metaKey || event.ctrlKey;
-    if (control && key === "h") {
+    if (command && key === "h") {
       event.preventDefault();
       event.stopPropagation();
       const secondary = event.shiftKey;
@@ -81,19 +82,19 @@ export function DiscussionMarkdownSurfaceImpl({
       setLastShortcut(secondary ? "secondary" : "primary");
       return;
     }
-    if (control && key === "b") {
+    if (command && key === "b") {
       event.preventDefault();
       event.stopPropagation();
       activeEditor.commands.toggleBold();
       return;
     }
-    if (control && key === "i") {
+    if (command && key === "i") {
       event.preventDefault();
       event.stopPropagation();
       activeEditor.commands.toggleItalic();
       return;
     }
-    if (control && event.key === "`") {
+    if (command && event.key === "`") {
       event.preventDefault();
       event.stopPropagation();
       activeEditor.commands.toggleCode();
@@ -109,6 +110,20 @@ export function DiscussionMarkdownSurfaceImpl({
       event.preventDefault();
       onCancel?.();
     }
+  }
+
+  function handlePaste(event: React.ClipboardEvent<HTMLElement>) {
+    const plainText = event.clipboardData.getData("text/plain");
+    if (
+      !plainText ||
+      !/[\n`]|\$\$|\\\[|^#{1,6}\s|^\s*(?:[-*+]|\d+[.)])\s/m.test(plainText)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    activeEditor.commands.insertContent(plainText, {
+      contentType: "markdown",
+    });
   }
 
   function applyFormula() {
@@ -136,23 +151,24 @@ export function DiscussionMarkdownSurfaceImpl({
     <section
       className={`discussionMarkdownSurface ${editable ? "isEditing" : "isReadOnly"} ${className}`.trim()}
       onKeyDownCapture={editable ? handleKeyDown : undefined}
+      onPasteCapture={editable ? handlePaste : undefined}
     >
       {editable ? (
         <header className="discussionEditorShortcuts">
-          <span>Ctrl+B bold</span>
-          <span>Ctrl+I italic</span>
-          <span>Ctrl+` code</span>
+          <span>⌘B bold</span>
+          <span>⌘I italic</span>
+          <span>⌘` code</span>
           <span
             className={`primaryHighlightShortcut ${lastShortcut === "primary" ? "shortcutApplied" : ""}`}
           >
-            Ctrl+H highlight
+            ⌘H highlight
           </span>
           <span
             className={`secondaryHighlightShortcut ${lastShortcut === "secondary" ? "shortcutApplied" : ""}`}
           >
-            Ctrl+Shift+H highlight
+            ⌘⇧H highlight
           </span>
-          <span>Ctrl/Cmd+S save</span>
+          <span>⌘S save</span>
         </header>
       ) : null}
       <EditorContent editor={activeEditor} />

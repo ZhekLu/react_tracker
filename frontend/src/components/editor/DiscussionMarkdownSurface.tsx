@@ -3,10 +3,12 @@ import { MarkdownMath } from "../content/MarkdownMath";
 
 export type DiscussionMarkdownSurfaceProps = {
   className?: string;
+  contentType?: "html" | "markdown";
   editable?: boolean;
   markdown: string;
   onCancel?: () => void;
   onSave?: (markdown: string) => void;
+  placeholder?: string;
 };
 
 const DiscussionMarkdownSurfaceImpl = lazy(() =>
@@ -24,9 +26,16 @@ export function DiscussionMarkdownSurface(
         props.editable ? (
           <div className="editorLoading">Loading discussion editor...</div>
         ) : (
-          <MarkdownMath className={props.className}>
-            {props.markdown}
-          </MarkdownMath>
+          props.contentType === "html" ? (
+            <div
+              className={`markdownMath ${props.className ?? ""}`.trim()}
+              dangerouslySetInnerHTML={{ __html: props.markdown }}
+            />
+          ) : (
+            <MarkdownMath className={props.className}>
+              {props.markdown}
+            </MarkdownMath>
+          )
         )
       }
     >

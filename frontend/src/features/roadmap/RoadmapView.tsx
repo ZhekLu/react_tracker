@@ -341,8 +341,21 @@ function TaskCapturePanel({
       annotation.origin,
     ),
   );
+  const manualQuestions = captures.filter(
+    ({ annotation }) =>
+      ["question", "todo"].includes(annotation.kind) &&
+      !["drawboard_cloud", "drawboard_cloud_ink", "pdf_import"].includes(
+        annotation.origin,
+      ),
+  );
+  const groupedCaptures = captures.filter(
+    ({ annotation }) =>
+      !manualQuestions.some(
+        ({ annotation: question }) => question.id === annotation.id,
+      ),
+  );
   const captureGroups = [
-    ...captures
+    ...groupedCaptures
       .reduce((groups, capture) => {
         const current = groups.get(capture.resource.id) ?? {
           annotations: [] as Annotation[],
@@ -394,6 +407,32 @@ function TaskCapturePanel({
       </button>
       {open ? (
         <div className="taskCaptureGroupedList">
+          {manualQuestions.length ? (
+            <section className="taskQuestionShelf">
+              <header>
+                <span>
+                  <CircleHelp size={12} />
+                  Questions added for this task
+                </span>
+                <strong>{manualQuestions.length}</strong>
+              </header>
+              <AnnotationChapterGroups
+                annotations={manualQuestions.map(
+                  ({ annotation }) => annotation,
+                )}
+                flat
+                onAnnotationChange={onAnnotationChange}
+                onDiscuss={(annotation) => {
+                  const resource = manualQuestions.find(
+                    ({ annotation: candidate }) =>
+                      candidate.id === annotation.id,
+                  )?.resource;
+                  if (resource) onOpenDiscussion(resource.id);
+                }}
+                onNoteSave={onNoteSave}
+              />
+            </section>
+          ) : null}
           {captureGroups.map(({ annotations, resource }) => (
             <section className="taskCaptureResourceGroup" key={resource.id}>
               <header>

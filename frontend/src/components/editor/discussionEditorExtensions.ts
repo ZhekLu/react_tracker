@@ -1,5 +1,6 @@
 import Highlight from "@tiptap/extension-highlight";
 import { Mathematics } from "@tiptap/extension-mathematics";
+import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import Typography from "@tiptap/extension-typography";
@@ -78,12 +79,14 @@ export function discussionEditorExtensions(
     latex: string,
     position: number,
   ) => void,
+  placeholder = "Write Markdown…",
 ) {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4] },
     }),
     DiscussionHighlight.configure({ multicolor: true }),
+    Placeholder.configure({ placeholder }),
     TaskList,
     TaskItem.configure({ nested: true }),
     Typography,

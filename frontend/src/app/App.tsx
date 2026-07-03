@@ -87,12 +87,6 @@ function navigationFromUrl() {
   };
 }
 
-function htmlToPlainText(value: string): string {
-  const element = document.createElement("div");
-  element.innerHTML = value;
-  return element.textContent ?? value;
-}
-
 async function writeClipboard(text: string) {
   if (navigator.clipboard) {
     try {
@@ -512,6 +506,7 @@ export function App() {
   function handleNoteSave(input: EntityNoteSaveInput) {
     if (!workspace) return;
     const note = input.note;
+    const markdown = normalizeDiscussionMarkdown(input.html);
     void runMutation(async () => {
       await upsertNote({
         courseId: workspace.id,
@@ -521,8 +516,8 @@ export function App() {
         kind: input.kind,
         entityType: input.entityType,
         entityId: input.entityId,
-        markdown: input.html,
-        plainText: htmlToPlainText(input.html),
+        markdown,
+        plainText: markdown,
       });
     });
   }

@@ -23,7 +23,31 @@ function protectFencedCode(value: string): ProtectedMarkdown {
     restore: (markdown) =>
       blocks.reduce(
         (restored, block, index) =>
-          restored.replace(`@@DISCUSSION_FENCED_CODE_${index}@@`, block),
+          restored.replace(
+            `@@DISCUSSION_FENCED_CODE_${index}@@`,
+            () => block,
+          ),
+        markdown,
+      ),
+  };
+}
+
+function protectDisplayMath(value: string): ProtectedMarkdown {
+  const blocks: string[] = [];
+  const protectedValue = value.replace(/\$\$[\s\S]*?\$\$/g, (block) => {
+    const token = `@@DISCUSSION_DISPLAY_MATH_${blocks.length}@@`;
+    blocks.push(block);
+    return token;
+  });
+  return {
+    value: protectedValue,
+    restore: (markdown) =>
+      blocks.reduce(
+        (restored, block, index) =>
+          restored.replace(
+            `@@DISCUSSION_DISPLAY_MATH_${index}@@`,
+            () => block,
+          ),
         markdown,
       ),
   };
@@ -36,7 +60,7 @@ function sentenceCount(value: string): number {
 function isStructuralMarkdownBlock(block: string): boolean {
   const firstLine = block.split("\n", 1)[0].trim();
   return (
-    /^(?:@@DISCUSSION_FENCED_CODE_\d+@@$|#{1,6}\s|```|~~~|>\s?|[-*_]{3,}\s*$|\$\$|\\\[|<[\w!/])/.test(firstLine) ||
+    /^(?:@@DISCUSSION_(?:FENCED_CODE|DISPLAY_MATH)_\d+@@$|#{1,6}\s|```|~~~|>\s?|[-*_]{3,}\s*$|\$\$|\\\[|<[\w!/])/.test(firstLine) ||
     /^(?:[-+*]\s|\d+[.)]\s)/.test(firstLine) ||
     (block.includes("\n") &&
       block.split("\n").every((line) => /^\s*\|.*\|\s*$/.test(line)))
@@ -98,7 +122,10 @@ export function normalizeDiscussionMarkdown(value: string): string {
     .replace(/^•\s+/gm, "- ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return protectedMarkdown.restore(densifyDiscussionMarkdown(normalized));
+  const protectedMath = protectDisplayMath(normalized);
+  return protectedMarkdown.restore(
+    protectedMath.restore(densifyDiscussionMarkdown(protectedMath.value)),
+  );
 }
 
 export type DiscussionAnswerSection = {

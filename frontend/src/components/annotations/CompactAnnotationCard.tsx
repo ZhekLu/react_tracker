@@ -52,7 +52,7 @@ export function CompactAnnotationCard({
 
   return (
     <article
-      className={`compactCaptureCard kind-${annotation.kind} status-${annotation.status} color-${color}`}
+      className={`compactCaptureCard kind-${annotation.kind} status-${annotation.status} color-${color} ${expanded ? "expanded" : ""}`}
       style={
         rgb
           ? ({ "--capture-color": rgb } as CSSProperties)
