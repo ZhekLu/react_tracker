@@ -173,6 +173,22 @@ export function App() {
     [activeDayId, workspace],
   );
   const toggl = useToggl(workspace, activeDay);
+  const workspaceWithLiveTime = useMemo(
+    () =>
+      workspace
+        ? {
+            ...workspace,
+            days: workspace.days.map((day) => ({
+              ...day,
+              trackedSeconds: Math.max(
+                day.trackedSeconds,
+                toggl.trackedSecondsByDay[day.id] ?? 0,
+              ),
+            })),
+          }
+        : null,
+    [toggl.trackedSecondsByDay, workspace],
+  );
 
   const loadCourses = useCallback(async () => {
     const nextCourses = await fetchCourses();
@@ -1146,6 +1162,7 @@ export function App() {
         online: toggl.status.online,
         running: toggl.status.running,
         trackedSeconds: toggl.trackedSeconds,
+        trackedSecondsByDay: toggl.trackedSecondsByDay,
       }}
       onViewChange={handleViewChange}
       view={view}
@@ -1167,7 +1184,7 @@ export function App() {
       {mutating ? <div className="savingPill">Saving...</div> : null}
       {view === "roadmap" ? (
         <RoadmapView
-          course={workspace}
+          course={workspaceWithLiveTime ?? workspace}
           onActiveDayChange={setActiveDayId}
           onAnnotationChange={handleAnnotationChange}
           onCollectPdfAnnotations={handleCollectPdfAnnotations}

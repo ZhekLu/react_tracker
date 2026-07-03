@@ -47,6 +47,7 @@ type AppShellProps = {
     online: boolean;
     running: boolean;
     trackedSeconds: number;
+    trackedSecondsByDay: Record<string, number>;
   };
   children: ReactNode;
 };
@@ -94,7 +95,9 @@ export function AppShell({
         course={course}
         courses={courses}
         onCourseChange={onCourseChange}
+        onOpenDay={onOpenDay}
         onViewChange={onViewChange}
+        trackedSecondsByDay={toggl.trackedSecondsByDay}
         view={view}
       />
 
@@ -113,7 +116,12 @@ export function AppShell({
                   {activeDay.progress.later ? <span>{activeDay.progress.later} later</span> : null}
                   {activeDayPlannedMinutes ? (
                     <span>
-                      {formatTrackedTime(activeDay.trackedSeconds) || "0m"} /{" "}
+                      {formatTrackedTime(
+                        Math.max(
+                          activeDay.trackedSeconds,
+                          toggl.trackedSecondsByDay[activeDay.id] ?? 0,
+                        ),
+                      ) || "0m"} /{" "}
                       {formatPlannedTime(activeDayPlannedMinutes)} planned
                     </span>
                   ) : activeDay.trackedSeconds ? (

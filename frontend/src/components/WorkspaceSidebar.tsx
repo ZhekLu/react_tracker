@@ -22,6 +22,7 @@ import {
 } from "../features/roadmap/dayPresentation";
 import type { Course, CourseSummary, TrackerView } from "../types/tracker";
 import { MetricBar } from "./MetricBar";
+import { StudyMomentumPanel } from "./rewards/StudyMomentumPanel";
 
 type WorkspaceSidebarProps = {
   activeDayId: string;
@@ -30,6 +31,8 @@ type WorkspaceSidebarProps = {
   view: TrackerView;
   onCourseChange: (courseId: string) => void;
   onViewChange: (view: TrackerView) => void;
+  onOpenDay: (dayId: string) => void;
+  trackedSecondsByDay: Record<string, number>;
 };
 
 const navItems: Array<{
@@ -53,17 +56,15 @@ function localDateKey(): string {
   return `${year}-${month}-${day}`;
 }
 
-function scrollToDay(dayId: string) {
-  document.getElementById(dayId)?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
 export function WorkspaceSidebar({
   activeDayId,
   course,
   courses,
   view,
   onCourseChange,
+  onOpenDay,
   onViewChange,
+  trackedSecondsByDay,
 }: WorkspaceSidebarProps) {
   const [collapsed, setCollapsed] = useState(
     () => window.localStorage.getItem("tracker.sidebar.collapsed") === "true",
@@ -132,6 +133,11 @@ export function WorkspaceSidebar({
         </select>
       </label>
 
+      <StudyMomentumPanel
+        course={course}
+        trackedSecondsByDay={trackedSecondsByDay}
+      />
+
       <nav className="workspaceNav" aria-label="Main navigation">
         {navItems.map((item) => {
           if (item.view === "exams" && course.exams.length === 0) return null;
@@ -180,7 +186,7 @@ export function WorkspaceSidebar({
           <div className="dayJumpActions">
             <button
               disabled={!today}
-              onClick={() => today && scrollToDay(today.id)}
+              onClick={() => today && onOpenDay(today.id)}
               title={today ? `Go to Day ${today.number}` : "No course day is scheduled today"}
               type="button"
             >
@@ -189,7 +195,7 @@ export function WorkspaceSidebar({
             </button>
             <button
               disabled={!nextOpen}
-              onClick={() => nextOpen && scrollToDay(nextOpen.id)}
+              onClick={() => nextOpen && onOpenDay(nextOpen.id)}
               title="Go to the next day whose workflow status is open"
               type="button"
             >
@@ -205,13 +211,18 @@ export function WorkspaceSidebar({
           <nav className="sidebarDayList" aria-label="Course days">
             {course.days.map((day) => {
               const tone = dayTone(day);
-              const trackedTime = formatTrackedTime(day.trackedSeconds);
+              const trackedTime = formatTrackedTime(
+                Math.max(
+                  day.trackedSeconds,
+                  trackedSecondsByDay[day.id] ?? 0,
+                ),
+              );
               const plannedTime = formatPlannedTime(dayEstimatedMinutes(day));
               return (
                 <button
                   className={`sidebarDayItem tone-${tone} ${day.id === activeDayId ? "active" : ""}`}
                   key={day.id}
-                  onClick={() => scrollToDay(day.id)}
+                  onClick={() => onOpenDay(day.id)}
                   style={{ "--day-progress": `${Math.round(day.progress.ratio * 100)}%` } as CSSProperties}
                   type="button"
                 >

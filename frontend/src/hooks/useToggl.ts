@@ -54,6 +54,18 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
     [dayToken, planId, status.days],
   );
   const courseTrackedSeconds = status.totals[planId] ?? 0;
+  const trackedSecondsByDay = useMemo(
+    () =>
+      Object.fromEntries(
+        (course?.days ?? []).map((day) => [
+          day.id,
+          status.days[planId]?.[
+            `day-${String(day.number).padStart(2, "0")}`
+          ] ?? 0,
+        ]),
+      ),
+    [course?.days, planId, status.days],
+  );
 
   async function toggle() {
     if (!course || !activeDay) return;
@@ -86,5 +98,6 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
     status,
     toggle,
     trackedSeconds,
+    trackedSecondsByDay,
   };
 }

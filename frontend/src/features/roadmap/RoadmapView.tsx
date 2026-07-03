@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
+import { DayCompletionParade } from "../../components/rewards/DayCompletionParade";
 import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
@@ -528,6 +529,10 @@ function DayCard({
       id={day.id}
     >
       <CompletionBurst token={reward.token} variant="day" />
+      <DayCompletionParade
+        complete={day.progress.done >= day.progress.required}
+        token={reward.token}
+      />
       <header className="dayHeader">
         <div className="dayHeaderMain">
           <span className="dayNumber">D{day.number}</span>

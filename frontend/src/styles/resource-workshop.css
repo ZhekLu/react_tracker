@@ -93,6 +93,7 @@
   }
 
   .workspaceSidebar.collapsed .workspaceNavButton span,
+  .workspaceSidebar.collapsed .studyMomentumPanel,
   .workspaceSidebar.collapsed .sidebarMetrics,
   .workspaceSidebar.collapsed .sidebarSectionLabel,
   .workspaceSidebar.collapsed .sidebarDayCopy,
@@ -139,6 +140,145 @@
     padding: 0;
     margin-inline: auto;
     justify-content: center;
+  }
+}
+
+.studyMomentumPanel {
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.studyMomentumPanel > header {
+  margin-bottom: 7px;
+  color: rgba(255, 255, 255, 0.68);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 7px;
+}
+
+.studyMomentumPanel > header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.studyMomentumPanel > header svg {
+  color: #ffb34e;
+}
+
+.studyMomentumPanel > header strong {
+  color: #fff;
+  font-size: 11px;
+}
+
+.studyMomentumPanel > header small {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 6px;
+  font-weight: 720;
+}
+
+.studyActivityGrid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 3px;
+}
+
+.studyActivityGrid > span {
+  aspect-ratio: 1;
+  min-width: 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.studyActivityGrid .activityLevel-1 {
+  background: color-mix(in srgb, var(--course-accent) 30%, #172c27);
+}
+
+.studyActivityGrid .activityLevel-2 {
+  background: color-mix(in srgb, var(--course-accent) 52%, #172c27);
+}
+
+.studyActivityGrid .activityLevel-3 {
+  background: color-mix(in srgb, var(--course-accent) 76%, #fff);
+}
+
+.studyActivityGrid .activityLevel-4 {
+  background: color-mix(in srgb, var(--course-accent) 88%, #fff);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--course-accent) 40%, transparent);
+}
+
+.dayCompletionParade {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  overflow: hidden;
+}
+
+.dayCompletionParade > strong {
+  position: absolute;
+  top: 28%;
+  left: 50%;
+  color: var(--course-accent);
+  font-size: clamp(24px, 6vw, 72px);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  text-shadow:
+    0 3px 0 #fff,
+    0 12px 38px color-mix(in srgb, var(--course-accent) 32%, transparent);
+  transform: translate(-50%, -50%) scale(0);
+  animation: perfectDayTitle 2.6s cubic-bezier(0.17, 0.84, 0.32, 1) forwards;
+}
+
+.paradeAnimal {
+  position: absolute;
+  bottom: -70px;
+  left: -90px;
+  font-size: clamp(34px, 6vw, 72px);
+  filter: drop-shadow(0 12px 12px rgba(17, 28, 24, 0.2));
+  animation: animalColonise 2.8s cubic-bezier(0.22, 0.76, 0.31, 1) forwards;
+}
+
+.paradeAnimal:nth-of-type(2n) {
+  animation-name: animalColoniseReverse;
+}
+
+.paradeAnimal.animal-1 { --animal-x: 12vw; --animal-y: -18vh; animation-delay: 40ms; }
+.paradeAnimal.animal-2 { --animal-x: 28vw; --animal-y: -7vh; animation-delay: 140ms; }
+.paradeAnimal.animal-3 { --animal-x: 42vw; --animal-y: -22vh; animation-delay: 80ms; }
+.paradeAnimal.animal-4 { --animal-x: 55vw; --animal-y: -10vh; animation-delay: 220ms; }
+.paradeAnimal.animal-5 { --animal-x: 68vw; --animal-y: -24vh; animation-delay: 120ms; }
+.paradeAnimal.animal-6 { --animal-x: 79vw; --animal-y: -8vh; animation-delay: 260ms; }
+.paradeAnimal.animal-7 { --animal-x: 88vw; --animal-y: -20vh; animation-delay: 180ms; }
+.paradeAnimal.animal-8 { --animal-x: 96vw; --animal-y: -12vh; animation-delay: 300ms; }
+
+@keyframes perfectDayTitle {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.45) rotate(-4deg); }
+  18%, 68% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0); }
+  100% { opacity: 0; transform: translate(-50%, -60%) scale(1.08); }
+}
+
+@keyframes animalColonise {
+  0% { opacity: 0; transform: translate(-80px, 0) rotate(-8deg); }
+  18% { opacity: 1; }
+  68% { opacity: 1; transform: translate(var(--animal-x), var(--animal-y)) rotate(4deg); }
+  100% { opacity: 0; transform: translate(calc(var(--animal-x) + 80px), calc(var(--animal-y) - 12vh)) rotate(9deg); }
+}
+
+@keyframes animalColoniseReverse {
+  0% { opacity: 0; transform: translate(calc(100vw + 80px), 0) scaleX(-1) rotate(8deg); }
+  18% { opacity: 1; }
+  68% { opacity: 1; transform: translate(var(--animal-x), var(--animal-y)) scaleX(-1) rotate(-4deg); }
+  100% { opacity: 0; transform: translate(calc(var(--animal-x) - 80px), calc(var(--animal-y) - 12vh)) scaleX(-1) rotate(-9deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dayCompletionParade {
+    display: none;
   }
 }
 
