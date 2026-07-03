@@ -6,6 +6,7 @@ import {
 import type {
   Annotation,
   AnnotationStatus,
+  EntityNoteSaveInput,
   Resource,
 } from "../../types/tracker";
 import { AnnotationChapterGroups } from "./AnnotationChapterGroups";
@@ -18,6 +19,7 @@ type ResourceCaptureShelfProps = {
   onCopyQuestions: (resource: Resource) => void;
   onCreateRequest: () => void;
   onDiscuss: () => void;
+  onNoteSave: (input: EntityNoteSaveInput) => void;
   onOpenChange?: (open: boolean) => void;
   open?: boolean;
   resource: Resource;
@@ -28,6 +30,7 @@ export function ResourceCaptureShelf({
   onCopyQuestions,
   onCreateRequest,
   onDiscuss,
+  onNoteSave,
   onOpenChange,
   open,
   resource,
@@ -75,6 +78,7 @@ export function ResourceCaptureShelf({
           annotations={captures}
           onAnnotationChange={onAnnotationChange}
           onDiscuss={onDiscuss}
+          onNoteSave={onNoteSave}
         />
         {!captures.length ? (
           <p className="emptyInline">

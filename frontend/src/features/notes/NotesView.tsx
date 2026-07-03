@@ -847,6 +847,7 @@ export function NotesView({
                         ? () => onOpenDiscussion(resource.id)
                         : undefined
                     }
+                    onNoteSave={onNoteSave}
                   />
                 </section>
               );

@@ -1196,6 +1196,7 @@ export function App() {
           onImportClipboard={(resourceId) =>
             void handleImportDiscussionFromClipboard(resourceId)
           }
+          onNoteSave={handleNoteSave}
           onCopy={(text, label) => void handleCopy(text, label)}
           onFocusResource={handleFocusDiscussionResource}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}

@@ -335,6 +335,7 @@ def _annotations(
     connection: Connection,
     course_id: str,
     documents: Mapping[str, DocumentContent],
+    notes_by_entity: Mapping[tuple[str, str], list[Note]],
 ) -> tuple[list[Annotation], dict[str, list[Annotation]]]:
     annotations: list[Annotation] = []
     by_resource: dict[str, list[Annotation]] = defaultdict(list)
@@ -387,6 +388,7 @@ def _annotations(
             revision=int(row["revision"]),
             body=documents.get(str(row["body_document_id"])) if row["body_document_id"] else None,
             anchor=anchor,
+            notes=notes_by_entity.get(("annotation", str(row["id"])), []),
             created_at=str(row["created_at"]),
             updated_at=str(row["updated_at"]),
         )
@@ -586,7 +588,12 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
 
     documents = _document_map(connection)
     notes, notes_by_entity = _notes_by_entity(connection, course_id, documents)
-    annotations, annotations_by_resource = _annotations(connection, course_id, documents)
+    annotations, annotations_by_resource = _annotations(
+        connection,
+        course_id,
+        documents,
+        notes_by_entity,
+    )
     task_to_resources, task_to_exam_questions, resource_to_tasks = _task_resources(
         connection,
         course_id,

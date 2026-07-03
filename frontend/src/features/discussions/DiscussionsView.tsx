@@ -38,6 +38,7 @@ import type {
   Discussion,
   DiscussionMessage,
   DiscussionQuestionRelation,
+  EntityNoteSaveInput,
   Resource,
 } from "../../types/tracker";
 import {
@@ -82,6 +83,7 @@ type DiscussionsViewProps = {
     message: DiscussionMessage,
   ) => void;
   onImportClipboard: (resourceId: string) => void;
+  onNoteSave: (input: EntityNoteSaveInput) => void;
   onCopy: (text: string, label: string) => void;
   onOpenResource: (resourceId: string) => void;
   onQuestionLink: (
@@ -244,6 +246,7 @@ type DiscussionWorkshopPanelProps = {
   onAnnotationChange: DiscussionsViewProps["onAnnotationChange"];
   onCaptureEditorOpenChange: (open: boolean) => void;
   onCreateCapture: DiscussionsViewProps["onCreateCapture"];
+  onNoteSave: DiscussionsViewProps["onNoteSave"];
   onQuestionLink: DiscussionsViewProps["onQuestionLink"];
   resource: Resource;
   resourceById: Map<string, Resource>;
@@ -263,6 +266,7 @@ function DiscussionWorkshopPanel({
   onAnnotationChange,
   onCaptureEditorOpenChange,
   onCreateCapture,
+  onNoteSave,
   onQuestionLink,
   resource,
   resourceById,
@@ -329,6 +333,7 @@ function DiscussionWorkshopPanel({
         <AnnotationChapterGroups
           annotations={activeCaptures}
           onAnnotationChange={onAnnotationChange}
+          onNoteSave={onNoteSave}
         />
       ) : (
         <div className="emptyInline">
@@ -432,6 +437,7 @@ export function DiscussionsView({
   onExtractQuestions,
   onFocusResource,
   onImportClipboard,
+  onNoteSave,
   onCopy,
   onOpenResource,
   onQuestionLink,
@@ -873,6 +879,7 @@ export function DiscussionsView({
                   onAnnotationChange={onAnnotationChange}
                   onCaptureEditorOpenChange={handleCaptureEditorOpenChange}
                   onCreateCapture={onCreateCapture}
+                  onNoteSave={onNoteSave}
                   onQuestionLink={onQuestionLink}
                   resource={selectedSource}
                   resourceById={resourceById}
@@ -911,6 +918,7 @@ export function DiscussionsView({
                 onAnnotationChange={onAnnotationChange}
                 onCaptureEditorOpenChange={handleCaptureEditorOpenChange}
                 onCreateCapture={onCreateCapture}
+                onNoteSave={onNoteSave}
                 onQuestionLink={onQuestionLink}
                 resource={selectedSource}
                 resourceById={resourceById}

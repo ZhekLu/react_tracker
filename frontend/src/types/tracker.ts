@@ -113,6 +113,7 @@ export type Annotation = {
   revision: number;
   body?: DocumentContent | null;
   anchor?: AnnotationAnchor | null;
+  notes: Note[];
   createdAt: string;
   updatedAt: string;
 };
@@ -287,7 +288,13 @@ export type Course = CourseSummary & {
 };
 
 export type EntityNoteSaveInput = {
-  entityType: "day" | "task" | "resource" | "exam_question" | "course";
+  entityType:
+    | "annotation"
+    | "day"
+    | "task"
+    | "resource"
+    | "exam_question"
+    | "course";
   entityId: string;
   kind: string;
   note?: Note;

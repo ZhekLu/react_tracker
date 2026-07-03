@@ -21,6 +21,7 @@ from tracker_api.repositories.workspace_repository import (
     update_annotation,
     update_discussion_message,
     update_resource_progress,
+    upsert_note,
 )
 from tracker_api.schemas.workspace import (
     AnnotationAnchorCreate,
@@ -31,6 +32,7 @@ from tracker_api.schemas.workspace import (
     DiscussionMessageCreateCommand,
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
+    NoteUpsertCommand,
     PromptBatchCreateCommand,
     ResourceProgressCommand,
 )
@@ -434,6 +436,37 @@ def test_discussion_message_body_can_be_edited_with_document_history(
         "revision_number": 2,
         "change_reason": "discussion_message_updated",
     }
+
+
+def test_annotation_can_have_a_separate_linked_note(tmp_path: Path) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        created = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="highlight",
+                markdown="Imported source text stays intact.",
+            ),
+        )
+        note = upsert_note(
+            connection,
+            NoteUpsertCommand(
+                course_id=course_id,
+                kind="annotation",
+                entity_type="annotation",
+                entity_id=created.id,
+                markdown="<p>My interpretation of this passage.</p>",
+                plain_text="My interpretation of this passage.",
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+
+    annotation = next(item for item in workspace.annotations if item.id == created.id)
+    assert annotation.body is not None
+    assert annotation.body.plain_text == "Imported source text stays intact."
+    assert [item.id for item in annotation.notes] == [note.id]
+    assert annotation.notes[0].document.plain_text == "My interpretation of this passage."
 
 
 def test_question_body_can_be_edited_with_document_revision(tmp_path: Path) -> None:

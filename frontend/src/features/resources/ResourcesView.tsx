@@ -300,6 +300,7 @@ function ResourceRow({
           onCopyQuestions={onCopyResourceQuestions}
           onCreateRequest={() => setCaptureEditorOpen(true)}
           onDiscuss={() => onOpenDiscussion(resource.id)}
+          onNoteSave={onNoteSave}
           onOpenChange={setCapturesOpen}
           open={capturesOpen}
           resource={resource}

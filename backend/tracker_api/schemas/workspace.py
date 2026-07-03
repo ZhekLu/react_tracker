@@ -74,6 +74,7 @@ class Annotation(StrictModel):
     revision: int
     body: DocumentContent | None = None
     anchor: AnnotationAnchor | None = None
+    notes: list[Note] = Field(default_factory=list)
     created_at: str
     updated_at: str
 

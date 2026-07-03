@@ -108,6 +108,7 @@ type ApiAnnotation = {
   revision: number;
   body?: ApiDocumentContent | null;
   anchor?: ApiAnnotationAnchor | null;
+  notes: ApiNote[];
   created_at: string;
   updated_at: string;
 };
@@ -548,6 +549,7 @@ function annotation(api: ApiAnnotation): Annotation {
     revision: api.revision,
     body: api.body ? documentContent(api.body) : null,
     anchor: api.anchor ? annotationAnchor(api.anchor) : null,
+    notes: api.notes.map(note),
     createdAt: api.created_at,
     updatedAt: api.updated_at,
   };

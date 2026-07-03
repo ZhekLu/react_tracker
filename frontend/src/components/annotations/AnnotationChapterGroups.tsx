@@ -1,4 +1,8 @@
-import type { Annotation, AnnotationStatus } from "../../types/tracker";
+import type {
+  Annotation,
+  AnnotationStatus,
+  EntityNoteSaveInput,
+} from "../../types/tracker";
 import { annotationChapter } from "./annotationDisplay";
 import { CompactAnnotationCard } from "./CompactAnnotationCard";
 
@@ -9,12 +13,14 @@ type AnnotationChapterGroupsProps = {
     changes: { status?: AnnotationStatus },
   ) => void;
   onDiscuss?: (annotation: Annotation) => void;
+  onNoteSave?: (input: EntityNoteSaveInput) => void;
 };
 
 export function AnnotationChapterGroups({
   annotations,
   onAnnotationChange,
   onDiscuss,
+  onNoteSave,
 }: AnnotationChapterGroupsProps) {
   const groups = [...annotations.reduce((items, annotation) => {
     const chapter = annotationChapter(annotation);
@@ -49,6 +55,7 @@ export function AnnotationChapterGroups({
                   key={`${annotation.id}:${annotation.revision}`}
                   onAnnotationChange={onAnnotationChange}
                   onDiscuss={onDiscuss}
+                  onNoteSave={onNoteSave}
                 />
               ))}
           </div>

@@ -262,6 +262,7 @@ function TaskRow({
           <TaskCapturePanel
             captures={captures}
             onAnnotationChange={onAnnotationChange}
+            onNoteSave={onNoteSave}
             onOpenDiscussion={(resourceId) =>
               onOpenDiscussion(resourceId, task.id)
             }
@@ -318,11 +319,13 @@ function TaskRow({
 function TaskCapturePanel({
   captures,
   onAnnotationChange,
+  onNoteSave,
   onOpenDiscussion,
   onOpenResource,
 }: {
   captures: Array<{ annotation: Annotation; resource: Resource }>;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
+  onNoteSave: RoadmapViewProps["onNoteSave"];
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: RoadmapViewProps["onOpenResource"];
 }) {
@@ -407,6 +410,7 @@ function TaskCapturePanel({
                 annotations={annotations}
                 onAnnotationChange={onAnnotationChange}
                 onDiscuss={() => onOpenDiscussion(resource.id)}
+                onNoteSave={onNoteSave}
               />
             </section>
           ))}
