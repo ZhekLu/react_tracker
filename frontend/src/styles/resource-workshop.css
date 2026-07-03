@@ -253,10 +253,50 @@
   place-items: center;
 }
 
-.annotationChapterGroup > div {
+.annotationChapterGroup > .annotationSubchapterList {
   padding: 0 6px 6px;
   display: grid;
+  gap: 7px;
+}
+
+.annotationSubchapterGroup {
+  min-width: 0;
+  display: grid;
   gap: 4px;
+}
+
+.annotationSubchapterSeparator {
+  min-width: 0;
+  padding: 2px 5px 1px;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 7px;
+  font-weight: 720;
+}
+
+.annotationSubchapterSeparator::after {
+  height: 1px;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+  content: "";
+  flex: 1;
+}
+
+.annotationSubchapterSeparator span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annotationSubchapterSeparator strong {
+  order: 2;
+  color: color-mix(in srgb, var(--faint) 75%, transparent);
+  font-size: 6px;
+}
+
+.annotationSubchapterSeparator::after {
+  order: 1;
 }
 
 .compactCaptureCard {
@@ -329,27 +369,12 @@
 }
 
 .compactCaptureMeta {
-  max-width: 145px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  overflow: hidden;
   color: var(--faint);
   font-size: 7px;
   white-space: nowrap;
-}
-
-.compactCaptureMeta strong {
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--capture-color) 12%, #fff);
-  color: color-mix(in srgb, var(--capture-color) 75%, var(--ink));
-  text-transform: uppercase;
-}
-
-.compactCaptureMeta span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .compactCaptureActions {
@@ -398,6 +423,13 @@
   margin: 4px 0;
 }
 
+.compactCaptureContext .compactCaptureSectionTitle {
+  margin: 2px 0 6px;
+  color: var(--faint);
+  font-size: 7px;
+  font-weight: 720;
+}
+
 .compactCaptureContext blockquote {
   padding: 5px 8px;
   border-left: 3px solid var(--capture-color);
@@ -413,6 +445,10 @@
   border-radius: 7px;
   background: #fff;
   object-fit: contain;
+}
+
+.compactCaptureContext .entityNoteEditor {
+  margin-top: 7px;
 }
 
 .annotationCard.exactCaptureColor {

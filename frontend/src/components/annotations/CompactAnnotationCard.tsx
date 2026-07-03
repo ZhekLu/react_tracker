@@ -40,7 +40,7 @@ export function CompactAnnotationCard({
   const [expanded, setExpanded] = useState(false);
   const color = annotation.anchor?.color || "none";
   const rgb = annotationRgbCss(annotation);
-  const subchapter = annotationSubchapter(annotation);
+  const sectionTitle = annotationSubchapter(annotation);
   const contextBefore = metadataText(annotation, "contextBefore");
   const contextAfter = metadataText(annotation, "contextAfter");
   const contextImageUrl = metadataText(annotation, "contextImageUrl");
@@ -60,7 +60,9 @@ export function CompactAnnotationCard({
       }
     >
       <span
-        aria-label={color === "none" ? "No capture colour" : `${color} capture`}
+        aria-label={`${annotation.kind}; ${
+          color === "none" ? "no capture colour" : `${color} capture`
+        }`}
         className="captureColorMark"
       />
       <button
@@ -70,11 +72,9 @@ export function CompactAnnotationCard({
         type="button"
       >
         <span className="compactCaptureMeta">
-          <strong>{annotation.kind}</strong>
           {annotation.anchor?.pageNumber ? (
             <span>p. {annotation.anchor.pageNumber}</span>
           ) : null}
-          {subchapter ? <span>{subchapter}</span> : null}
         </span>
         <MarkdownMath>{displayText}</MarkdownMath>
         {canExpand ? (
@@ -130,6 +130,9 @@ export function CompactAnnotationCard({
       </div>
       {expanded ? (
         <div className="compactCaptureContext">
+          {sectionTitle ? (
+            <p className="compactCaptureSectionTitle">{sectionTitle}</p>
+          ) : null}
           {contextImageUrl ? (
             <img
               alt={`Page ${annotation.anchor?.pageNumber ?? ""} around handwritten question`}

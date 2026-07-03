@@ -3,7 +3,10 @@ import type {
   AnnotationStatus,
   EntityNoteSaveInput,
 } from "../../types/tracker";
-import { annotationChapter } from "./annotationDisplay";
+import {
+  annotationChapter,
+  annotationSubchapter,
+} from "./annotationDisplay";
 import { CompactAnnotationCard } from "./CompactAnnotationCard";
 
 type AnnotationChapterGroupsProps = {
@@ -42,22 +45,40 @@ export function AnnotationChapterGroups({
             <span>{chapter}</span>
             <strong>{captures.length}</strong>
           </summary>
-          <div>
-            {captures
-              .sort(
-                (left, right) =>
-                  (left.anchor?.pageNumber ?? 0) -
-                  (right.anchor?.pageNumber ?? 0),
-              )
-              .map((annotation) => (
-                <CompactAnnotationCard
-                  annotation={annotation}
-                  key={`${annotation.id}:${annotation.revision}`}
-                  onAnnotationChange={onAnnotationChange}
-                  onDiscuss={onDiscuss}
-                  onNoteSave={onNoteSave}
-                />
-              ))}
+          <div className="annotationSubchapterList">
+            {[
+              ...captures
+                .sort(
+                  (left, right) =>
+                    (left.anchor?.pageNumber ?? 0) -
+                    (right.anchor?.pageNumber ?? 0),
+                )
+                .reduce((items, annotation) => {
+                  const subchapter =
+                    annotationSubchapter(annotation) || "General";
+                  const group = items.get(subchapter) ?? [];
+                  group.push(annotation);
+                  items.set(subchapter, group);
+                  return items;
+                }, new Map<string, Annotation[]>())
+                .entries(),
+            ].map(([subchapter, subchapterCaptures]) => (
+              <section className="annotationSubchapterGroup" key={subchapter}>
+                <div className="annotationSubchapterSeparator">
+                  <span>{subchapter}</span>
+                  <strong>{subchapterCaptures.length}</strong>
+                </div>
+                {subchapterCaptures.map((annotation) => (
+                  <CompactAnnotationCard
+                    annotation={annotation}
+                    key={`${annotation.id}:${annotation.revision}`}
+                    onAnnotationChange={onAnnotationChange}
+                    onDiscuss={onDiscuss}
+                    onNoteSave={onNoteSave}
+                  />
+                ))}
+              </section>
+            ))}
           </div>
         </details>
       ))}
