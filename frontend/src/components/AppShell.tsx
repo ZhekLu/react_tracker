@@ -1,14 +1,10 @@
 import {
   BookOpen,
   CalendarDays,
-  CheckCheck,
-  ClipboardCopy,
-  CircleHelp,
   FileQuestion,
   MessageSquareText,
   ScanSearch,
   StickyNote,
-  Timer,
 } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import {
@@ -27,6 +23,7 @@ import type {
 import { ProgressBar } from "./ProgressBar";
 import { ProgressRing } from "./ui/ProgressRing";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
+import { RoadmapHeaderActions } from "./RoadmapHeaderActions";
 
 type AppShellProps = {
   activeDayId: string;
@@ -34,6 +31,8 @@ type AppShellProps = {
   courses: CourseSummary[];
   view: TrackerView;
   onViewChange: (view: TrackerView) => void;
+  onBack: () => void;
+  onOpenDay: (dayId: string) => void;
   onCourseChange: (courseId: string) => void;
   onCopyDayPrompt: (day: StudyDay) => void;
   onCopyDayQuestions: (day: StudyDay) => void;
@@ -72,6 +71,8 @@ export function AppShell({
   onCopyDayQuestions,
   onDayClosedChange,
   onToggleToggl,
+  onBack,
+  onOpenDay,
   toggl,
   children,
 }: AppShellProps) {
@@ -126,82 +127,18 @@ export function AppShell({
             </div>
           </div>
           {view === "roadmap" && activeDay ? (
-            <div className="headerQuickActions">
-              <button
-                onClick={() => onCopyDayPrompt(activeDay)}
-                title="Copy the current day as a structured GPT prompt"
-                type="button"
-              >
-                <ClipboardCopy size={14} />
-                <span>Copy GPT</span>
-              </button>
-              <button
-                onClick={() => onCopyDayQuestions(activeDay)}
-                title="Copy only structured questions for the current day"
-                type="button"
-              >
-                <CircleHelp size={14} />
-                <span>Questions</span>
-              </button>
-              <button
-                onClick={() =>
-                  onDayClosedChange(
-                    activeDay,
-                    !["closed", "completed", "archived"].includes(
-                      activeDay.status,
-                    ),
-                  )
-                }
-                title={
-                  ["closed", "completed", "archived"].includes(activeDay.status)
-                    ? "Reopen current day"
-                    : "Close current day"
-                }
-                type="button"
-              >
-                <CheckCheck size={14} />
-                <span>
-                  {["closed", "completed", "archived"].includes(activeDay.status)
-                    ? "Reopen"
-                    : "Close"}
-                </span>
-              </button>
-              <button
-                className={
-                  toggl.running
-                    ? toggl.activeForDay
-                      ? "togglAction active"
-                      : "togglAction runningElsewhere"
-                    : "togglAction"
-                }
-                disabled={toggl.busy || !toggl.online || !toggl.configured}
-                onClick={onToggleToggl}
-                title={
-                  toggl.error ||
-                  (!toggl.online
-                    ? "Start make react-api to enable time tracking"
-                    : !toggl.configured
-                    ? "Configure toggl_config.json to enable time tracking"
-                    : toggl.running
-                    ? "Stop the current tracker timer"
-                    : "Start timing the current day")
-                }
-                type="button"
-              >
-                <Timer size={14} />
-                <span>
-                  {toggl.busy
-                    ? "Toggl…"
-                    : !toggl.online
-                    ? "Toggl off"
-                    : !toggl.configured
-                    ? "Toggl setup"
-                    : toggl.running
-                    ? "Stop Toggl"
-                    : "Start Toggl"}
-                </span>
-              </button>
-            </div>
+            <RoadmapHeaderActions
+              activeDay={activeDay}
+              course={course}
+              onBack={onBack}
+              onCopyDayPrompt={onCopyDayPrompt}
+              onCopyDayQuestions={onCopyDayQuestions}
+              onDayClosedChange={onDayClosedChange}
+              onOpenDay={onOpenDay}
+              onToggleToggl={onToggleToggl}
+              onViewChange={onViewChange}
+              toggl={toggl}
+            />
           ) : null}
           <div className="headerProgress">
             <div className="momentumBlock">

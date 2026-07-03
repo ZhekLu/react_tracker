@@ -159,6 +159,8 @@ export function App() {
     messageId: string;
   } | null>(null);
   const broadcastRef = useRef<BroadcastChannel | null>(null);
+  const navigationIntentRef = useRef<"push" | "replace">("replace");
+  const pendingHistoryScrollRef = useRef<number | null>(null);
 
   const activeCourseId = useMemo(
     () => courseId || courses[0]?.id || "",
@@ -270,8 +272,12 @@ export function App() {
   }, [actionMessage]);
 
   useEffect(() => {
-    function restoreNavigation() {
+    window.history.scrollRestoration = "manual";
+    function restoreNavigation(event: PopStateEvent) {
       const navigation = navigationFromUrl();
+      navigationIntentRef.current = "replace";
+      pendingHistoryScrollRef.current =
+        typeof event.state?.scrollY === "number" ? event.state.scrollY : 0;
       if (navigation.courseId) setCourseId(navigation.courseId);
       setView(navigation.view);
       setActiveDayId(navigation.dayId);
@@ -293,7 +299,24 @@ export function App() {
       if (focusedTaskId) params.set("task", focusedTaskId);
     }
     const nextUrl = `${window.location.pathname}?${params.toString()}`;
-    window.history.replaceState(null, "", nextUrl);
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+    if (currentUrl !== nextUrl) {
+      if (navigationIntentRef.current === "push") {
+        window.history.replaceState(
+          { ...(window.history.state ?? {}), scrollY: window.scrollY },
+          "",
+          currentUrl,
+        );
+        window.history.pushState({ scrollY: 0 }, "", nextUrl);
+      } else {
+        window.history.replaceState(
+          { ...(window.history.state ?? {}), scrollY: window.scrollY },
+          "",
+          nextUrl,
+        );
+      }
+    }
+    navigationIntentRef.current = "replace";
 
     document.title = `${workspace.shortCode || workspace.title} · ${
       view[0].toUpperCase() + view.slice(1)
@@ -310,6 +333,23 @@ export function App() {
       `<path d="M18 19h28v7H18zm0 12h28v7H18zm0 12h18v7H18z" fill="white"/>` +
       `</svg>`;
   }, [activeDayId, focusedResourceId, focusedTaskId, view, workspace]);
+
+  useEffect(() => {
+    if (!workspace || pendingHistoryScrollRef.current === null) return;
+    const scrollY = pendingHistoryScrollRef.current;
+    pendingHistoryScrollRef.current = null;
+    const navigation = navigationFromUrl();
+    window.requestAnimationFrame(() => {
+      if (navigation.view === "roadmap" && navigation.dayId) {
+        document.getElementById(navigation.dayId)?.scrollIntoView({
+          behavior: "auto",
+          block: "start",
+        });
+      } else {
+        window.scrollTo({ behavior: "auto", top: scrollY });
+      }
+    });
+  }, [activeDayId, view, workspace]);
 
   useEffect(() => {
     function handleKeyboardNavigation(event: KeyboardEvent) {
@@ -329,6 +369,7 @@ export function App() {
       ];
       if (event.altKey && /^[1-6]$/.test(event.key)) {
         event.preventDefault();
+        navigationIntentRef.current = "push";
         setView(viewShortcuts[Number(event.key) - 1]);
         resetWorkspaceScroll();
         return;
@@ -350,6 +391,7 @@ export function App() {
       ];
       if (nextDay) {
         event.preventDefault();
+        navigationIntentRef.current = "push";
         setActiveDayId(nextDay.id);
         window.setTimeout(() => {
           document.getElementById(nextDay.id)?.scrollIntoView({
@@ -390,6 +432,7 @@ export function App() {
   }
 
   function handleCourseChange(nextCourseId: string) {
+    navigationIntentRef.current = "push";
     setError(null);
     setActionMessage(null);
     setFocusedResourceId("");
@@ -401,6 +444,7 @@ export function App() {
   }
 
   function handleViewChange(nextView: TrackerView) {
+    navigationIntentRef.current = "push";
     setError(null);
     setActionMessage(null);
     setView(nextView);
@@ -408,6 +452,7 @@ export function App() {
   }
 
   function handleOpenDay(dayId: string) {
+    navigationIntentRef.current = "push";
     setView("roadmap");
     setActiveDayId(dayId);
     window.setTimeout(() => {
@@ -477,6 +522,7 @@ export function App() {
         title: payload.title,
       });
     });
+    navigationIntentRef.current = "push";
     setFocusedResourceId(payload.sourceResourceId ?? "");
     setFocusedTaskId(payload.sourceTaskId ?? "");
     setView("discussions");
@@ -579,12 +625,14 @@ export function App() {
   }
 
   function handleOpenDiscussion(resourceId: string, taskId?: string) {
+    navigationIntentRef.current = "push";
     setFocusedResourceId(resolveDiscussionResourceId(resourceId));
     setFocusedTaskId(taskId ?? "");
     setView("discussions");
   }
 
   function handleFocusDiscussionResource(resourceId: string) {
+    navigationIntentRef.current = "push";
     setFocusedResourceId(resourceId);
     setFocusedTaskId("");
   }
@@ -932,6 +980,7 @@ export function App() {
       });
       setFocusedResourceId(resourceId);
       setFocusedTaskId("");
+      navigationIntentRef.current = "push";
       setView("discussions");
       setActionMessage("Clipboard discussion imported.");
     } catch (caught) {
@@ -1074,6 +1123,7 @@ export function App() {
       activeDayId={activeDayId}
       course={workspace}
       courses={courses}
+      onBack={() => window.history.back()}
       onCourseChange={handleCourseChange}
       onCopyDayPrompt={(day) =>
         void handleCopyPrompt(dayPrompt(workspace, day), "Day prompt copied")
@@ -1085,6 +1135,7 @@ export function App() {
         )
       }
       onDayClosedChange={handleDayClosedChange}
+      onOpenDay={handleOpenDay}
       onToggleToggl={() => void toggl.toggle()}
       toggl={{
         activeForDay: toggl.activeForDay,

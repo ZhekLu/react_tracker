@@ -953,6 +953,61 @@
   text-align: center;
 }
 
+.roadmapHeaderActionGrid {
+  margin-left: auto;
+  display: grid;
+  grid-template-columns: repeat(5, 30px);
+  gap: 4px;
+}
+
+.roadmapHeaderActionGrid button {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
+.roadmapHeaderActionGrid button:hover,
+.roadmapHeaderActionGrid button.active {
+  border-color: color-mix(in srgb, var(--course-accent) 38%, var(--line));
+  background: #fff;
+  color: var(--course-accent);
+}
+
+.roadmapHeaderActionGrid .togglAction.active {
+  border-color: color-mix(in srgb, var(--green) 44%, var(--line));
+  background: var(--green-soft);
+  color: var(--green-deep);
+}
+
+.roadmapHeaderActionGrid .togglAction.runningElsewhere {
+  border-color: color-mix(in srgb, var(--blue) 38%, var(--line));
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+
+.roadmapHeaderActionGrid button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+@media (max-width: 760px) {
+  .roadmapHeaderActionGrid {
+    grid-template-columns: repeat(5, 28px);
+  }
+
+  .roadmapHeaderActionGrid button {
+    width: 28px;
+    height: 28px;
+  }
+}
+
 .discussionMarkdownSurface.isEditing {
   overflow: hidden;
   border: 1px solid var(--line);
