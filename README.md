@@ -238,6 +238,26 @@ Tiptap notes support editable inline and block formulas. Read-only Markdown
 surfaces use the same lazy KaTeX renderer so formula syntax remains consistent
 across notes, questions, plans, resource descriptions, and discussions.
 
+### Course file mentions
+
+Machine-local code roots are configured in `course_files.json`. Each key is a
+course short code and each value is a list of absolute paths or paths relative
+to that config file:
+
+```json
+{
+  "course_file_roots": {
+    "TORL": ["../../special_course/exercises"]
+  }
+}
+```
+
+Write `@day2_simulate_bandits.py` or a relative path such as
+`@discussions/day2_fixes.md` in a saved note. The rendered note shows a compact
+file chip; clicking it opens the current filesystem file in its macOS default
+application. The tracker indexes only the configured folders—it does not copy
+file contents into SQLite or track file versions.
+
 The target relational model, invariants, import identity rules, and phased
 migration order are documented in `../features/db_schema.md`.
 

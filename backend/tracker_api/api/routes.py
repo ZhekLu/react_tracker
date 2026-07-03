@@ -13,6 +13,10 @@ from ..repositories import workspace_repository
 from ..schemas.workspace import (
     AnnotationCommand,
     AnnotationCreateCommand,
+    CourseFileItem,
+    CourseFileOpenCommand,
+    CourseFileOpenResponse,
+    CourseFilesResponse,
     CourseListResponse,
     CourseWorkspace,
     DayStatusCommand,
@@ -35,6 +39,11 @@ from ..schemas.workspace import (
     TaskStatusCommand,
     TogglStartCommand,
     TogglStatusResponse,
+)
+from ..services.course_file_service import (
+    CourseFileError,
+    list_course_files,
+    open_course_file,
 )
 from ..services.pdf_annotation_service import (
     PdfAnnotationError,
@@ -92,6 +101,67 @@ def get_workspace(course_id: str, connection: Database) -> CourseWorkspace:
         return workspace_repository.get_workspace(connection, course_id)
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error
+
+
+@router.get(
+    "/courses/{course_id}/files",
+    response_model=CourseFilesResponse,
+)
+def get_course_files(
+    course_id: str,
+    connection: Database,
+) -> CourseFilesResponse:
+    try:
+        short_code = workspace_repository.course_short_code(
+            connection,
+            course_id,
+        )
+        return CourseFilesResponse(
+            files=[
+                CourseFileItem(
+                    id=item.id,
+                    name=item.name,
+                    relative_path=item.relative_path,
+                    root_name=item.root_name,
+                )
+                for item in list_course_files(short_code)
+            ]
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+    except CourseFileError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.post(
+    "/courses/{course_id}/files/open",
+    response_model=CourseFileOpenResponse,
+)
+def open_configured_course_file(
+    course_id: str,
+    command: CourseFileOpenCommand,
+    connection: Database,
+) -> CourseFileOpenResponse:
+    try:
+        short_code = workspace_repository.course_short_code(
+            connection,
+            course_id,
+        )
+        target, application = open_course_file(short_code, command.file_id)
+        return CourseFileOpenResponse(
+            target=str(target),
+            application=application,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+    except CourseFileError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
 
 
 @router.patch("/tasks/{task_id}/status", response_model=MutationResponse)

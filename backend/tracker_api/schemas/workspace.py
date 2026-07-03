@@ -248,6 +248,26 @@ class ResourceOpenResponse(StrictModel):
     application: str
 
 
+class CourseFileItem(StrictModel):
+    id: str
+    name: str
+    relative_path: str
+    root_name: str
+
+
+class CourseFilesResponse(StrictModel):
+    files: list[CourseFileItem]
+
+
+class CourseFileOpenCommand(StrictModel):
+    file_id: str
+
+
+class CourseFileOpenResponse(StrictModel):
+    target: str
+    application: str
+
+
 class ResourceContentResponse(StrictModel):
     resource_id: str
     version_id: str | None = None

@@ -68,6 +68,21 @@ class RevisionConflictError(WorkspaceRepositoryError):
     """Raised when the caller edits a stale revision."""
 
 
+def course_short_code(connection: Connection, course_id: str) -> str:
+    row = _one_or_none(
+        connection,
+        """
+        SELECT short_code
+        FROM courses
+        WHERE id = :id AND deleted_at IS NULL
+        """,
+        {"id": course_id},
+    )
+    if row is None:
+        raise EntityNotFoundError(f"Course does not exist: {course_id}")
+    return str(row["short_code"])
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 

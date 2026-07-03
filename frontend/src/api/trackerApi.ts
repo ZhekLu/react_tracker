@@ -431,6 +431,13 @@ export type ResourceContentResult = {
   sourcePath: string;
 };
 
+export type CourseFileItem = {
+  id: string;
+  name: string;
+  relativePath: string;
+  rootName: string;
+};
+
 class ApiError extends Error {
   status: number;
 
@@ -831,6 +838,38 @@ export async function fetchResourceContent(
     title: payload.title,
     versionId: payload.version_id,
   };
+}
+
+export async function fetchCourseFiles(
+  courseId: string,
+): Promise<CourseFileItem[]> {
+  const response = await requestJson<{
+    files: Array<{
+      id: string;
+      name: string;
+      relative_path: string;
+      root_name: string;
+    }>;
+  }>(`/courses/${courseId}/files`);
+  return response.files.map((file) => ({
+    id: file.id,
+    name: file.name,
+    relativePath: file.relative_path,
+    rootName: file.root_name,
+  }));
+}
+
+export async function openCourseFile(
+  courseId: string,
+  fileId: string,
+): Promise<{ application: string; target: string }> {
+  return requestJson<{ application: string; target: string }>(
+    `/courses/${courseId}/files/open`,
+    {
+      body: JSON.stringify({ file_id: fileId }),
+      method: "POST",
+    },
+  );
 }
 
 export async function updateResourceProgress(

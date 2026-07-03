@@ -11,6 +11,7 @@ import {
   discussionHighlightsMarkdown,
 } from "../../lib/discussionHighlights";
 import type { Attention, Note } from "../../types/tracker";
+import { FileMentionChips } from "./FileMentionChips";
 
 type EntityNoteEditorProps = {
   label?: string;
@@ -134,6 +135,10 @@ export function EntityNoteEditor({
                     ? discussionHighlightsMarkdown(savedContent)
                     : savedContent
                 }
+              />
+              <FileMentionChips
+                courseId={note?.courseId}
+                markdown={savedContent}
               />
               <div className="noteActions">
                 <button

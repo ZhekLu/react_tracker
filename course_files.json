@@ -1,0 +1,7 @@
+{
+  "course_file_roots": {
+    "TORL": [
+      "../../special_course/exercises"
+    ]
+  }
+}

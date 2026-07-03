@@ -282,6 +282,47 @@
   }
 }
 
+.fileMentionChips {
+  margin-top: 7px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.fileMentionChips button {
+  min-width: 0;
+  min-height: 25px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--blue) 24%, var(--line));
+  border-radius: 7px;
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 7px;
+  font-weight: 720;
+}
+
+.fileMentionChips button:hover {
+  border-color: color-mix(in srgb, var(--blue) 48%, var(--line));
+  background: #fff;
+}
+
+.fileMentionChips button.unresolved {
+  border-style: dashed;
+  background: var(--surface-soft);
+  color: var(--faint);
+}
+
+.fileMentionChips small {
+  flex-basis: 100%;
+  color: var(--red-deep, #9d4450);
+  font-size: 7px;
+}
+
 @media (max-width: 900px) {
   .sidebarCollapseButton {
     display: none;
