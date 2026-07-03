@@ -13,6 +13,7 @@ import {
   openResourceFile,
   updateAnnotation,
   updateDayStatus,
+  updateDiscussionAttention,
   updateDiscussionMessage,
   updateDiscussionStatus,
   updateExamQuestionStatus,
@@ -52,6 +53,7 @@ import {
 import type {
   Course,
   CourseSummary,
+  Attention,
   DayStatus,
   Discussion,
   DiscussionMessage,
@@ -59,6 +61,7 @@ import type {
   ExamQuestion,
   ExamStatus,
   DiscussionQuestionRelation,
+  Note,
   ResourceStatus,
   StudyDay,
   TaskStatus,
@@ -514,10 +517,31 @@ export function App() {
         noteRevision: note?.revision,
         documentRevision: note?.document.revision,
         kind: input.kind,
+        attention: note?.attention ?? "none",
         entityType: input.entityType,
         entityId: input.entityId,
         markdown,
         plainText: markdown,
+      });
+    });
+  }
+
+  function handleNoteAttentionChange(note: Note, attention: Attention) {
+    const link =
+      note.links.find((item) => item.relation === "primary") ?? note.links[0];
+    if (!workspace || !link) return;
+    void runMutation(async () => {
+      await upsertNote({
+        courseId: workspace.id,
+        noteId: note.id,
+        noteRevision: note.revision,
+        documentRevision: note.document.revision,
+        kind: note.kind,
+        attention,
+        entityType: link.entityType,
+        entityId: link.entityId,
+        markdown: note.document.markdown ?? note.document.plainText,
+        plainText: note.document.plainText,
       });
     });
   }
@@ -954,6 +978,19 @@ export function App() {
     });
   }
 
+  function handleDiscussionAttentionChange(
+    discussion: Discussion,
+    attention: Discussion["attention"],
+  ) {
+    void runMutation(async () => {
+      await updateDiscussionAttention(
+        discussion.id,
+        attention,
+        discussion.revision,
+      );
+    });
+  }
+
   function handleDeleteDiscussion(discussion: Discussion) {
     const fallbackResourceId = discussion.sourceResourceIds[0] ?? "";
     void (async () => {
@@ -1087,6 +1124,7 @@ export function App() {
           onDayNoteSave={handleDayNoteSave}
           onFlagQuestion={handleFlagQuestion}
           onNoteSave={handleNoteSave}
+          onNoteAttentionChange={handleNoteAttentionChange}
           onOpenDiscussion={handleOpenDiscussion}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
           onTaskStatusChange={handleTaskStatusChange}
@@ -1167,7 +1205,9 @@ export function App() {
             )
           }
           onAnnotationChange={handleAnnotationChange}
+          onDiscussionAttentionChange={handleDiscussionAttentionChange}
           onNoteSave={handleNoteSave}
+          onNoteAttentionChange={handleNoteAttentionChange}
           onOpenDiscussion={handleOpenDiscussion}
           onOpenDay={handleOpenDay}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
@@ -1185,6 +1225,7 @@ export function App() {
           onCreateDiscussion={handleCreateDiscussion}
           onDeleteDiscussion={handleDeleteDiscussion}
           onDiscussionStatusChange={handleDiscussionStatusChange}
+          onDiscussionAttentionChange={handleDiscussionAttentionChange}
           onExtractQuestions={handleExtractDiscussionQuestions}
           onQuestionLink={handleDiscussionQuestionLink}
           onAskMessageQuestion={handleAskDiscussionQuestion}

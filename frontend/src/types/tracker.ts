@@ -6,6 +6,7 @@ export type ResourceStatus = "unread" | "skimmed" | "reading" | "read" | "review
 export type ExamStatus = "unsolved" | "attempted" | "solved" | "review" | "skipped";
 export type AnnotationKind = "question" | "note" | "highlight" | "todo";
 export type AnnotationStatus = "open" | "answered" | "archived";
+export type Attention = "none" | "professor";
 export type DiscussionQuestionRelation =
   | "answers"
   | "partially_answers"
@@ -82,6 +83,7 @@ export type Note = {
   id: string;
   courseId: string;
   kind: string;
+  attention: Attention;
   status: "active" | "archived";
   revision: number;
   document: DocumentContent;
@@ -272,6 +274,7 @@ export type Discussion = {
   questionIds: string[];
   title: string;
   provider: string;
+  attention: Attention;
   status: "active" | "reviewed" | "archived";
   revision: number;
   messages: DiscussionMessage[];

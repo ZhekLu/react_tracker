@@ -25,6 +25,7 @@ from ..schemas.workspace import (
     DaySection,
     DayStatusCommand,
     Discussion,
+    DiscussionAttentionCommand,
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessage,
@@ -180,7 +181,9 @@ def _notes_by_entity(
     for row in _rows(
         connection,
         """
-        SELECT id, course_id, document_id, kind, status, created_at, updated_at, revision
+        SELECT
+          id, course_id, document_id, kind, attention, status,
+          created_at, updated_at, revision
         FROM notes
         WHERE course_id = :course_id AND deleted_at IS NULL
         ORDER BY created_at
@@ -195,6 +198,7 @@ def _notes_by_entity(
             id=str(row["id"]),
             course_id=str(row["course_id"]),
             kind=str(row["kind"]),
+            attention=cast(Any, row["attention"]),
             status=cast(Any, row["status"]),
             revision=int(row["revision"]),
             document=document,
@@ -1141,6 +1145,7 @@ def _discussions(
                 else f"Discussion: {row['title']}"
             ),
             provider=str(row["provider"]),
+            attention=cast(Any, row["attention"]),
             status=cast(Any, row["status"]),
             revision=int(row["revision"]),
             messages=messages_by_thread.get(str(row["id"]), []),
@@ -1150,7 +1155,8 @@ def _discussions(
             """
             SELECT
               dt.id, dt.resource_id, dt.initial_prompt_batch_id, r.title,
-              r.kind AS resource_kind, dt.provider, dt.status, dt.revision
+              r.kind AS resource_kind, dt.provider, dt.attention,
+              dt.status, dt.revision
             FROM discussion_threads dt
             JOIN resources r ON r.id = dt.resource_id
             WHERE dt.course_id = :course_id AND dt.deleted_at IS NULL
@@ -2288,10 +2294,13 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
             text(
                 """
                 INSERT INTO notes (
-                  id, course_id, document_id, kind, status, created_at, updated_at,
-                  deleted_at, revision
+                  id, course_id, document_id, kind, attention, status,
+                  created_at, updated_at, deleted_at, revision
                 )
-                VALUES (:id, :course_id, :document_id, :kind, 'active', :now, :now, NULL, 1)
+                VALUES (
+                  :id, :course_id, :document_id, :kind, :attention,
+                  'active', :now, :now, NULL, 1
+                )
                 """
             ),
             {
@@ -2299,6 +2308,7 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
                 "course_id": command.course_id,
                 "document_id": document_id,
                 "kind": command.kind,
+                "attention": command.attention,
                 "now": now,
             },
         )
@@ -2387,6 +2397,7 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
         """
         UPDATE notes
         SET kind = :kind,
+            attention = :attention,
             updated_at = :updated_at,
             revision = revision + 1
         WHERE id = :id AND revision = :revision AND deleted_at IS NULL
@@ -2396,6 +2407,7 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
             "id": command.note_id,
             "revision": command.note_revision,
             "kind": command.kind,
+            "attention": command.attention,
             "updated_at": now,
         },
     )
@@ -3110,6 +3122,21 @@ def update_discussion_status(
         revision=command.revision,
         assignments="status = :status",
         params={"status": command.status},
+    )
+
+
+def update_discussion_attention(
+    connection: Connection,
+    discussion_id: str,
+    command: DiscussionAttentionCommand,
+) -> MutationResponse:
+    return _update_with_revision(
+        connection,
+        table_name="discussion_threads",
+        entity_id=discussion_id,
+        revision=command.revision,
+        assignments="attention = :attention",
+        params={"attention": command.attention},
     )
 
 

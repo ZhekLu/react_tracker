@@ -69,6 +69,10 @@ type RoadmapViewProps = {
     initialText?: string,
   ) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
+  onNoteAttentionChange: (
+    note: NonNullable<Task["notes"][number]>,
+    attention: NonNullable<Task["notes"][number]>["attention"],
+  ) => void;
   onOpenDiscussion: (resourceId: string, taskId?: string) => void;
   onOpenResource: (resourceId: string) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
@@ -97,6 +101,7 @@ type TaskRowProps = {
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
   onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
   onNoteSave: (input: EntityNoteSaveInput) => void;
+  onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
   onStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
@@ -111,6 +116,7 @@ function TaskRow({
   onCollectPdfAnnotations,
   onFlagQuestion,
   onNoteSave,
+  onNoteAttentionChange,
   onOpenDiscussion,
   onOpenResource,
   onStatusChange,
@@ -273,6 +279,7 @@ function TaskRow({
           key={`${task.notes[0]?.id ?? task.id}:${task.notes[0]?.revision ?? 0}`}
           label="Task note"
           note={task.notes[0]}
+          onAttentionChange={onNoteAttentionChange}
           onSave={(html) =>
             onNoteSave({
               entityId: task.id,
@@ -469,6 +476,7 @@ type DayCardProps = {
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onEntityNoteSave: (input: EntityNoteSaveInput) => void;
+  onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
@@ -486,6 +494,7 @@ function DayCard({
   onCollectPdfAnnotations,
   onDayNoteSave,
   onEntityNoteSave,
+  onNoteAttentionChange,
   onFlagQuestion,
   onOpenDiscussion,
   onOpenResource,
@@ -575,6 +584,7 @@ function DayCard({
                 onFlagQuestion={onFlagQuestion}
                 onStatusChange={onTaskStatusChange}
                 onNoteSave={onEntityNoteSave}
+                onNoteAttentionChange={onNoteAttentionChange}
                 onOpenDiscussion={onOpenDiscussion}
                 onOpenResource={onOpenResource}
                 resourceById={resourceById}
@@ -678,6 +688,7 @@ export function RoadmapView({
   onDayNoteSave,
   onFlagQuestion,
   onNoteSave,
+  onNoteAttentionChange,
   onOpenDiscussion,
   onOpenResource,
   onTaskStatusChange,
@@ -744,6 +755,7 @@ export function RoadmapView({
           onClosedChange={onDayClosedChange}
           onDayNoteSave={onDayNoteSave}
           onEntityNoteSave={onNoteSave}
+          onNoteAttentionChange={onNoteAttentionChange}
           onFlagQuestion={onFlagQuestion}
           onOpenDiscussion={onOpenDiscussion}
           onOpenResource={onOpenResource}

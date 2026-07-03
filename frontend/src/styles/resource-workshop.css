@@ -860,6 +860,25 @@
   place-items: center;
 }
 
+.entityNoteEditor .noteAttentionToggle {
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  display: inline-grid;
+  place-items: center;
+}
+
+.entityNoteEditor .noteAttentionToggle:hover,
+.entityNoteEditor .noteAttentionToggle.active {
+  border-color: color-mix(in srgb, var(--purple, #7661c7) 32%, var(--line));
+  background: color-mix(in srgb, var(--purple, #7661c7) 10%, #fff);
+  color: var(--purple-deep, #5942aa);
+}
+
 .entityNoteEditor .noteHighlightToggle:hover,
 .entityNoteEditor .noteHighlightToggle.active {
   border-color: color-mix(in srgb, var(--amber) 32%, var(--line));
@@ -870,6 +889,68 @@
 .entityNoteEditor.highlightsOnly .entityNotePreview {
   max-height: 300px;
   background: color-mix(in srgb, var(--amber-soft) 24%, #fff);
+}
+
+.commandButton.professorAttention.active {
+  border-color: color-mix(in srgb, var(--purple, #7661c7) 38%, var(--line));
+  background: color-mix(in srgb, var(--purple, #7661c7) 11%, #fff);
+  color: var(--purple-deep, #5942aa);
+}
+
+.professorDiscussionCollection {
+  border-color: color-mix(in srgb, var(--purple, #7661c7) 24%, var(--line));
+  background: color-mix(in srgb, var(--purple, #7661c7) 4%, #fff);
+}
+
+.professorDiscussionCard {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.professorDiscussionCard > svg {
+  color: var(--purple-deep, #5942aa);
+}
+
+.professorDiscussionCard > button {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  text-align: left;
+}
+
+.professorDiscussionCard > button strong,
+.professorDiscussionCard > button span {
+  display: block;
+}
+
+.professorDiscussionCard > button strong {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.professorDiscussionCard > button span {
+  margin-top: 2px;
+  color: var(--faint);
+  font-size: 7px;
+}
+
+.professorDiscussionCard > button:last-child {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: center;
 }
 
 .discussionMarkdownSurface.isEditing {

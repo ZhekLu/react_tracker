@@ -16,6 +16,7 @@ from ..schemas.workspace import (
     CourseListResponse,
     CourseWorkspace,
     DayStatusCommand,
+    DiscussionAttentionCommand,
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
@@ -438,6 +439,25 @@ def update_discussion_status(
 ) -> MutationResponse:
     try:
         return workspace_repository.update_discussion_status(
+            connection,
+            discussion_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.patch(
+    "/discussions/{discussion_id}/attention",
+    response_model=MutationResponse,
+)
+def update_discussion_attention(
+    discussion_id: str,
+    command: DiscussionAttentionCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.update_discussion_attention(
             connection,
             discussion_id,
             command,

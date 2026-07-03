@@ -51,12 +51,20 @@ type NotesViewProps = {
   onCopyQuestions: () => void;
   onStartQuestionDiscussion: () => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
+  onNoteAttentionChange: (
+    note: Note,
+    attention: Note["attention"],
+  ) => void;
+  onDiscussionAttentionChange: (
+    discussion: Course["discussions"][number],
+    attention: Course["discussions"][number]["attention"],
+  ) => void;
   onOpenDiscussion: (resourceId: string) => void;
   onOpenDay: (dayId: string) => void;
   onOpenResource: (resourceId: string) => void;
 };
 
-type NotesFilter = "all" | "questions" | "later";
+type NotesFilter = "all" | "questions" | "professor" | "later";
 
 type NoteContext = {
   entityId: string;
@@ -285,6 +293,8 @@ export function NotesView({
   onCopyQuestions,
   onStartQuestionDiscussion,
   onNoteSave,
+  onNoteAttentionChange,
+  onDiscussionAttentionChange,
   onOpenDiscussion,
   onOpenDay,
   onOpenResource,
@@ -297,6 +307,9 @@ export function NotesView({
   const [questionStatusFilter, setQuestionStatusFilter] =
     useState<"open" | "all">("open");
   const meetingNote = course.notes.find((note) => note.kind === "meeting");
+  const professorDiscussions = course.discussions.filter(
+    (discussion) => discussion.attention === "professor",
+  );
 
   const dayById = useMemo(() => new Map(course.days.map((day) => [day.id, day])), [course.days]);
   const taskById = useMemo(
@@ -485,6 +498,9 @@ export function NotesView({
   );
   const filteredNotes = noteContexts.filter((item) => {
     if (filter === "later") return false;
+    if (filter === "professor" && item.note.attention !== "professor") {
+      return false;
+    }
     if (
       filter === "questions" &&
       !containsQuestionMarker(`${item.note.document.markdown ?? ""} ${item.note.document.plainText}`)
@@ -497,7 +513,7 @@ export function NotesView({
     );
   });
   const filteredAnnotations = course.annotations.filter((annotation) => {
-    if (filter === "later") return false;
+    if (filter === "later" || filter === "professor") return false;
     if (filter === "questions" && !["question", "todo"].includes(annotation.kind)) return false;
     if (annotation.status === "archived") return false;
     if (
@@ -581,7 +597,7 @@ export function NotesView({
       </header>
 
       <div className="filterBar" aria-label="Notes filters">
-        {(["questions", "all", "later"] as const).map((item) => (
+        {(["questions", "all", "professor", "later"] as const).map((item) => (
           <button
             className={filter === item ? "filterButton active" : "filterButton"}
             key={item}
@@ -592,7 +608,13 @@ export function NotesView({
               ? "All notes"
               : item === "questions"
                 ? `Questions · ${openQuestionCount}`
-                : "Do later"}
+                : item === "professor"
+                  ? `Professor · ${
+                      noteContexts.filter(
+                        ({ note }) => note.attention === "professor",
+                      ).length + professorDiscussions.length
+                    }`
+                  : "Do later"}
           </button>
         ))}
       </div>
@@ -707,6 +729,7 @@ export function NotesView({
           key={`${meetingNote?.id ?? course.id}:${meetingNote?.revision ?? 0}`}
           label="Meeting scratchpad"
           note={meetingNote}
+          onAttentionChange={onNoteAttentionChange}
           onSave={(html) =>
             onNoteSave({
               entityId: course.id,
@@ -720,10 +743,14 @@ export function NotesView({
         />
       </section> : null}
 
-      {filter === "all" ? (
+      {filter === "all" || filter === "professor" ? (
         <section className="noteCollection">
           <header className="collectionHeader">
-            <h2>Editable notes</h2>
+            <h2>
+              {filter === "professor"
+                ? "Discuss with professor"
+                : "Editable notes"}
+            </h2>
             <span>{filteredNotes.length}</span>
           </header>
           {filteredNotes.map((item) => (
@@ -751,6 +778,7 @@ export function NotesView({
                 key={`${item.note.id}:${item.note.revision}`}
                 label="Edit note"
                 note={item.note}
+                onAttentionChange={onNoteAttentionChange}
                 onSave={(html) =>
                   onNoteSave({
                     entityId: item.entityId,
@@ -765,6 +793,40 @@ export function NotesView({
             </article>
           ))}
           {!filteredNotes.length ? <div className="emptyInline">No editable notes in this view.</div> : null}
+        </section>
+      ) : null}
+
+      {filter === "professor" && professorDiscussions.length ? (
+        <section className="noteCollection professorDiscussionCollection">
+          <header className="collectionHeader">
+            <h2>Flagged discussions</h2>
+            <span>{professorDiscussions.length}</span>
+          </header>
+          {professorDiscussions.map((discussion) => (
+            <article className="professorDiscussionCard" key={discussion.id}>
+              <Sparkles size={16} />
+              <button
+                onClick={() => onOpenDiscussion(discussion.resourceId)}
+                type="button"
+              >
+                <strong>{discussion.title}</strong>
+                <span>
+                  {discussion.messages.length} message
+                  {discussion.messages.length === 1 ? "" : "s"}
+                </span>
+              </button>
+              <button
+                aria-label="Remove professor discussion flag"
+                onClick={() =>
+                  onDiscussionAttentionChange(discussion, "none")
+                }
+                title="Remove professor flag"
+                type="button"
+              >
+                ×
+              </button>
+            </article>
+          ))}
         </section>
       ) : null}
 
@@ -874,6 +936,7 @@ export function NotesView({
                 key={`${task.notes[0]?.id ?? task.id}:${task.notes[0]?.revision ?? 0}`}
                 label="Task note"
                 note={task.notes[0]}
+                onAttentionChange={onNoteAttentionChange}
                 onSave={(html) =>
                   onNoteSave({
                     entityId: task.id,

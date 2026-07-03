@@ -17,6 +17,7 @@ DiscussionQuestionRelation = Literal[
     "followup_to",
     "generated_from",
 ]
+Attention = Literal["none", "professor"]
 
 
 class StrictModel(BaseModel):
@@ -43,6 +44,7 @@ class Note(StrictModel):
     id: str
     course_id: str
     kind: str
+    attention: Attention
     status: Literal["active", "archived"]
     revision: int
     document: DocumentContent
@@ -234,6 +236,7 @@ class Discussion(StrictModel):
     question_ids: list[str] = Field(default_factory=list)
     title: str
     provider: str
+    attention: Attention
     status: Literal["active", "reviewed", "archived"]
     revision: int
     messages: list[DiscussionMessage]
@@ -398,6 +401,7 @@ class NoteUpsertCommand(StrictModel):
     note_revision: int | None = Field(default=None, ge=1)
     document_revision: int | None = Field(default=None, ge=1)
     kind: str
+    attention: Attention = "none"
     entity_type: str
     entity_id: str
     markdown: str = ""
@@ -444,6 +448,10 @@ class DiscussionQuestionLinkCommand(StrictModel):
 
 class DiscussionStatusCommand(RevisionCommand):
     status: Literal["active", "reviewed", "archived"]
+
+
+class DiscussionAttentionCommand(RevisionCommand):
+    attention: Attention
 
 
 class DiscussionDeleteCommand(RevisionCommand):

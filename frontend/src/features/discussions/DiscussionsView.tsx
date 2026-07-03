@@ -7,6 +7,7 @@ import {
   CircleHelp,
   ClipboardPaste,
   Copy,
+  GraduationCap,
   Highlighter,
   MessageSquarePlus,
   MessageSquareText,
@@ -81,6 +82,10 @@ type DiscussionsViewProps = {
   onDiscussionStatusChange: (
     discussion: Discussion,
     status: Discussion["status"],
+  ) => void;
+  onDiscussionAttentionChange: (
+    discussion: Discussion,
+    attention: Discussion["attention"],
   ) => void;
   onFocusResource: (resourceId: string) => void;
   onExtractQuestions: (
@@ -452,6 +457,7 @@ export function DiscussionsView({
   onCreateDiscussion,
   onDeleteDiscussion,
   onDiscussionStatusChange,
+  onDiscussionAttentionChange,
   onExtractQuestions,
   onFocusResource,
   onImportClipboard,
@@ -696,6 +702,32 @@ export function DiscussionsView({
                 ) : null}
                 {discussion ? (
                   <button
+                    className={
+                      discussion.attention === "professor"
+                        ? "commandButton professorAttention active"
+                        : "commandButton professorAttention subtle"
+                    }
+                    onClick={() =>
+                      onDiscussionAttentionChange(
+                        discussion,
+                        discussion.attention === "professor"
+                          ? "none"
+                          : "professor",
+                      )
+                    }
+                    title="Keep this thread in the professor discussion queue"
+                    type="button"
+                  >
+                    <GraduationCap size={14} />
+                    <span>
+                      {discussion.attention === "professor"
+                        ? "Professor ✓"
+                        : "Professor"}
+                    </span>
+                  </button>
+                ) : null}
+                {discussion ? (
+                  <button
                     className="commandButton subtle"
                     onClick={() =>
                       onDiscussionStatusChange(
@@ -917,8 +949,8 @@ export function DiscussionsView({
                   ) : null}
                   {highlightsOnly && !visibleMessages.length ? (
                     <div className="emptyInline discussionHighlightEmpty">
-                      No highlights yet. Edit a message and use Ctrl+H or
-                      Ctrl+Shift+H on selected text.
+                      No highlights yet. Edit a message and use ⌘H or
+                      ⌘⇧H on selected text.
                     </div>
                   ) : null}
                 </div>

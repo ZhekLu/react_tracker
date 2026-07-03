@@ -3,6 +3,7 @@ import type {
   AnnotationAnchor,
   AnnotationKind,
   AnnotationStatus,
+  Attention,
   Course,
   CourseStats,
   CourseSummary,
@@ -77,6 +78,7 @@ type ApiNote = {
   id: string;
   course_id: string;
   kind: string;
+  attention: Attention;
   status: "active" | "archived";
   revision: number;
   document: ApiDocumentContent;
@@ -264,6 +266,7 @@ type ApiDiscussion = {
   question_ids: string[];
   title: string;
   provider: string;
+  attention: Attention;
   status: "active" | "reviewed" | "archived";
   revision: number;
   messages: ApiDiscussionMessage[];
@@ -292,6 +295,7 @@ export type NoteUpsertInput = {
   noteRevision?: number | null;
   documentRevision?: number | null;
   kind: string;
+  attention?: Attention;
   entityType: string;
   entityId: string;
   markdown: string;
@@ -514,6 +518,7 @@ function note(api: ApiNote): Note {
     id: api.id,
     courseId: api.course_id,
     kind: api.kind,
+    attention: api.attention,
     status: api.status,
     revision: api.revision,
     document: documentContent(api.document),
@@ -724,6 +729,7 @@ function discussion(api: ApiDiscussion): Discussion {
     questionIds: api.question_ids,
     title: api.title,
     provider: api.provider,
+    attention: api.attention,
     status: api.status,
     revision: api.revision,
     messages: api.messages.map(discussionMessage),
@@ -1044,6 +1050,7 @@ export async function upsertNote(input: NoteUpsertInput): Promise<MutationRespon
       note_revision: input.noteRevision,
       document_revision: input.documentRevision,
       kind: input.kind,
+      attention: input.attention ?? "none",
       entity_type: input.entityType,
       entity_id: input.entityId,
       markdown: input.markdown,
@@ -1140,4 +1147,18 @@ export async function updateDiscussionStatus(
     body: JSON.stringify({ revision, status }),
     method: "PATCH",
   });
+}
+
+export async function updateDiscussionAttention(
+  discussionId: string,
+  attention: Discussion["attention"],
+  revision: number,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(
+    `/discussions/${discussionId}/attention`,
+    {
+      body: JSON.stringify({ attention, revision }),
+      method: "PATCH",
+    },
+  );
 }

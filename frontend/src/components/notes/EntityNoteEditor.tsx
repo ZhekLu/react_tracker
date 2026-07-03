@@ -1,17 +1,23 @@
 import { useState } from "react";
-import { FilePenLine, Highlighter, Pencil } from "lucide-react";
+import {
+  FilePenLine,
+  GraduationCap,
+  Highlighter,
+  Pencil,
+} from "lucide-react";
 import { DiscussionMarkdownSurface } from "../editor/DiscussionMarkdownSurface";
 import {
   discussionHighlights,
   discussionHighlightsMarkdown,
 } from "../../lib/discussionHighlights";
-import type { Note } from "../../types/tracker";
+import type { Attention, Note } from "../../types/tracker";
 
 type EntityNoteEditorProps = {
   label?: string;
   note?: Note;
   placeholder: string;
   onSave: (html: string) => void;
+  onAttentionChange?: (note: Note, attention: Attention) => void;
 };
 
 function noteContent(note?: Note): string {
@@ -28,6 +34,7 @@ export function EntityNoteEditor({
   label = "Notes",
   note,
   placeholder,
+  onAttentionChange,
   onSave,
 }: EntityNoteEditorProps) {
   const [open, setOpen] = useState(false);
@@ -58,6 +65,36 @@ export function EntityNoteEditor({
         <FilePenLine size={14} />
         <span>{label}</span>
         {savedContent.trim() ? <span className="notePresent">saved</span> : null}
+        {note && onAttentionChange ? (
+          <button
+            aria-label={
+              note.attention === "professor"
+                ? "Remove professor discussion flag"
+                : "Mark to discuss with professor"
+            }
+            className={
+              note.attention === "professor"
+                ? "noteAttentionToggle active"
+                : "noteAttentionToggle"
+            }
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onAttentionChange(
+                note,
+                note.attention === "professor" ? "none" : "professor",
+              );
+            }}
+            title={
+              note.attention === "professor"
+                ? "Marked for professor"
+                : "Discuss with professor"
+            }
+            type="button"
+          >
+            <GraduationCap size={12} />
+          </button>
+        ) : null}
         {highlights.length ? (
           <button
             aria-label={
