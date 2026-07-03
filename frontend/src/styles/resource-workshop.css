@@ -4,6 +4,150 @@
   color: var(--blue-deep);
 }
 
+.sidebarCollapseButton {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  margin-left: auto;
+  border: 1px solid var(--sidebar-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(255, 255, 255, 0.58);
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+}
+
+.sidebarCollapseButton:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+
+@media (min-width: 901px) {
+  .appShell,
+  .workspaceSidebar {
+    transition:
+      grid-template-columns 180ms ease,
+      padding 180ms ease;
+  }
+
+  .appShell:has(.workspaceSidebar.collapsed) {
+    grid-template-columns: 70px minmax(0, 1fr);
+  }
+
+  .workspaceSidebar.collapsed {
+    padding-inline: 8px;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .workspaceSidebar.collapsed .brandMark {
+    padding: 0;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .workspaceSidebar.collapsed .brandMark > div {
+    display: none;
+  }
+
+  .workspaceSidebar.collapsed .brandGlyph {
+    width: 38px;
+    height: 38px;
+  }
+
+  .workspaceSidebar.collapsed .sidebarCollapseButton {
+    width: 38px;
+    margin-left: 0;
+    order: -1;
+  }
+
+  .workspaceSidebar.collapsed .courseSelect {
+    width: 42px;
+    margin-inline: auto;
+  }
+
+  .workspaceSidebar.collapsed .courseSelect::after {
+    right: 16px;
+    content: "⌄";
+  }
+
+  .workspaceSidebar.collapsed .courseSelect select {
+    width: 42px;
+    padding: 0;
+    color: transparent;
+    font-size: 0;
+  }
+
+  .workspaceSidebar.collapsed .courseSelect option {
+    color: var(--ink);
+    font-size: 12px;
+  }
+
+  .workspaceSidebar.collapsed .workspaceNavButton {
+    width: 44px;
+    min-height: 42px;
+    padding: 0;
+    margin-inline: auto;
+    justify-content: center;
+  }
+
+  .workspaceSidebar.collapsed .workspaceNavButton span,
+  .workspaceSidebar.collapsed .sidebarMetrics,
+  .workspaceSidebar.collapsed .sidebarSectionLabel,
+  .workspaceSidebar.collapsed .sidebarDayCopy,
+  .workspaceSidebar.collapsed .sidebarDayProgress,
+  .workspaceSidebar.collapsed .sidebarViewHint > div,
+  .workspaceSidebar.collapsed .sidebarShortcutHint {
+    display: none;
+  }
+
+  .workspaceSidebar.collapsed .dayJumpActions {
+    width: 44px;
+    margin-inline: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .workspaceSidebar.collapsed .dayJumpActions button {
+    min-height: 38px;
+    padding: 0;
+  }
+
+  .workspaceSidebar.collapsed .dayJumpActions button span {
+    display: none;
+  }
+
+  .workspaceSidebar.collapsed .sidebarDayList {
+    gap: 4px;
+  }
+
+  .workspaceSidebar.collapsed .sidebarDayItem {
+    min-height: 40px;
+    padding: 4px;
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .workspaceSidebar.collapsed .sidebarDayNumber {
+    width: 31px;
+    height: 31px;
+  }
+
+  .workspaceSidebar.collapsed .sidebarViewHint {
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    margin-inline: auto;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 900px) {
+  .sidebarCollapseButton {
+    display: none;
+  }
+}
+
 .actionToast {
   max-width: min(440px, calc(100vw - 44px));
   display: flex;

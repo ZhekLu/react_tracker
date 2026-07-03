@@ -4,12 +4,14 @@ import {
   FileQuestion,
   Layers3,
   MessageSquareText,
+  PanelLeftClose,
+  PanelLeftOpen,
   ScanSearch,
   SkipForward,
   StickyNote,
   Target,
 } from "lucide-react";
-import type { ComponentType, CSSProperties } from "react";
+import { useState, type ComponentType, type CSSProperties } from "react";
 import {
   dayEstimatedMinutes,
   dayDisplayTopic,
@@ -63,6 +65,9 @@ export function WorkspaceSidebar({
   onCourseChange,
   onViewChange,
 }: WorkspaceSidebarProps) {
+  const [collapsed, setCollapsed] = useState(
+    () => window.localStorage.getItem("tracker.sidebar.collapsed") === "true",
+  );
   const libraryResources = course.resources.filter(
     (resource) => !["discussion", "exam_question"].includes(resource.kind),
   );
@@ -78,8 +83,20 @@ export function WorkspaceSidebar({
   const today = course.days.find((day) => day.date === localDateKey());
   const nextOpen = course.days.find((day) => !isDayClosed(day));
 
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem("tracker.sidebar.collapsed", String(next));
+      return next;
+    });
+  }
+
   return (
-    <aside className="workspaceSidebar">
+    <aside
+      className={
+        collapsed ? "workspaceSidebar collapsed" : "workspaceSidebar"
+      }
+    >
       <div className="brandMark">
         <span className="brandGlyph">
           <Layers3 size={20} />
@@ -88,9 +105,23 @@ export function WorkspaceSidebar({
           <strong>Study Tracker</strong>
           <span>Focus in motion</span>
         </div>
+        <button
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-pressed={collapsed}
+          className="sidebarCollapseButton"
+          onClick={toggleCollapsed}
+          title={collapsed ? "Expand navigation" : "Collapse navigation"}
+          type="button"
+        >
+          {collapsed ? (
+            <PanelLeftOpen size={16} />
+          ) : (
+            <PanelLeftClose size={16} />
+          )}
+        </button>
       </div>
 
-      <label className="courseSelect">
+      <label className="courseSelect" title={course.title}>
         <span className="srOnly">Course</span>
         <select onChange={(event) => onCourseChange(event.target.value)} value={course.id}>
           {courses.map((item) => (
