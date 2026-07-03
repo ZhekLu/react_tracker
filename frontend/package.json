@@ -18,6 +18,7 @@
     "@tiptap/extension-task-item": "latest",
     "@tiptap/extension-task-list": "latest",
     "@tiptap/extension-typography": "latest",
+    "@tiptap/markdown": "3.27.0",
     "@tiptap/react": "latest",
     "@tiptap/starter-kit": "latest",
     "katex": "^0.16.47",

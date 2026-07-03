@@ -7,6 +7,7 @@ import {
   CircleHelp,
   ClipboardPaste,
   Copy,
+  Highlighter,
   MessageSquarePlus,
   MessageSquareText,
   MessageCircleQuestion,
@@ -14,7 +15,6 @@ import {
   Pin,
   Plus,
   RotateCcw,
-  Save,
   Send,
   Sparkles,
   Timer,
@@ -29,6 +29,7 @@ import {
   type ResourceCaptureInput,
 } from "../../components/annotations/InlineCaptureEditor";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
+import { DiscussionMarkdownSurface } from "../../components/editor/DiscussionMarkdownSurface";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import type {
   Annotation,
@@ -47,6 +48,10 @@ import {
   matchAnswerSectionsToQuestions,
   normalizeDiscussionMarkdown,
 } from "../../lib/discussionText";
+import {
+  discussionHighlights,
+  discussionHighlightsMarkdown,
+} from "../../lib/discussionHighlights";
 
 type DiscussionsViewProps = {
   course: Course;
@@ -111,17 +116,27 @@ function questionText(annotation: Annotation): string {
 function DiscussionMessageContent({
   annotationById,
   message,
+  highlightsOnly,
   onQuestionLink,
   resourceById,
 }: {
   annotationById: Map<string, Annotation>;
   message: DiscussionMessage;
+  highlightsOnly: boolean;
   onQuestionLink: DiscussionsViewProps["onQuestionLink"];
   resourceById: Map<string, Resource>;
 }) {
   const markdown = normalizeDiscussionMarkdown(
     message.body.markdown || message.body.plainText,
   );
+  if (highlightsOnly) {
+    return (
+      <DiscussionMarkdownSurface
+        className="discussionMessageBody discussionHighlightsOnly"
+        markdown={discussionHighlightsMarkdown(markdown)}
+      />
+    );
+  }
   const linkedQuestions = message.annotationLinks
     .map((link) => annotationById.get(link.annotationId))
     .filter((item): item is Annotation =>
@@ -130,9 +145,10 @@ function DiscussionMessageContent({
   const parsed = discussionAnswerSections(markdown);
   if (message.role !== "assistant" || !parsed.sections.length) {
     return (
-      <MarkdownMath className="discussionMessageBody">
-        {markdown}
-      </MarkdownMath>
+      <DiscussionMarkdownSurface
+        className="discussionMessageBody"
+        markdown={markdown}
+      />
     );
   }
   const sectionMatches = new Map(
@@ -147,9 +163,10 @@ function DiscussionMessageContent({
   return (
     <div className="discussionStructuredAnswer">
       {parsed.preamble ? (
-        <MarkdownMath className="discussionMessageBody">
-          {parsed.preamble}
-        </MarkdownMath>
+        <DiscussionMarkdownSurface
+          className="discussionMessageBody"
+          markdown={parsed.preamble}
+        />
       ) : null}
       {parsed.sections.map((section) => {
         const questionId = sectionMatches.get(section.label);
@@ -225,9 +242,10 @@ function DiscussionMessageContent({
                 </footer>
               </aside>
             ) : null}
-            <MarkdownMath className="discussionMessageBody">
-              {section.markdown}
-            </MarkdownMath>
+            <DiscussionMarkdownSurface
+              className="discussionMessageBody"
+              markdown={section.markdown}
+            />
           </section>
         );
       })}
@@ -446,7 +464,8 @@ export function DiscussionsView({
   const [captureEditorResourceId, setCaptureEditorResourceId] = useState("");
   const [allCaptureResourceId, setAllCaptureResourceId] = useState("");
   const [editingMessageId, setEditingMessageId] = useState("");
-  const [messageDraft, setMessageDraft] = useState("");
+  const [highlightOnlyDiscussionId, setHighlightOnlyDiscussionId] =
+    useState("");
   const sourceResources = course.resources.filter(
     (resource) =>
       !["discussion", "exam_question"].includes(resource.kind),
@@ -539,6 +558,22 @@ export function DiscussionsView({
   const answeredCount = coverageQuestions.filter(
     (question) => question.status === "answered",
   ).length;
+  const highlightsOnly = highlightOnlyDiscussionId === discussion?.id;
+  const visibleMessages = (discussion?.messages ?? []).filter(
+    (message) =>
+      !highlightsOnly ||
+      discussionHighlights(
+        message.body.markdown || message.body.plainText,
+      ).length > 0,
+  );
+  const highlightCount = (discussion?.messages ?? []).reduce(
+    (count, message) =>
+      count +
+      discussionHighlights(
+        message.body.markdown || message.body.plainText,
+      ).length,
+    0,
+  );
 
   function handleCaptureEditorOpenChange(open: boolean) {
     setCaptureEditorResourceId(open ? selectedSourceId : "");
@@ -657,6 +692,28 @@ export function DiscussionsView({
                 ) : null}
                 {discussion ? (
                   <button
+                    className={
+                      highlightsOnly
+                        ? "commandButton discussionHighlightMode active"
+                        : "commandButton discussionHighlightMode subtle"
+                    }
+                    onClick={() =>
+                      setHighlightOnlyDiscussionId(
+                        highlightsOnly ? "" : discussion.id,
+                      )
+                    }
+                    type="button"
+                  >
+                    <Highlighter size={14} />
+                    <span>
+                      {highlightsOnly
+                        ? "Full dialogue"
+                        : `Highlights${highlightCount ? ` · ${highlightCount}` : ""}`}
+                    </span>
+                  </button>
+                ) : null}
+                {discussion ? (
+                  <button
                     className="commandButton dangerGhost"
                     onClick={() => setPendingDelete(discussion)}
                     type="button"
@@ -719,7 +776,7 @@ export function DiscussionsView({
             <div className="discussionContentGrid">
               <div>
                 <div className="messageStream">
-                  {discussion.messages.map((message) => (
+                  {visibleMessages.map((message) => (
                     <article
                       className={`discussionMessage role-${message.role}`}
                       key={message.id}
@@ -745,13 +802,9 @@ export function DiscussionsView({
                           onClick={() => {
                             if (editingMessageId === message.id) {
                               setEditingMessageId("");
-                              setMessageDraft("");
                               return;
                             }
                             setEditingMessageId(message.id);
-                            setMessageDraft(
-                              message.body.markdown || message.body.plainText,
-                            );
                           }}
                           title={
                             editingMessageId === message.id
@@ -765,53 +818,28 @@ export function DiscussionsView({
                           ) : (
                             <Pencil size={12} />
                           )}
+                          <span>
+                            {editingMessageId === message.id ? "Cancel" : "Edit"}
+                          </span>
                         </button>
                       </header>
                       {editingMessageId === message.id ? (
-                        <section className="discussionMessageEditor">
-                          <textarea
-                            aria-label={`Edit message ${message.sequenceNumber}`}
-                            onChange={(event) =>
-                              setMessageDraft(event.target.value)
-                            }
-                            rows={10}
-                            value={messageDraft}
-                          />
-                          {messageDraft.trim() ? (
-                            <MarkdownMath className="discussionMessageEditorPreview">
-                              {normalizeDiscussionMarkdown(messageDraft)}
-                            </MarkdownMath>
-                          ) : null}
-                          <footer>
-                            <button
-                              className="commandButton"
-                              disabled={!messageDraft.trim()}
-                              onClick={() => {
-                                onUpdateMessage(message, messageDraft);
-                                setEditingMessageId("");
-                                setMessageDraft("");
-                              }}
-                              type="button"
-                            >
-                              <Save size={13} />
-                              Save changes
-                            </button>
-                            <button
-                              className="commandButton"
-                              onClick={() => {
-                                setEditingMessageId("");
-                                setMessageDraft("");
-                              }}
-                              type="button"
-                            >
-                              <X size={13} />
-                              Cancel
-                            </button>
-                          </footer>
-                        </section>
+                        <DiscussionMarkdownSurface
+                          className="discussionMessageEditor"
+                          editable
+                          markdown={
+                            message.body.markdown || message.body.plainText
+                          }
+                          onCancel={() => setEditingMessageId("")}
+                          onSave={(updatedMarkdown) => {
+                            onUpdateMessage(message, updatedMarkdown);
+                            setEditingMessageId("");
+                          }}
+                        />
                       ) : (
                         <DiscussionMessageContent
                           annotationById={annotationById}
+                          highlightsOnly={highlightsOnly}
                           message={message}
                           onQuestionLink={onQuestionLink}
                           resourceById={resourceById}
@@ -860,6 +888,12 @@ export function DiscussionsView({
                   {!discussion.messages.length ? (
                     <div className="emptyInline">
                       The thread is ready for its first message.
+                    </div>
+                  ) : null}
+                  {highlightsOnly && !visibleMessages.length ? (
+                    <div className="emptyInline discussionHighlightEmpty">
+                      No highlights yet. Edit a message and use Ctrl+H or
+                      Ctrl+Shift+H on selected text.
                     </div>
                   ) : null}
                 </div>
