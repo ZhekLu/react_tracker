@@ -1,6 +1,34 @@
 import type { Discussion } from "../types/tracker";
 import { normalizeMathMarkdown } from "./mathMarkdown";
 
+type ProtectedMarkdown = {
+  value: string;
+  restore: (markdown: string) => string;
+};
+
+function protectFencedCode(value: string): ProtectedMarkdown {
+  const blocks: string[] = [];
+  const protectedValue = value.replace(
+    /(^|\n)(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\2(?=\n|$)/g,
+    (block) => {
+      const leadingNewline = block.startsWith("\n") ? "\n" : "";
+      const fencedBlock = leadingNewline ? block.slice(1) : block;
+      const token = `@@DISCUSSION_FENCED_CODE_${blocks.length}@@`;
+      blocks.push(fencedBlock);
+      return `${leadingNewline}${token}`;
+    },
+  );
+  return {
+    value: protectedValue,
+    restore: (markdown) =>
+      blocks.reduce(
+        (restored, block, index) =>
+          restored.replace(`@@DISCUSSION_FENCED_CODE_${index}@@`, block),
+        markdown,
+      ),
+  };
+}
+
 function sentenceCount(value: string): number {
   return (value.match(/[.!?](?=(?:["')\]}*])?(?:\s|$))/g) ?? []).length;
 }
@@ -8,9 +36,7 @@ function sentenceCount(value: string): number {
 function isStructuralMarkdownBlock(block: string): boolean {
   const firstLine = block.split("\n", 1)[0].trim();
   return (
-    /^(?:#{1,6}\s|```|~~~|>\s?|[-*_]{3,}\s*$|\$\$|\\\[|<[\w!/])/.test(
-      firstLine,
-    ) ||
+    /^(?:@@DISCUSSION_FENCED_CODE_\d+@@$|#{1,6}\s|```|~~~|>\s?|[-*_]{3,}\s*$|\$\$|\\\[|<[\w!/])/.test(firstLine) ||
     /^(?:[-+*]\s|\d+[.)]\s)/.test(firstLine) ||
     (block.includes("\n") &&
       block.split("\n").every((line) => /^\s*\|.*\|\s*$/.test(line)))
@@ -65,13 +91,14 @@ export function densifyDiscussionMarkdown(value: string): string {
 }
 
 export function normalizeDiscussionMarkdown(value: string): string {
-  const normalized = normalizeMathMarkdown(value)
+  const protectedMarkdown = protectFencedCode(value);
+  const normalized = normalizeMathMarkdown(protectedMarkdown.value)
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/^•\s+/gm, "- ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return densifyDiscussionMarkdown(normalized);
+  return protectedMarkdown.restore(densifyDiscussionMarkdown(normalized));
 }
 
 export type DiscussionAnswerSection = {
