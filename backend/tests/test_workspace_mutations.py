@@ -19,6 +19,7 @@ from tracker_api.repositories.workspace_repository import (
     link_discussion_question,
     resource_content_target,
     update_annotation,
+    update_discussion_message,
     update_resource_progress,
 )
 from tracker_api.schemas.workspace import (
@@ -28,6 +29,7 @@ from tracker_api.schemas.workspace import (
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
+    DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
     PromptBatchCreateCommand,
     ResourceProgressCommand,
@@ -377,6 +379,61 @@ def test_deleting_discussion_soft_deletes_thread_resource_and_messages(
     assert rows["thread_deleted_at"]
     assert rows["resource_deleted_at"]
     assert rows["message_deleted_at"]
+
+
+def test_discussion_message_body_can_be_edited_with_document_history(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+            ),
+        )
+        created = create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown="First tutor answer.",
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+        message = workspace.discussions[0].messages[-1]
+        updated = update_discussion_message(
+            connection,
+            created.id,
+            DiscussionMessageUpdateCommand(
+                revision=message.revision,
+                document_revision=message.body.revision,
+                markdown=r"Dense answer with $\pi(a\mid s)$.",
+                plain_text="Dense answer with pi.",
+            ),
+        )
+        after = get_workspace(connection, course_id)
+        revisions = connection.execute(
+            text(
+                """
+                SELECT revision_number, change_reason
+                FROM document_revisions
+                WHERE document_id = :document_id
+                ORDER BY revision_number
+                """
+            ),
+            {"document_id": message.body.id},
+        ).mappings().all()
+
+    edited = after.discussions[0].messages[-1]
+    assert updated.revision == message.revision + 1
+    assert edited.body.markdown == r"Dense answer with $\pi(a\mid s)$."
+    assert edited.body.plain_text == "Dense answer with pi."
+    assert revisions[-1] == {
+        "revision_number": 2,
+        "change_reason": "discussion_message_updated",
+    }
 
 
 def test_question_body_can_be_edited_with_document_revision(tmp_path: Path) -> None:

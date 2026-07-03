@@ -10,9 +10,11 @@ import {
   MessageSquarePlus,
   MessageSquareText,
   MessageCircleQuestion,
+  Pencil,
   Pin,
   Plus,
   RotateCcw,
+  Save,
   Send,
   Sparkles,
   Timer,
@@ -42,6 +44,7 @@ import {
   discussionAnswerSections,
   discussionFollowups,
   matchAnswerSectionsToQuestions,
+  normalizeDiscussionMarkdown,
 } from "../../lib/discussionText";
 
 type DiscussionsViewProps = {
@@ -49,6 +52,7 @@ type DiscussionsViewProps = {
   focusedResourceId: string;
   focusedTaskId: string;
   onAddMessage: (discussionId: string, input: DiscussionMessageInput) => void;
+  onUpdateMessage: (message: DiscussionMessage, markdown: string) => void;
   onAnnotationChange: (
     annotation: Annotation,
     changes: {
@@ -113,7 +117,9 @@ function DiscussionMessageContent({
   onQuestionLink: DiscussionsViewProps["onQuestionLink"];
   resourceById: Map<string, Resource>;
 }) {
-  const markdown = message.body.markdown || message.body.plainText;
+  const markdown = normalizeDiscussionMarkdown(
+    message.body.markdown || message.body.plainText,
+  );
   const linkedQuestions = message.annotationLinks
     .map((link) => annotationById.get(link.annotationId))
     .filter((item): item is Annotation =>
@@ -416,6 +422,7 @@ export function DiscussionsView({
   focusedResourceId,
   focusedTaskId,
   onAddMessage,
+  onUpdateMessage,
   onAnnotationChange,
   onAskMessageQuestion,
   onCreateCapture,
@@ -432,6 +439,8 @@ export function DiscussionsView({
   const [pendingDelete, setPendingDelete] = useState<Discussion | null>(null);
   const [captureEditorResourceId, setCaptureEditorResourceId] = useState("");
   const [allCaptureResourceId, setAllCaptureResourceId] = useState("");
+  const [editingMessageId, setEditingMessageId] = useState("");
+  const [messageDraft, setMessageDraft] = useState("");
   const sourceResources = course.resources.filter(
     (resource) =>
       !["discussion", "exam_question"].includes(resource.kind),
@@ -720,13 +729,88 @@ export function DiscussionsView({
                           #{message.sequenceNumber}
                           {message.importedFromClipboard ? " · pasted" : ""}
                         </span>
+                        <button
+                          aria-label={
+                            editingMessageId === message.id
+                              ? "Cancel editing message"
+                              : "Edit message"
+                          }
+                          className="messageEditButton"
+                          onClick={() => {
+                            if (editingMessageId === message.id) {
+                              setEditingMessageId("");
+                              setMessageDraft("");
+                              return;
+                            }
+                            setEditingMessageId(message.id);
+                            setMessageDraft(
+                              message.body.markdown || message.body.plainText,
+                            );
+                          }}
+                          title={
+                            editingMessageId === message.id
+                              ? "Cancel editing"
+                              : "Edit message"
+                          }
+                          type="button"
+                        >
+                          {editingMessageId === message.id ? (
+                            <X size={12} />
+                          ) : (
+                            <Pencil size={12} />
+                          )}
+                        </button>
                       </header>
-                      <DiscussionMessageContent
-                        annotationById={annotationById}
-                        message={message}
-                        onQuestionLink={onQuestionLink}
-                        resourceById={resourceById}
-                      />
+                      {editingMessageId === message.id ? (
+                        <section className="discussionMessageEditor">
+                          <textarea
+                            aria-label={`Edit message ${message.sequenceNumber}`}
+                            onChange={(event) =>
+                              setMessageDraft(event.target.value)
+                            }
+                            rows={10}
+                            value={messageDraft}
+                          />
+                          {messageDraft.trim() ? (
+                            <MarkdownMath className="discussionMessageEditorPreview">
+                              {normalizeDiscussionMarkdown(messageDraft)}
+                            </MarkdownMath>
+                          ) : null}
+                          <footer>
+                            <button
+                              className="commandButton"
+                              disabled={!messageDraft.trim()}
+                              onClick={() => {
+                                onUpdateMessage(message, messageDraft);
+                                setEditingMessageId("");
+                                setMessageDraft("");
+                              }}
+                              type="button"
+                            >
+                              <Save size={13} />
+                              Save changes
+                            </button>
+                            <button
+                              className="commandButton"
+                              onClick={() => {
+                                setEditingMessageId("");
+                                setMessageDraft("");
+                              }}
+                              type="button"
+                            >
+                              <X size={13} />
+                              Cancel
+                            </button>
+                          </footer>
+                        </section>
+                      ) : (
+                        <DiscussionMessageContent
+                          annotationById={annotationById}
+                          message={message}
+                          onQuestionLink={onQuestionLink}
+                          resourceById={resourceById}
+                        />
+                      )}
                       {message.annotationLinks.length ||
                       message.role === "assistant" ? (
                         <footer>

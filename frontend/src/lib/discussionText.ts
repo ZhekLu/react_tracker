@@ -1,13 +1,77 @@
 import type { Discussion } from "../types/tracker";
 import { normalizeMathMarkdown } from "./mathMarkdown";
 
+function sentenceCount(value: string): number {
+  return (value.match(/[.!?](?=(?:["')\]}*])?(?:\s|$))/g) ?? []).length;
+}
+
+function isStructuralMarkdownBlock(block: string): boolean {
+  const firstLine = block.split("\n", 1)[0].trim();
+  return (
+    /^(?:#{1,6}\s|```|~~~|>\s?|[-*_]{3,}\s*$|\$\$|\\\[|<[\w!/])/.test(
+      firstLine,
+    ) ||
+    /^(?:[-+*]\s|\d+[.)]\s)/.test(firstLine) ||
+    (block.includes("\n") &&
+      block.split("\n").every((line) => /^\s*\|.*\|\s*$/.test(line)))
+  );
+}
+
+function compactProseBlock(block: string): string {
+  return block
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function densifyDiscussionMarkdown(value: string): string {
+  const blocks = value
+    .replace(/\r\n?/g, "\n")
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const dense: { markdown: string; prose: boolean }[] = [];
+  let proseBuffer = "";
+
+  function flushProse() {
+    if (!proseBuffer) return;
+    dense.push({ markdown: proseBuffer, prose: true });
+    proseBuffer = "";
+  }
+
+  for (const block of blocks) {
+    if (isStructuralMarkdownBlock(block)) {
+      flushProse();
+      dense.push({ markdown: block, prose: false });
+      continue;
+    }
+    const prose = compactProseBlock(block);
+    proseBuffer = proseBuffer ? `${proseBuffer} ${prose}` : prose;
+    if (sentenceCount(proseBuffer) >= 2) flushProse();
+  }
+  flushProse();
+
+  if (
+    dense.length >= 2 &&
+    dense.at(-1)?.prose &&
+    sentenceCount(dense.at(-1)?.markdown ?? "") < 2 &&
+    dense.at(-2)?.prose
+  ) {
+    const trailing = dense.pop();
+    dense[dense.length - 1].markdown += ` ${trailing?.markdown ?? ""}`;
+  }
+  return dense.map((block) => block.markdown).join("\n\n");
+}
+
 export function normalizeDiscussionMarkdown(value: string): string {
-  return normalizeMathMarkdown(value)
+  const normalized = normalizeMathMarkdown(value)
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/^•\s+/gm, "- ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  return densifyDiscussionMarkdown(normalized);
 }
 
 export type DiscussionAnswerSection = {

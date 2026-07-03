@@ -312,6 +312,14 @@ export type DiscussionMessageInput = {
   }[];
 };
 
+export type DiscussionMessageUpdateInput = {
+  revision: number;
+  documentRevision: number;
+  markdown: string;
+  editorJson?: Record<string, unknown> | null;
+  plainText?: string;
+};
+
 export type DiscussionCreateInput = {
   courseId: string;
   sourceResourceId?: string;
@@ -1088,6 +1096,22 @@ export async function createDiscussionMessage(
       })),
     }),
     method: "POST",
+  });
+}
+
+export async function updateDiscussionMessage(
+  messageId: string,
+  input: DiscussionMessageUpdateInput,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/discussion-messages/${messageId}`, {
+    body: JSON.stringify({
+      revision: input.revision,
+      document_revision: input.documentRevision,
+      markdown: input.markdown,
+      editor_json: input.editorJson,
+      plain_text: input.plainText ?? input.markdown,
+    }),
+    method: "PATCH",
   });
 }
 

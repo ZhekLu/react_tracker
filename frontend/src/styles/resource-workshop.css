@@ -447,6 +447,98 @@
   background: color-mix(in srgb, var(--capture-color, var(--blue)) 7%, #fff);
 }
 
+.discussionContentGrid {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 12px;
+}
+
+.messageStream {
+  display: grid;
+}
+
+.discussionMessage {
+  width: 100%;
+  max-width: none;
+}
+
+.discussionMessageBody {
+  white-space: normal;
+}
+
+.discussionMessageBody p,
+.discussionMessageBody ul,
+.discussionMessageBody ol,
+.discussionMessageBody blockquote,
+.discussionMessageBody pre {
+  margin-block: 0.38em;
+}
+
+.messageEditButton {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  display: grid;
+  place-items: center;
+}
+
+.messageEditButton:hover {
+  border-color: var(--line);
+  background: #fff;
+  color: var(--ink-soft);
+}
+
+.discussionMessageEditor {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.discussionMessageEditor textarea {
+  width: 100%;
+  min-height: 180px;
+  padding: 10px 11px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  outline: none;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.48;
+}
+
+.discussionMessageEditor textarea:focus {
+  border-color: color-mix(in srgb, var(--course-accent) 55%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--course-accent) 10%, transparent);
+}
+
+.discussionMessageEditorPreview {
+  max-height: 380px;
+  padding: 9px 10px;
+  overflow: auto;
+  border: 1px dashed var(--line-strong);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.65);
+  font-size: 9px;
+}
+
+.discussionMessageEditor > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+@media (max-width: 980px) {
+  .discussionContentGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .resourceCaptureRail {
   padding-bottom: 4px;
   display: flex;

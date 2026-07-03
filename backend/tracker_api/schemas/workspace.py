@@ -430,6 +430,13 @@ class DiscussionMessageCreateCommand(StrictModel):
     )
 
 
+class DiscussionMessageUpdateCommand(RevisionCommand):
+    document_revision: int = Field(ge=1)
+    markdown: str = ""
+    editor_json: dict[str, Any] | None = None
+    plain_text: str = ""
+
+
 class DiscussionQuestionLinkCommand(StrictModel):
     relation: DiscussionQuestionRelation
 

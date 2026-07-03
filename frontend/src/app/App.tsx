@@ -13,6 +13,7 @@ import {
   openResourceFile,
   updateAnnotation,
   updateDayStatus,
+  updateDiscussionMessage,
   updateDiscussionStatus,
   updateExamQuestionStatus,
   updateResourceStatus,
@@ -862,6 +863,21 @@ export function App() {
     });
   }
 
+  function handleUpdateDiscussionMessage(
+    message: DiscussionMessage,
+    markdownInput: string,
+  ) {
+    const markdown = normalizeDiscussionMarkdown(markdownInput);
+    void runMutation(async () => {
+      await updateDiscussionMessage(message.id, {
+        revision: message.revision,
+        documentRevision: message.body.revision,
+        markdown,
+        plainText: markdown,
+      });
+    });
+  }
+
   async function handleImportDiscussionFromClipboard(resourceId: string) {
     setError(null);
     try {
@@ -1168,6 +1184,7 @@ export function App() {
           focusedResourceId={focusedResourceId}
           focusedTaskId={focusedTaskId}
           onAddMessage={handleAddDiscussionMessage}
+          onUpdateMessage={handleUpdateDiscussionMessage}
           onAnnotationChange={handleAnnotationChange}
           onCreateCapture={handleCreateResourceCapture}
           onCreateDiscussion={handleCreateDiscussion}

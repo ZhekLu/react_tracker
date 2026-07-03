@@ -19,6 +19,7 @@ from ..schemas.workspace import (
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
+    DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
     ExamStatusCommand,
@@ -386,6 +387,22 @@ def create_discussion_message(
         return workspace_repository.create_discussion_message(
             connection,
             discussion_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.patch("/discussion-messages/{message_id}", response_model=MutationResponse)
+def update_discussion_message(
+    message_id: str,
+    command: DiscussionMessageUpdateCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.update_discussion_message(
+            connection,
+            message_id,
             command,
         )
     except workspace_repository.WorkspaceRepositoryError as error:

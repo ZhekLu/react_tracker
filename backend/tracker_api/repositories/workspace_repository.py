@@ -31,6 +31,7 @@ from ..schemas.workspace import (
     DiscussionMessageAnnotation,
     DiscussionMessageAnnotationInput,
     DiscussionMessageCreateCommand,
+    DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
     DocumentContent,
@@ -2853,6 +2854,118 @@ def create_discussion_message(
             ),
             {"prompt_batch_id": thread["initial_prompt_batch_id"], "now": now},
         )
+    return _mutation_result(row)
+
+
+def update_discussion_message(
+    connection: Connection,
+    message_id: str,
+    command: DiscussionMessageUpdateCommand,
+) -> MutationResponse:
+    message = _one_or_none(
+        connection,
+        """
+        SELECT id, thread_id, body_document_id
+        FROM discussion_messages
+        WHERE id = :id AND revision = :revision AND deleted_at IS NULL
+        """,
+        {"id": message_id, "revision": command.revision},
+    )
+    if message is None:
+        exists = _one_or_none(
+            connection,
+            "SELECT id FROM discussion_messages WHERE id = :id AND deleted_at IS NULL",
+            {"id": message_id},
+        )
+        if exists is None:
+            raise EntityNotFoundError(f"Discussion message does not exist: {message_id}")
+        raise RevisionConflictError(f"Stale revision for discussion message: {message_id}")
+
+    now = _now()
+    markdown = command.markdown
+    plain_text = command.plain_text or markdown
+    content_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "markdown": markdown,
+                "editor_json": command.editor_json,
+                "plain_text": plain_text,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    canonical_format = "tiptap_json" if command.editor_json is not None else "markdown"
+    document_id = str(message["body_document_id"])
+    document_row = _one_or_none(
+        connection,
+        """
+        UPDATE documents
+        SET canonical_format = :canonical_format,
+            markdown = :markdown,
+            editor_json = :editor_json,
+            plain_text = :plain_text,
+            content_hash = :content_hash,
+            updated_at = :updated_at,
+            revision = revision + 1
+        WHERE id = :id AND revision = :revision AND deleted_at IS NULL
+        RETURNING revision
+        """,
+        {
+            "id": document_id,
+            "revision": command.document_revision,
+            "canonical_format": canonical_format,
+            "markdown": markdown,
+            "editor_json": _json_dumps(command.editor_json),
+            "plain_text": plain_text,
+            "content_hash": content_hash,
+            "updated_at": now,
+        },
+    )
+    if document_row is None:
+        raise RevisionConflictError(
+            f"Stale revision for discussion message document: {document_id}"
+        )
+    document_revision = int(document_row["revision"])
+    _insert_document_revision(
+        connection,
+        document_id=document_id,
+        revision=document_revision,
+        markdown=markdown,
+        editor_json=command.editor_json,
+        plain_text=plain_text,
+        content_hash=content_hash,
+        reason="discussion_message_updated",
+        timestamp=now,
+    )
+    row = _one_or_none(
+        connection,
+        """
+        UPDATE discussion_messages
+        SET updated_at = :updated_at,
+            revision = revision + 1
+        WHERE id = :id AND revision = :revision AND deleted_at IS NULL
+        RETURNING id, revision, updated_at
+        """,
+        {
+            "id": message_id,
+            "revision": command.revision,
+            "updated_at": now,
+        },
+    )
+    if row is None:
+        raise RevisionConflictError(f"Stale revision for discussion message: {message_id}")
+    connection.execute(
+        text(
+            """
+            UPDATE discussion_threads
+            SET updated_at = :updated_at,
+                revision = revision + 1
+            WHERE id = :thread_id AND deleted_at IS NULL
+            """
+        ),
+        {"thread_id": str(message["thread_id"]), "updated_at": now},
+    )
     return _mutation_result(row)
 
 
