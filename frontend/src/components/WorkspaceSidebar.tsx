@@ -8,6 +8,7 @@ import {
   PanelLeftOpen,
   ScanSearch,
   SkipForward,
+  Sparkles,
   StickyNote,
   Target,
 } from "lucide-react";
@@ -277,6 +278,14 @@ export function WorkspaceSidebar({
         <span>⌥1–6 views</span>
         <span>J/K days</span>
       </div>
+      <a
+        className="workspaceNavButton petLabLink"
+        href="/?petLab=1"
+        title="Open the pet animation laboratory"
+      >
+        <Sparkles size={17} />
+        <span>Pet animation lab</span>
+      </a>
     </aside>
   );
 }

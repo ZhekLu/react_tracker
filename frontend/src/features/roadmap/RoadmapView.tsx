@@ -32,12 +32,14 @@ import {
 import type { ComponentType } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { DayCompletionParade } from "../../components/rewards/DayCompletionParade";
+import { PetCelebration } from "../../components/rewards/PetCelebration";
 import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
+import { petCelebrationDuration } from "../../config/petCelebrations";
 import { statusTone } from "../../lib/progress";
 import type {
   Annotation,
@@ -157,7 +159,9 @@ function TaskRow({
 
   function toggleDone() {
     const nextStatus = task.status === "done" ? "todo" : "done";
-    if (nextStatus === "done") reward.celebrate();
+    if (nextStatus === "done") {
+      reward.celebrate(petCelebrationDuration("task"));
+    }
     onStatusChange(dayId, task.id, nextStatus);
   }
 
@@ -171,6 +175,7 @@ function TaskRow({
       data-status={task.status}
       data-task-id={task.id}
     >
+      <PetCelebration token={reward.token} variant="task" />
       <button
         className="taskStatus"
         aria-label={task.status === "done" ? "Mark task incomplete" : "Mark task complete"}
@@ -528,7 +533,7 @@ function DayCard({
 
   function toggleClosed() {
     const nextClosed = !isClosed;
-    if (nextClosed) reward.celebrate(1100);
+    if (nextClosed) reward.celebrate(petCelebrationDuration("day"));
     onClosedChange(day, nextClosed);
   }
 

@@ -271,6 +271,19 @@ normal note. `Cmd+Enter` saves and Escape cancels. Notes are stored as ordinary
 resource annotations with the slide number and the extracted slide heading, so
 they immediately appear in the task shelf, Notes, and discussions.
 
+### Pet completion animations
+
+Transparent animal GIFs live in `../gifs/`. Task and perfect-day effects are
+configured in `../pet_animations.json`; the task preset defaults to one small
+scampering pet, while a fully completed day uses a short multi-pet firework.
+Change the animation, number of copies, duration, or size without touching the
+Roadmap component.
+
+Open `/?petLab=1` (or use **Pet animation lab** at the bottom of the sidebar) to
+test every GIF with the `scamper`, `parade`, `orbit`, `bounce`, and `firework`
+motions. The lab has task/day presets, live size/copy/duration controls, a full
+GIF-by-motion matrix, and a copyable JSON preset.
+
 The target relational model, invariants, import identity rules, and phased
 migration order are documented in `../features/db_schema.md`.
 

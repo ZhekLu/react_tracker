@@ -1,0 +1,27 @@
+{
+  "enabled": true,
+  "respect_reduced_motion": true,
+  "assets": [
+    "ceiling_cat.gif",
+    "cute_cat.gif",
+    "dancing_gragon.gif",
+    "enjoying_dog.gif",
+    "fun_dog.gif",
+    "happy_happy.gif",
+    "hugging_cat.gif",
+    "jumping_dog.gif",
+    "sitting_dog.gif"
+  ],
+  "task": {
+    "animation": "scamper",
+    "copies": 1,
+    "duration_ms": 1700,
+    "size_px": 52
+  },
+  "day": {
+    "animation": "firework",
+    "copies": 12,
+    "duration_ms": 2400,
+    "size_px": 92
+  }
+}
