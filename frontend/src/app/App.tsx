@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   collectResourcePdfAnnotations,
   createAnnotation,
@@ -166,6 +173,7 @@ export function App() {
   const broadcastRef = useRef<BroadcastChannel | null>(null);
   const navigationIntentRef = useRef<"push" | "replace">("replace");
   const pendingHistoryScrollRef = useRef<number | null>(null);
+  const initialAnchorHandledRef = useRef(false);
 
   const activeCourseId = useMemo(
     () => courseId || courses[0]?.id || "",
@@ -285,6 +293,21 @@ export function App() {
       cancelled = true;
     };
   }, [activeCourseId]);
+
+  useLayoutEffect(() => {
+    if (
+      !workspace ||
+      initialAnchorHandledRef.current ||
+      initialNavigation.view !== "roadmap" ||
+      !initialNavigation.dayId
+    ) {
+      return;
+    }
+    const target = document.getElementById(initialNavigation.dayId);
+    if (!target) return;
+    initialAnchorHandledRef.current = true;
+    target.scrollIntoView({ behavior: "auto", block: "start" });
+  }, [initialNavigation.dayId, initialNavigation.view, workspace]);
 
   useEffect(() => {
     if (!actionMessage) return;
