@@ -53,6 +53,20 @@ function protectDisplayMath(value: string): ProtectedMarkdown {
   };
 }
 
+function normalizeHtmlSpaceEntities(value: string): string {
+  return value
+    .replace(/\u00a0/g, " ")
+    .replace(/&(?:amp;)*(?:nbsp|#0*160|#x0*a0);/gi, " ");
+}
+
+function repairOrphanInlineMath(value: string): string {
+  return value.replace(
+    /^([ \t]*)(?!\$)([^\n$]*\\{1,2}[A-Za-z]+[^\n$]*)\$(?!\$)[ \t]*$/gm,
+    (_line, indent: string, expression: string) =>
+      `${indent}$${expression.trim()}$`,
+  );
+}
+
 function sentenceCount(value: string): number {
   return (value.match(/[.!?](?=(?:["')\]}*])?(?:\s|$))/g) ?? []).length;
 }
@@ -116,7 +130,11 @@ export function densifyDiscussionMarkdown(value: string): string {
 
 export function normalizeDiscussionMarkdown(value: string): string {
   const protectedMarkdown = protectFencedCode(value);
-  const normalized = normalizeMathMarkdown(protectedMarkdown.value)
+  const normalized = normalizeMathMarkdown(
+    repairOrphanInlineMath(
+      normalizeHtmlSpaceEntities(protectedMarkdown.value),
+    ),
+  )
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/^•\s+/gm, "- ")
