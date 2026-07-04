@@ -913,6 +913,46 @@ def _sync_task(
     return False
 
 
+def _reserve_day_order_indices(
+    connection: Connection,
+    *,
+    day_id: str,
+    planned_section_max: int,
+    planned_task_max: int,
+) -> None:
+    """Move existing rows out of the order range used by a full replacement."""
+
+    for table_name, planned_max in (
+        ("day_sections", planned_section_max),
+        ("tasks", planned_task_max),
+    ):
+        existing_max = int(
+            connection.execute(
+                text(
+                    f"""
+                    SELECT COALESCE(MAX(ABS(order_index)), 0)
+                    FROM {table_name}
+                    WHERE day_id = :day_id
+                    """
+                ),
+                {"day_id": day_id},
+            ).scalar_one()
+        )
+        if existing_max == 0:
+            continue
+        offset = existing_max + max(0, planned_max) + 1_000
+        connection.execute(
+            text(
+                f"""
+                UPDATE {table_name}
+                SET order_index = order_index + :offset
+                WHERE day_id = :day_id
+                """
+            ),
+            {"day_id": day_id, "offset": offset},
+        )
+
+
 def _sync_days_and_tasks(
     connection: Connection,
     *,
@@ -956,6 +996,23 @@ def _sync_days_and_tasks(
             entity_id=day_id,
             timestamp=timestamp,
         )
+        if plan.mode == "full":
+            _reserve_day_order_indices(
+                connection,
+                day_id=day_id,
+                planned_section_max=max(
+                    (section.order_index for section in day.sections),
+                    default=0,
+                ),
+                planned_task_max=max(
+                    (
+                        section.order_index * 1_000 + task.order_index
+                        for section in day.sections
+                        for task in section.tasks
+                    ),
+                    default=0,
+                ),
+            )
         day_skill_keys = set(day.skill_keys)
         for section in day.sections:
             section_id = stable_id("section", course_id, day_id, section.key)

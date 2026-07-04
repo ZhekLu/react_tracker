@@ -53,6 +53,7 @@ make react-import-v2
 make react-sync-plans
 make react-plan-validate PLAN=/absolute/path/to/plan.md
 make react-plan-sync PLAN=/absolute/path/to/plan.md
+make react-plan-update PLAN=/absolute/path/to/revised_full_plan.md
 ```
 
 The importer expects a normalized v2 bundle. Raw tracker exports should first be
@@ -61,8 +62,11 @@ converted with `dump/convert_tracker_dump_to_v2.py`.
 `react-import-v2` is an optional one-time legacy-state migration.
 `react-sync-plans` is the compatibility workflow for the old generated tracker.
 New courses use native `study-plan/v1` Markdown and do not need a dump or
-`build_tracker.py`. Use `react-plan-patch PATCH=...` for a deliberately partial,
-stable-ID update. The full format is documented in
+`build_tracker.py`. For an existing live course, use `react-plan-update`: it
+validates, backs up SQLite, then transactionally applies the complete
+replacement. Stable IDs preserve progress and user content; omitted structure
+is soft-deleted. Use `react-plan-patch PATCH=...` for a deliberately partial,
+stable-ID update that must not remove omitted rows. The full format is documented in
 `../../features/study_plan_format.md`.
 
 Checks:

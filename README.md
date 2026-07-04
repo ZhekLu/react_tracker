@@ -124,23 +124,54 @@ make react-plan-validate PLAN=features/study_plan_v1_template.md
 make react-plan-sync PLAN=/absolute/path/to/my_course_plan.md
 ```
 
+### Updating or replanning an existing course
+
 For a revised complete plan that replaces the current structural definition,
-use the guarded update command:
+use `react-plan-update`, not the lower-level `react-plan-sync` command:
 
 ```sh
 make react-plan-update PLAN=/absolute/path/to/the_latest_plan.md
 ```
 
-It validates first, creates a consistent SQLite backup under
-`react_tracker/data/backups/`, and only then runs the full sync. Stable day,
-task, resource, and skill IDs update in place, preserving progress and
-user-created content. Review the file diff before running it because structure
-omitted from a full plan is soft-deleted.
+The safe workflow is:
+
+1. Keep `mode = "full"` and the existing plan `id` in the replacement file.
+2. Preserve every `{#stable-id}` whose progress or user content must survive.
+   For example, keeping the Day 1 and Day 2 IDs and their task IDs preserves
+   their completed states, notes, questions, discussions, and time entries.
+3. Give genuinely replacement days/tasks new IDs. Anything omitted from a full
+   plan is soft-deleted from the active course but remains recoverable in
+   SQLite.
+4. Validate without changing the database:
+
+   ```sh
+   make react-plan-validate PLAN=/absolute/path/to/the_latest_plan.md
+   ```
+
+5. Run the guarded update:
+
+   ```sh
+   make react-plan-update PLAN=/absolute/path/to/the_latest_plan.md
+   ```
+
+   This validates again, creates a consistent backup under
+   `react_tracker/data/backups/`, and runs the full sync in one database
+   transaction. A failed sync rolls back; the backup path is printed before
+   the sync starts.
+6. Inspect the active stable IDs and statuses:
+
+   ```sh
+   make react-plan-inspect COURSE=TORL
+   ```
+
+Use `react-plan-sync` primarily for the first load of a new course or when a
+separate backup is intentionally unnecessary. Use `react-plan-patch` only for a
+small partial edit that must not remove omitted structure.
 
 The current TORL plan is updated with:
 
 ```sh
-make react-plan-update PLAN=study_plans/special_course/trustworthy_offline_rl_thesis_first_sprint_2026_latest.md
+make react-plan-update PLAN=study_plans/special_course/trustworthy_offline_rl_thesis_first_sprint_2026_v2_replanned.md
 ```
 
 For a deliberately partial change, use `mode = "patch"` and:

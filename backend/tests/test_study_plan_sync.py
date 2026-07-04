@@ -136,6 +136,59 @@ def test_full_sync_soft_deletes_removed_task(tmp_path: Path) -> None:
     assert deleted_at is not None
 
 
+def test_full_sync_can_replace_section_and_task_ids_at_the_same_order(
+    tmp_path: Path,
+) -> None:
+    plan_path = tmp_path / "plan.md"
+    plan_path.write_text(_full_plan(), encoding="utf-8")
+    first = sync_study_plan(plan_path)
+
+    plan_path.write_text(
+        _full_plan()
+        .replace("#### Tasks", "#### Guided reading")
+        .replace("#read-book", "#read-replanned")
+        .replace("#write-summary", "#summary-replanned"),
+        encoding="utf-8",
+    )
+    second = sync_study_plan(plan_path)
+
+    assert second.course_id == first.course_id
+    with transaction() as connection:
+        active_sections = connection.execute(
+            text(
+                """
+                SELECT s.title, s.order_index
+                FROM day_sections s
+                JOIN study_days d ON d.id = s.day_id
+                WHERE d.course_id = :course_id
+                  AND s.deleted_at IS NULL
+                ORDER BY s.order_index
+                """
+            ),
+            {"course_id": first.course_id},
+        ).mappings().all()
+        active_tasks = connection.execute(
+            text(
+                """
+                SELECT t.title, t.order_index
+                FROM tasks t
+                WHERE t.day_id IN (
+                  SELECT id FROM study_days WHERE course_id = :course_id
+                )
+                  AND t.deleted_at IS NULL
+                ORDER BY t.order_index
+                """
+            ),
+            {"course_id": first.course_id},
+        ).mappings().all()
+
+    assert active_sections[0] == {
+        "title": "Guided reading",
+        "order_index": 1,
+    }
+    assert [row["order_index"] for row in active_tasks] == [1_001, 1_002, 2_001]
+
+
 def test_patch_updates_only_named_task_and_can_set_status(tmp_path: Path) -> None:
     full_path = tmp_path / "plan.md"
     full_path.write_text(_full_plan(), encoding="utf-8")
