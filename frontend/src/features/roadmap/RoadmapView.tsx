@@ -1,4 +1,12 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Archive,
   BookOpen,
@@ -55,6 +63,7 @@ import {
 } from "./dayPresentation";
 
 type RoadmapViewProps = {
+  activeDayId: string;
   course: Course;
   onActiveDayChange: (dayId: string) => void;
   onAnnotationChange: (
@@ -160,6 +169,7 @@ function TaskRow({
     <article
       className={`taskRow tone-${statusTone(task.status)} ${task.openQuestionCount ? "hasQuestions" : ""}`}
       data-status={task.status}
+      data-task-id={task.id}
     >
       <button
         className="taskStatus"
@@ -685,6 +695,7 @@ function DayNotes({
 }
 
 export function RoadmapView({
+  activeDayId,
   course,
   onActiveDayChange,
   onAnnotationChange,
@@ -698,6 +709,7 @@ export function RoadmapView({
   onOpenResource,
   onTaskStatusChange,
 }: RoadmapViewProps) {
+  const initialCourseAnchorRef = useRef("");
   const resourceById = useMemo(
     () => new Map(course.resources.map((resource) => [resource.id, resource])),
     [course.resources],
@@ -715,6 +727,14 @@ export function RoadmapView({
       ),
     [course.exams],
   );
+
+  useLayoutEffect(() => {
+    if (!activeDayId || initialCourseAnchorRef.current === course.id) return;
+    const target = document.getElementById(activeDayId);
+    if (!target) return;
+    initialCourseAnchorRef.current = course.id;
+    target.scrollIntoView({ behavior: "auto", block: "start" });
+  }, [activeDayId, course.id]);
 
   useEffect(() => {
     const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-day-id]"));
@@ -738,10 +758,16 @@ export function RoadmapView({
     }
 
     updateActiveDay();
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(updateActiveDay);
+    cards.forEach((card) => resizeObserver?.observe(card));
     window.addEventListener("scroll", updateActiveDay, { passive: true });
     window.addEventListener("resize", updateActiveDay);
     return () => {
       cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
       window.removeEventListener("scroll", updateActiveDay);
       window.removeEventListener("resize", updateActiveDay);
     };
