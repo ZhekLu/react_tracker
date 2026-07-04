@@ -12,6 +12,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@tiptap/extension-code-block-lowlight": "^3.27.0",
     "@tiptap/extension-highlight": "latest",
     "@tiptap/extension-mathematics": "^3.27.0",
     "@tiptap/extension-placeholder": "latest",
@@ -22,6 +23,7 @@
     "@tiptap/react": "latest",
     "@tiptap/starter-kit": "latest",
     "katex": "^0.16.47",
+    "lowlight": "^3.3.0",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",

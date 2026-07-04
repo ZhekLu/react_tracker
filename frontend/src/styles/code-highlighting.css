@@ -1,0 +1,53 @@
+.discussionRichSurface pre code {
+  color: #e4eee9;
+}
+
+.discussionRichSurface pre code .hljs-comment,
+.discussionRichSurface pre code .hljs-quote {
+  color: #84958d;
+  font-style: italic;
+}
+
+.discussionRichSurface pre code .hljs-keyword,
+.discussionRichSurface pre code .hljs-selector-tag,
+.discussionRichSurface pre code .hljs-literal,
+.discussionRichSurface pre code .hljs-section,
+.discussionRichSurface pre code .hljs-link {
+  color: #ff8fa3;
+}
+
+.discussionRichSurface pre code .hljs-function,
+.discussionRichSurface pre code .hljs-title,
+.discussionRichSurface pre code .hljs-title.function_ {
+  color: #8fd9c7;
+}
+
+.discussionRichSurface pre code .hljs-string,
+.discussionRichSurface pre code .hljs-regexp,
+.discussionRichSurface pre code .hljs-addition,
+.discussionRichSurface pre code .hljs-attribute {
+  color: #f4d58d;
+}
+
+.discussionRichSurface pre code .hljs-number,
+.discussionRichSurface pre code .hljs-symbol,
+.discussionRichSurface pre code .hljs-bullet,
+.discussionRichSurface pre code .hljs-variable,
+.discussionRichSurface pre code .hljs-template-variable {
+  color: #a9c7ff;
+}
+
+.discussionRichSurface pre code .hljs-built_in,
+.discussionRichSurface pre code .hljs-type,
+.discussionRichSurface pre code .hljs-class .hljs-title {
+  color: #c7a9ff;
+}
+
+.discussionRichSurface pre code .hljs-meta,
+.discussionRichSurface pre code .hljs-doctag {
+  color: #7dd3fc;
+}
+
+.discussionRichSurface pre code .hljs-deletion {
+  color: #ff7a90;
+}

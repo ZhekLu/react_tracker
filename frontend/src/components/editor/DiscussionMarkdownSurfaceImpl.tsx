@@ -6,6 +6,7 @@ import {
   SECONDARY_DISCUSSION_HIGHLIGHT,
   discussionEditorExtensions,
 } from "./discussionEditorExtensions";
+import { normalizeDiscussionMarkdown } from "../../lib/discussionText";
 import type { DiscussionMarkdownSurfaceProps } from "./DiscussionMarkdownSurface";
 
 type FormulaDraft = {
@@ -64,7 +65,7 @@ export function DiscussionMarkdownSurfaceImpl({
   const activeEditor = editor;
 
   function save() {
-    onSave?.(activeEditor.getMarkdown());
+    onSave?.(normalizeDiscussionMarkdown(activeEditor.getMarkdown()));
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
@@ -121,7 +122,7 @@ export function DiscussionMarkdownSurfaceImpl({
       return;
     }
     event.preventDefault();
-    activeEditor.commands.insertContent(plainText, {
+    activeEditor.commands.insertContent(normalizeDiscussionMarkdown(plainText), {
       contentType: "markdown",
     });
   }

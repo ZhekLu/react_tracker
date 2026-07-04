@@ -1,4 +1,5 @@
 import Highlight from "@tiptap/extension-highlight";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { Mathematics } from "@tiptap/extension-mathematics";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
@@ -6,6 +7,7 @@ import TaskList from "@tiptap/extension-task-list";
 import Typography from "@tiptap/extension-typography";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
+import { common, createLowlight } from "lowlight";
 import type {
   MarkdownParseHelpers,
   MarkdownRendererHelpers,
@@ -15,6 +17,7 @@ import type {
 
 export const PRIMARY_DISCUSSION_HIGHLIGHT = "#fff0a8";
 export const SECONDARY_DISCUSSION_HIGHLIGHT = "#cfe8ff";
+const lowlight = createLowlight(common);
 
 function highlightStart(source: string): number {
   const starts = [source.indexOf("=="), source.indexOf("^^")].filter(
@@ -83,7 +86,14 @@ export function discussionEditorExtensions(
 ) {
   return [
     StarterKit.configure({
+      codeBlock: false,
       heading: { levels: [1, 2, 3, 4] },
+    }),
+    CodeBlockLowlight.configure({
+      defaultLanguage: "plaintext",
+      enableTabIndentation: true,
+      lowlight,
+      tabSize: 4,
     }),
     DiscussionHighlight.configure({ multicolor: true }),
     Placeholder.configure({ placeholder }),
