@@ -1,4 +1,5 @@
 import { EditorContent, useEditor } from "@tiptap/react";
+import { migrateMathStrings } from "@tiptap/extension-mathematics";
 import { Save, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -49,6 +50,9 @@ export function DiscussionMarkdownSurfaceImpl({
         },
       },
       immediatelyRender: false,
+      onCreate: ({ editor: activeEditor }) => {
+        migrateMathStrings(activeEditor);
+      },
     },
     [editable, placeholder],
   );
@@ -59,6 +63,7 @@ export function DiscussionMarkdownSurfaceImpl({
       contentType,
       emitUpdate: false,
     });
+    migrateMathStrings(editor);
   }, [contentType, editor, markdown]);
 
   if (!editor) return null;

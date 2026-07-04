@@ -1,6 +1,7 @@
 function normalizeLatexBody(value: string): string {
   return value
     .replace(/\\\\(?=[A-Za-z])/g, "\\")
+    .replace(/\^\\?\*/g, "^{\\ast}")
     .replace(/\\([_*])/g, "$1")
     .replace(/^[ \t]*={3,}[ \t]*$/gm, "=")
     .replace(/^[ \t]*-{3,}[ \t]*$/gm, "-")
@@ -21,6 +22,11 @@ export function normalizeMathMarkdown(value: string): string {
   const normalized = value
     .replace(/\r\n?/g, "\n")
     .replace(
+      /^([ \t]+)\[[ \t]*\n([\s\S]*?)\n\1\][ \t]*$/gm,
+      (_block, indent: string, body: string) =>
+        `${indent}$${normalizeLatexBody(body)}$`,
+    )
+    .replace(
       /\((\\{1,2}[A-Za-z]+[^()\n]{0,160})\)/g,
       (_match, expression: string) =>
         `$${normalizeLatexBody(expression)}$`,
@@ -37,7 +43,7 @@ export function normalizeMathMarkdown(value: string): string {
     /\$\$([\s\S]*?)\$\$/g,
     (_block, body: string) => {
       const token = `@@NORMALIZED_DISPLAY_MATH_${displayBlocks.length}@@`;
-      displayBlocks.push(`$$\n${normalizeLatexBody(body)}\n$$`);
+      displayBlocks.push(`$$${normalizeLatexBody(body)}$$`);
       return token;
     },
   );
