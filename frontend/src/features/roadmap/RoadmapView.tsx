@@ -15,21 +15,22 @@ import {
   CheckCheck,
   ChevronDown,
   Circle,
-  CircleDashed,
   CircleHelp,
   Clock3,
   FileScan,
   FileQuestion,
   Flag,
+  FolderOpen,
   Highlighter,
   Info,
+  Link2,
   MessageCircleQuestion,
   MessageSquareText,
   NotebookPen,
   RotateCcw,
   Timer,
+  X,
 } from "lucide-react";
-import type { ComponentType } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { DayCompletionParade } from "../../components/rewards/DayCompletionParade";
 import { PetCelebration } from "../../components/rewards/PetCelebration";
@@ -37,7 +38,6 @@ import { AnnotationChapterGroups } from "../../components/annotations/Annotation
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
-import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import { petCelebrationDuration } from "../../config/petCelebrations";
 import { statusTone } from "../../lib/progress";
@@ -90,14 +90,6 @@ type RoadmapViewProps = {
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
 };
 
-const statusIcon: Record<TaskStatus, ComponentType<{ size?: number }>> = {
-  done: CheckCircle2,
-  in_progress: CircleDashed,
-  later: Clock3,
-  skipped: Circle,
-  todo: Circle,
-};
-
 const RichNoteEditor = lazy(() =>
   import("../../components/editor/RichNoteEditor").then((module) => ({
     default: module.RichNoteEditor,
@@ -134,7 +126,7 @@ function TaskRow({
   onStatusChange,
 }: TaskRowProps) {
   const reward = useCompletionReward();
-  const Icon = statusIcon[task.status];
+  const completed = task.status === "done";
   const linkedResources = task.resourceIds
     .map((resourceId) => resourceById.get(resourceId))
     .filter((resource): resource is Resource => Boolean(resource));
@@ -169,9 +161,13 @@ function TaskRow({
     onStatusChange(dayId, task.id, task.status === "later" ? "todo" : "later");
   }
 
+  function toggleSkipped() {
+    onStatusChange(dayId, task.id, task.status === "skipped" ? "todo" : "skipped");
+  }
+
   return (
     <article
-      className={`taskRow tone-${statusTone(task.status)} ${task.openQuestionCount ? "hasQuestions" : ""}`}
+      className={`taskRow tone-${statusTone(task.status)} ${task.openQuestionCount ? "hasQuestions" : ""} ${reward.active ? "taskCelebrated" : ""}`}
       data-status={task.status}
       data-task-id={task.id}
     >
@@ -183,7 +179,7 @@ function TaskRow({
         title={task.status === "done" ? "Mark incomplete" : "Complete task"}
         type="button"
       >
-        <Icon size={18} />
+        {completed ? <CheckCircle2 size={19} /> : <Circle size={19} />}
         <CompletionBurst token={reward.token} />
       </button>
       <div className="taskBody">
@@ -200,7 +196,12 @@ function TaskRow({
                 <CircleHelp size={11} /> {task.openQuestionCount}
               </span>
             ) : null}
-            {task.status !== "todo" ? <StatusBadge status={task.status} /> : null}
+            {task.status === "later" ? (
+              <span className="taskStateLabel later"><Clock3 size={11} /> Later</span>
+            ) : null}
+            {task.status === "skipped" ? (
+              <span className="taskStateLabel skipped"><X size={11} /> Skipped</span>
+            ) : null}
           </div>
         </div>
         {task.rationale?.plainText ? (
@@ -224,6 +225,25 @@ function TaskRow({
                   <BookOpen size={12} />
                   {resource.title}
                 </button>
+                {resource.canonicalUrl ? (
+                  <a
+                    className="taskLinkIcon"
+                    href={resource.canonicalUrl}
+                    rel="noreferrer"
+                    target="_blank"
+                    title={`Open information page for ${resource.title}`}
+                  >
+                    <Link2 size={12} />
+                  </a>
+                ) : null}
+                <button
+                  className="taskLinkIcon"
+                  onClick={() => onOpenResource(resource.id)}
+                  title={`Open ${resource.title}`}
+                  type="button"
+                >
+                  <FolderOpen size={12} />
+                </button>
                 <button
                   className="taskLinkIcon"
                   onClick={() => onOpenDiscussion(resource.id, task.id)}
@@ -240,11 +260,12 @@ function TaskRow({
                 >
                   <MessageCircleQuestion size={12} />
                 </button>
-                {resource.version?.localPath
-                  ?.toLowerCase()
-                  .endsWith(".pdf") ? (
+                {resource.version?.localPath?.toLowerCase().endsWith(".pdf") ||
+                resource.localFiles.some((file) =>
+                  file.localPath.toLowerCase().endsWith(".pdf"),
+                ) ? (
                   <button
-                    className="taskLinkIcon"
+                    className="taskLinkIcon collect"
                     onClick={() => onCollectPdfAnnotations(resource.id)}
                     title={`Collect PDF captures from ${resource.title}`}
                     type="button"
@@ -308,31 +329,26 @@ function TaskRow({
           placeholder="Question, answer, implementation detail, or reminder..."
         />
       </div>
-      <div className="taskActions">
-        <label className="workflowSelect">
-          <span className="srOnly">Status for {task.title}</span>
-          <select
-            aria-label={`Status for ${task.title}`}
-            onChange={(event) =>
-              onStatusChange(dayId, task.id, event.target.value as TaskStatus)
-            }
-            value={task.status}
-          >
-            <option value="todo">To do</option>
-            <option value="in_progress">In progress</option>
-            <option value="done">Done</option>
-            <option value="later">Do later</option>
-            <option value="skipped">Skipped</option>
-          </select>
-        </label>
+      <div className="taskActions" aria-label={`Actions for ${task.title}`}>
         <button
-          className={task.status === "later" ? "taskActionButton active" : "taskActionButton"}
+          aria-label={task.status === "later" ? "Return task to to-do" : "Do task later"}
+          className={task.status === "later" ? "taskActionButton later active" : "taskActionButton later"}
           onClick={toggleLater}
           title={task.status === "later" ? "Return task to open work" : "Save task for later"}
           type="button"
         >
-          <Clock3 size={14} />
-          <span>{task.status === "later" ? "Later" : "Do later"}</span>
+          <Clock3 size={15} />
+          <span className="srOnly">{task.status === "later" ? "Later" : "Do later"}</span>
+        </button>
+        <button
+          aria-label={task.status === "skipped" ? "Return skipped task to to-do" : "Skip task"}
+          className={task.status === "skipped" ? "taskActionButton skipped active" : "taskActionButton skipped"}
+          onClick={toggleSkipped}
+          title={task.status === "skipped" ? "Return task to open work" : "Skip this task"}
+          type="button"
+        >
+          <X size={15} />
+          <span className="srOnly">{task.status === "skipped" ? "Skipped" : "Skip"}</span>
         </button>
       </div>
     </article>
@@ -571,7 +587,7 @@ function DayCard({
           </button>
         </div>
       </header>
-      <ProgressBar accent={accent} label={`${day.title} progress`} showValue value={day.progress.ratio} />
+      <ProgressBar accent={accent} label={`${day.title} progress`} value={day.progress.ratio} />
       <div className="daySummary">
         <span><Check size={14} /> {day.progress.done}/{day.progress.required} core</span>
         <span><CircleHelp size={14} /> {day.openQuestionCount} questions</span>

@@ -13,9 +13,9 @@
     "sitting_dog.gif"
   ],
   "task": {
-    "animation": "scamper",
-    "copies": 1,
-    "duration_ms": 1700,
+    "animation": "orbit",
+    "copies": 3,
+    "duration_ms": 3000,
     "size_px": 52
   },
   "day": {

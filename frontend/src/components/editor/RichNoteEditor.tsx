@@ -127,6 +127,9 @@ export function RichNoteEditor({ initialContent, placeholder = "Write notes, que
 
   return (
     <section className="editorFrame" aria-label="Rich note editor">
+      <div className="editorCanvas">
+        <EditorContent editor={editor} />
+      </div>
       <div className="editorToolbar" aria-label="Editor toolbar">
         <div className="editorToolGroup">
           {toolbarButton("Undo", <Undo2 size={16} />, () => editor.chain().focus().undo().run(), false, !editor.can().undo())}
@@ -210,7 +213,6 @@ export function RichNoteEditor({ initialContent, placeholder = "Write notes, que
           </button>
         </div>
       ) : null}
-      <EditorContent editor={editor} />
     </section>
   );
 }

@@ -6,8 +6,8 @@ type CompletionBurstProps = {
 };
 
 const particleCount = {
-  task: 10,
-  day: 24,
+  task: 16,
+  day: 36,
 } as const;
 
 export function CompletionBurst({ token, variant = "task" }: CompletionBurstProps) {
@@ -15,6 +15,8 @@ export function CompletionBurst({ token, variant = "task" }: CompletionBurstProp
 
   return (
     <span aria-hidden="true" className={`completionBurst ${variant}`} key={token}>
+      <span className="completionHalo" />
+      <span className="completionCore" />
       {Array.from({ length: particleCount[variant] }, (_, index) => (
         <span className="completionParticle" key={index} style={{ "--particle-index": index } as CSSProperties} />
       ))}

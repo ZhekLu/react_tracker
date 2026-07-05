@@ -8,6 +8,7 @@ import {
   Clock3,
   ClipboardCopy,
   MessageSquareText,
+  NotebookPen,
   Save,
   Sparkles,
   RotateCcw,
@@ -98,6 +99,7 @@ function AnnotationSummaryCard({
   const [markdown, setMarkdown] = useState(initialMarkdown);
   const [priority, setPriority] = useState(annotation.priority);
   const editable = ["question", "todo"].includes(annotation.kind);
+  const answered = editable && annotation.status === "answered";
   const [expanded, setExpanded] = useState(!editable);
   const dirty =
     markdown !== initialMarkdown || priority !== annotation.priority;
@@ -122,6 +124,17 @@ function AnnotationSummaryCard({
           onClick={() => setExpanded((current) => !current)}
           type="button"
         >
+          <span
+            className={`annotationStateIcon ${
+              editable ? (answered ? "answered" : "open") : "note"
+            }`}
+          >
+            {editable ? (
+              answered ? <CheckCircle2 size={15} /> : <CircleHelp size={15} />
+            ) : (
+              <NotebookPen size={15} />
+            )}
+          </span>
           {editable ? (
             <ChevronDown
               className={expanded ? "expanded" : ""}
@@ -144,12 +157,19 @@ function AnnotationSummaryCard({
           </span>
         </button>
         <div className="annotationCardBadges">
-          <span className={`questionPriority priority-${annotation.priority}`}>
-            {annotation.priority}
+          {editable ? (
+            <span className={`questionPriority priority-${annotation.priority}`}>
+              {annotation.priority}
+            </span>
+          ) : null}
+          <span className={`annotationType ${annotation.kind}`}>
+            {editable ? "question" : annotation.kind}
           </span>
-          <span className={`annotationKind ${annotation.kind}`}>
-            {annotation.status}
-          </span>
+          {editable ? (
+            <span className={`annotationKind ${answered ? "answered" : "open"}`}>
+              {answered ? "answered" : "open"}
+            </span>
+          ) : null}
         </div>
       </header>
       {days.length ? (

@@ -5097,3 +5097,798 @@ button:disabled {
   border-radius: 10px;
   background: var(--surface-soft);
 }
+
+/* Interaction and reward refinement */
+
+:root {
+  --later: #7962d7;
+  --later-deep: #5941b5;
+  --later-soft: #f0edff;
+  --skipped: #c66d7d;
+  --skipped-deep: #934454;
+  --skipped-soft: #fff0f3;
+}
+
+.taskRow {
+  min-height: 62px;
+  padding: 13px 14px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 11px;
+  overflow: visible;
+  transition:
+    background-color 220ms ease,
+    box-shadow 220ms ease,
+    opacity 220ms ease,
+    filter 220ms ease;
+}
+
+.taskTitleRow {
+  display: block;
+  padding-right: 74px;
+}
+
+.taskBody h3 {
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.42;
+}
+
+.taskBadges {
+  margin-top: 7px;
+  justify-content: flex-start;
+}
+
+.taskMetaBadge,
+.taskStateLabel {
+  min-height: 21px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 8px;
+  font-weight: 760;
+}
+
+.taskStateLabel.later {
+  border-color: color-mix(in srgb, var(--later) 30%, var(--line));
+  background: var(--later-soft);
+  color: var(--later-deep);
+}
+
+.taskStateLabel.skipped {
+  border-color: color-mix(in srgb, var(--skipped) 30%, var(--line));
+  background: var(--skipped-soft);
+  color: var(--skipped-deep);
+}
+
+.taskStatus {
+  width: 32px;
+  height: 32px;
+}
+
+.taskActions {
+  position: absolute;
+  top: 11px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  gap: 5px;
+}
+
+.taskActionButton {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--faint);
+  display: grid;
+  place-items: center;
+}
+
+.taskActionButton:hover {
+  border-color: var(--line-strong);
+  background: #fff;
+  color: var(--ink-soft);
+  transform: translateY(-1px);
+}
+
+.taskActionButton.later:hover,
+.taskActionButton.later.active {
+  border-color: color-mix(in srgb, var(--later) 42%, var(--line));
+  background: var(--later-soft);
+  color: var(--later-deep);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--later) 13%, transparent);
+}
+
+.taskActionButton.skipped:hover,
+.taskActionButton.skipped.active {
+  border-color: color-mix(in srgb, var(--skipped) 42%, var(--line));
+  background: var(--skipped-soft);
+  color: var(--skipped-deep);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--skipped) 12%, transparent);
+}
+
+.taskRow[data-status="later"] {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--later-soft) 88%, #fff), #fff 68%);
+}
+
+.taskRow[data-status="later"]::before {
+  background: var(--later);
+}
+
+.taskRow[data-status="later"] .taskStatus {
+  border-color: color-mix(in srgb, var(--later) 34%, var(--line));
+  background: var(--later-soft);
+  color: var(--later-deep);
+}
+
+.taskRow[data-status="skipped"] {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--skipped-soft) 88%, #fff), #fff 68%);
+  filter: saturate(0.7);
+  opacity: 0.62;
+}
+
+.taskRow[data-status="skipped"]::before {
+  background: var(--skipped);
+}
+
+.taskRow[data-status="skipped"]:hover {
+  filter: saturate(0.88);
+  opacity: 0.84;
+}
+
+.taskRow[data-status="skipped"] .taskStatus {
+  border-color: color-mix(in srgb, var(--skipped) 32%, var(--line));
+  background: var(--skipped-soft);
+  color: var(--skipped-deep);
+}
+
+.taskRow[data-status="skipped"] .taskBody h3 {
+  color: #8c777c;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--skipped) 44%, transparent);
+}
+
+.taskRow[data-status="done"] {
+  opacity: 0.74;
+}
+
+.taskRow[data-status="done"] .taskStatus {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 8%, transparent);
+}
+
+.taskLinks {
+  margin-top: 9px;
+  display: grid;
+  gap: 5px;
+}
+
+.taskResourceActions {
+  width: 100%;
+  max-width: none;
+  display: flex;
+}
+
+.taskLink {
+  min-height: 29px;
+  max-width: none;
+  flex: 1 1 auto;
+  padding: 5px 9px;
+  border-radius: 8px 0 0 8px;
+  font-size: 9px;
+}
+
+.taskLinkIcon {
+  width: 30px;
+  min-width: 30px;
+  height: 29px;
+  text-decoration: none;
+}
+
+.taskLinkIcon.collect {
+  border-color: color-mix(in srgb, var(--blue) 28%, var(--line));
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+
+.taskLinkIcon.collect:hover {
+  border-color: color-mix(in srgb, var(--blue) 52%, var(--line));
+  background: color-mix(in srgb, var(--blue-soft) 74%, #fff);
+}
+
+.taskBody > .entityNoteEditor {
+  width: 100%;
+  margin-top: 9px;
+}
+
+.entityNoteEditor {
+  border-radius: 10px;
+  background: rgba(250, 251, 249, 0.9);
+}
+
+.entityNoteEditor > summary {
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 9px;
+}
+
+.entityNoteEditorBody {
+  padding: 9px;
+}
+
+.editorFrame {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 106px;
+  align-items: stretch;
+  border-radius: 11px;
+}
+
+.editorCanvas {
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.editorToolbar {
+  width: auto;
+  min-height: 196px;
+  padding: 9px;
+  border-bottom: 0;
+  border-left: 1px solid var(--line);
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: grid;
+  grid-template-columns: repeat(3, 26px);
+  grid-auto-rows: 26px;
+  align-content: start;
+  justify-content: center;
+  gap: 5px;
+}
+
+.editorToolGroup,
+.highlightSwatches {
+  display: contents;
+}
+
+.editorToolGroup + .editorToolGroup {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.editorToolbar .iconButton {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.editorToolbar .highlightSwatch {
+  width: 21px;
+  height: 21px;
+  place-self: center;
+}
+
+.richEditorSurface,
+.entityNoteEditor .richEditorSurface {
+  min-height: 196px;
+  padding: 14px 15px;
+  font-size: 12px;
+  line-height: 1.58;
+}
+
+.formulaComposer {
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.noteActions {
+  margin-top: 9px;
+}
+
+.noteActions .commandButton {
+  min-width: 86px;
+}
+
+.taskCapturePanel {
+  margin-top: 9px;
+}
+
+.taskCaptureCard.kind-question.status-open,
+.taskCaptureCard.kind-todo.status-open {
+  border-color: color-mix(in srgb, var(--amber) 28%, var(--line));
+  border-left-color: var(--amber);
+  background: color-mix(in srgb, var(--amber-soft) 42%, #fff);
+}
+
+.taskCaptureCard.status-answered {
+  border-color: color-mix(in srgb, var(--green) 26%, var(--line));
+  border-left-color: var(--green);
+  background: color-mix(in srgb, var(--green-soft) 48%, #fff);
+  opacity: 0.78;
+}
+
+/* Resource cards: one primary column, one compact control dock */
+
+.resourceRows {
+  gap: 10px;
+}
+
+.resourceRow {
+  min-height: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  gap: 7px 12px;
+  align-items: start;
+  box-shadow: 0 6px 22px rgba(20, 31, 27, 0.025);
+}
+
+.resourceRow:hover {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 28px rgba(20, 31, 27, 0.045);
+}
+
+.resourceRow.attention {
+  border-color: color-mix(in srgb, var(--amber) 27%, var(--line));
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--amber-soft) 52%, #fff), #fff 45%);
+}
+
+.resourceRow.completed {
+  border-color: color-mix(in srgb, var(--green) 22%, var(--line));
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--green-soft) 50%, #fff), #fff 45%);
+}
+
+.resourceKindIcon {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.resourceRowMain {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.resourceRow h3 {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.resourceRowMeta {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+}
+
+.resourceStatusCell {
+  min-width: 118px;
+  grid-column: 3;
+  grid-row: 1;
+  display: grid;
+  gap: 6px;
+  justify-items: stretch;
+}
+
+.resourceStatusCell .progressBar {
+  width: 100%;
+  height: 4px;
+}
+
+.resourceStatusCell.status-read .workflowSelect select,
+.resourceStatusCell.status-review .workflowSelect select {
+  border-color: color-mix(in srgb, var(--green) 30%, var(--line));
+  background-color: var(--green-soft);
+  color: var(--green-deep);
+}
+
+.resourceStatusCell.status-reading .workflowSelect select,
+.resourceStatusCell.status-skimmed .workflowSelect select {
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--line));
+  background-color: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.resourceStatusCell.status-archived .workflowSelect select {
+  opacity: 0.64;
+}
+
+.resourceRowActions {
+  grid-column: 3;
+  grid-row: 2;
+  align-self: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.resourceIconButton,
+.resourceDoneButton {
+  height: 33px;
+}
+
+.resourceIconButton {
+  width: 33px;
+}
+
+.resourceIconButton.question {
+  border-color: color-mix(in srgb, var(--amber) 27%, var(--line));
+  background: color-mix(in srgb, var(--amber-soft) 62%, #fff);
+  color: var(--amber-deep);
+}
+
+.resourceIconButton.collect {
+  border-color: color-mix(in srgb, var(--blue) 30%, var(--line));
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+
+.resourceInlineNote {
+  min-width: 0;
+  grid-column: 2 / 4;
+  grid-row: 3;
+  margin-top: 4px;
+}
+
+.resourceInlineNote .entityNoteEditor {
+  width: 100%;
+}
+
+.resourceDescription {
+  margin: 0 0 9px;
+}
+
+/* Notes, open questions, and answered questions use separate visual grammar */
+
+.annotationCard {
+  border-left-width: 4px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.annotationCard:not(.compactQuestionCard) {
+  border-left-color: var(--blue);
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--blue-soft) 38%, #fff), #fff 42%);
+}
+
+.compactQuestionCard.kind-question.status-open,
+.compactQuestionCard.kind-todo.status-open {
+  border-color: color-mix(in srgb, var(--amber) 28%, var(--line));
+  border-left-color: var(--amber);
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--amber-soft) 58%, #fff), #fff 48%);
+}
+
+.compactQuestionCard.status-answered {
+  border-color: color-mix(in srgb, var(--green) 27%, var(--line));
+  border-left-color: var(--green);
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--green-soft) 62%, #fff), #fff 48%);
+  opacity: 0.82;
+}
+
+.annotationCardToggle {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.annotationStateIcon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: var(--blue-deep);
+  display: grid;
+  place-items: center;
+}
+
+.annotationStateIcon.open {
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--line));
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.annotationStateIcon.answered {
+  border-color: color-mix(in srgb, var(--green) 28%, var(--line));
+  background: var(--green-soft);
+  color: var(--green-deep);
+}
+
+.annotationCardBadges {
+  flex-wrap: wrap;
+}
+
+.annotationType,
+.annotationKind {
+  min-height: 22px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.annotationType {
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+
+.annotationType.question {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.annotationKind.open {
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--line));
+  background: #fff;
+  color: var(--amber-deep);
+}
+
+.annotationKind.answered {
+  border-color: color-mix(in srgb, var(--green) 30%, var(--line));
+  background: #fff;
+  color: var(--green-deep);
+}
+
+/* Richer but brief completion feedback */
+
+.completionBurst.task {
+  --burst-distance: 48px;
+}
+
+.completionBurst.day {
+  --burst-distance: 155px;
+}
+
+.completionBurst.task .completionParticle {
+  --particle-angle: calc((360deg / 16) * var(--particle-index));
+  width: 5px;
+  height: 5px;
+  animation-duration: 860ms;
+}
+
+.completionBurst.day .completionParticle {
+  --particle-angle: calc((360deg / 36) * var(--particle-index));
+  animation-duration: 1180ms;
+}
+
+.completionHalo,
+.completionCore {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.completionHalo {
+  width: 28px;
+  height: 28px;
+  border: 2px solid color-mix(in srgb, var(--green) 66%, #fff);
+  animation: completionHalo 760ms ease-out forwards;
+}
+
+.completionCore {
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--green) 22%, transparent),
+    0 0 24px color-mix(in srgb, var(--green) 58%, transparent);
+  animation: completionCore 520ms ease-out forwards;
+}
+
+.completionBurst.day .completionHalo {
+  width: 64px;
+  height: 64px;
+  border-width: 3px;
+  animation-duration: 980ms;
+}
+
+.completionBurst.day .completionCore {
+  width: 18px;
+  height: 18px;
+}
+
+.taskRow.taskCelebrated {
+  animation: taskRewardSweep 980ms cubic-bezier(0.16, 0.84, 0.24, 1);
+}
+
+.taskRow.taskCelebrated .taskStatus {
+  animation: completionCheckPop 720ms cubic-bezier(0.18, 0.88, 0.28, 1.25);
+}
+
+.dayCard.dayCelebrated .dayHeader {
+  animation: dayHeaderReward 1100ms ease-out;
+}
+
+@keyframes completionHalo {
+  0% {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(0.35);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(2.6);
+  }
+}
+
+@keyframes completionCore {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.2);
+  }
+
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.2);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.4);
+  }
+}
+
+@keyframes taskRewardSweep {
+  0% {
+    background: var(--surface);
+  }
+
+  32% {
+    background:
+      linear-gradient(100deg, color-mix(in srgb, var(--green-soft) 92%, #fff), #fff 72%);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--green) 28%, transparent),
+      0 10px 30px color-mix(in srgb, var(--green) 12%, transparent);
+  }
+
+  100% {
+    background: color-mix(in srgb, var(--green-soft) 22%, #fff);
+  }
+}
+
+@keyframes completionCheckPop {
+  0% {
+    transform: scale(0.8) rotate(-8deg);
+  }
+
+  45% {
+    transform: scale(1.28) rotate(5deg);
+  }
+
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes dayHeaderReward {
+  0% {
+    filter: saturate(1);
+  }
+
+  28% {
+    filter: saturate(1.5);
+    box-shadow: inset 0 0 90px color-mix(in srgb, var(--green) 18%, transparent);
+  }
+
+  100% {
+    filter: saturate(1);
+  }
+}
+
+@media (max-width: 900px) {
+  .resourceRow {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .resourceStatusCell {
+    min-width: 0;
+    grid-column: 2;
+    grid-row: 2;
+    grid-template-columns: 130px minmax(80px, 1fr);
+    align-items: center;
+  }
+
+  .resourceRowMeta {
+    grid-row: 3;
+  }
+
+  .resourceRowActions {
+    grid-column: 2;
+    grid-row: 4;
+    justify-content: flex-start;
+  }
+
+  .resourceInlineNote {
+    grid-column: 2;
+    grid-row: 5;
+  }
+}
+
+@media (max-width: 640px) {
+  .taskRow {
+    grid-template-columns: 30px minmax(0, 1fr);
+    padding: 11px;
+  }
+
+  .taskTitleRow {
+    padding-right: 70px;
+  }
+
+  .taskBody h3 {
+    font-size: 12px;
+  }
+
+  .taskActions {
+    top: 9px;
+    right: 9px;
+  }
+
+  .editorFrame {
+    display: block;
+  }
+
+  .editorToolbar {
+    min-height: 0;
+    padding: 7px;
+    border-bottom: 1px solid var(--line);
+    border-left: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .editorToolGroup,
+  .highlightSwatches {
+    display: flex;
+    gap: 3px;
+  }
+
+  .editorToolGroup + .editorToolGroup {
+    padding-left: 4px;
+    border-left: 1px solid var(--line);
+  }
+
+  .richEditorSurface,
+  .entityNoteEditor .richEditorSurface {
+    min-height: 160px;
+  }
+
+  .resourceStatusCell {
+    grid-template-columns: 1fr;
+  }
+
+  .annotationCard > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .annotationCardBadges {
+    padding-left: 37px;
+  }
+}

@@ -13,7 +13,6 @@ import {
   formatPlannedTime,
   formatTrackedTime,
 } from "../features/roadmap/dayPresentation";
-import { percent } from "../lib/progress";
 import type {
   Course,
   CourseSummary,
@@ -85,8 +84,6 @@ export function AppShell({
   const activeDayPlannedMinutes = activeDay ? dayEstimatedMinutes(activeDay) : 0;
   const activeDayDone = activeDayTasks.filter((task) => task.status === "done").length;
   const headerProgress = view === "roadmap" && activeDay ? activeDay.progress.ratio : courseProgress;
-  const completedTasks = course.stats.completedTaskCount;
-  const totalTasks = course.stats.taskCount;
 
   return (
     <div className="appShell" style={{ "--course-accent": course.accent } as CSSProperties}>
@@ -149,21 +146,12 @@ export function AppShell({
             />
           ) : null}
           <div className="headerProgress">
-            <div className="momentumBlock">
-              <span>Course momentum</span>
-              <strong>{percent(courseProgress)}</strong>
-              <small>{completedTasks} of {totalTasks} tasks complete</small>
-              {toggl.courseTrackedSeconds ? (
-                <small>{formatTrackedTime(toggl.courseTrackedSeconds)} tracked</small>
-              ) : null}
-            </div>
             <ProgressRing accent={course.accent} label="Course progress" size="small" value={courseProgress} />
           </div>
           <div className="topHeaderProgress">
             <ProgressBar
               accent={course.accent}
               label={view === "roadmap" ? "Current day progress" : "Course progress"}
-              showValue
               value={headerProgress}
             />
           </div>

@@ -26,7 +26,6 @@ import { ResourceCaptureShelf } from "../../components/annotations/ResourceCaptu
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
-import { StatusBadge } from "../../components/ui/StatusBadge";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import type {
   Course,
@@ -202,9 +201,8 @@ function ResourceRow({
         ) : null}
         {resource.notes.length ? <span><NotebookText size={13} /> {resource.notes.length}</span> : null}
       </div>
-      <div className="resourceStatusCell">
-        <StatusBadge status={resource.status} />
-        <label className="workflowSelect compact">
+      <div className={`resourceStatusCell status-${resource.status}`}>
+        <label className={`workflowSelect compact status-${resource.status}`}>
           <span className="srOnly">Status for {resource.title}</span>
           <select
             aria-label={`Status for ${resource.title}`}
@@ -262,9 +260,12 @@ function ResourceRow({
           <NotebookPen size={16} />
           <span className="srOnly">Capture</span>
         </button>
-        {resource.version?.localPath?.toLowerCase().endsWith(".pdf") ? (
+        {resource.version?.localPath?.toLowerCase().endsWith(".pdf") ||
+        resource.localFiles.some((file) =>
+          file.localPath.toLowerCase().endsWith(".pdf"),
+        ) ? (
           <button
-            className="resourceIconButton"
+            className="resourceIconButton collect"
             onClick={() => onCollectPdfAnnotations(resource.id)}
             title="Collect typed comments and highlights from this PDF"
             type="button"
