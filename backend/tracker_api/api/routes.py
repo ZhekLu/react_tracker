@@ -403,7 +403,14 @@ def get_annotation_image(resource_id: str, image_id: str) -> FileResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Annotation image does not exist.",
         )
-    return FileResponse(path, media_type="image/png")
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @router.get("/integrations/toggl", response_model=TogglStatusResponse)

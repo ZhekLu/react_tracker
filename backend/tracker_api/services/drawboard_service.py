@@ -21,6 +21,9 @@ DRAWBOARD_SHARE_PATH = re.compile(r"^/documents/links/([a-f0-9]+)/consume/?$")
 DRAWBOARD_DOCUMENT_PATH = re.compile(r"^/documents/([a-f0-9]+)")
 TEXT_MARKUP_TYPES = {"TextHighlight", "TextUnderline"}
 TEXT_ANNOTATION_TYPES = TEXT_MARKUP_TYPES | {"TextInsert"}
+INK_VERTICAL_OVERLAP_TOLERANCE = 2.0
+INK_VERTICAL_GUIDE_MIN_HEIGHT = 18.0
+INK_VERTICAL_GUIDE_ASPECT_RATIO = 3.0
 _STATE_LOCK = threading.Lock()
 
 
@@ -60,7 +63,8 @@ class DrawboardInk:
     rgb: list[float]
     created_at: str
     rect: list[float]
-    ink_vertices: list[Any]
+    ink_vertex_sets: tuple[list[Any], ...]
+    member_fingerprints: tuple[str, ...]
 
     @property
     def quote(self) -> str:
@@ -500,16 +504,205 @@ def _ink_capture(
             ).encode("utf-8"),
             usedforsecurity=False,
         ).hexdigest()
+    fingerprint = f"drawboard-{document_id}-{annotation_id}"
     return DrawboardInk(
-        fingerprint=f"drawboard-{document_id}-{annotation_id}",
+        fingerprint=fingerprint,
         source_revision=source_revision,
         page=page,
         color=color,
         rgb=rgb,
         created_at=_timestamp(annotation.get("created") or item.get("created")),
         rect=rect,
-        ink_vertices=ink_vertices,
+        ink_vertex_sets=(ink_vertices,),
+        member_fingerprints=(fingerprint,),
     )
+
+
+def _ink_vertical_bounds(ink: DrawboardInk) -> tuple[float, float] | None:
+    if len(ink.rect) != 4:
+        return None
+    return min(ink.rect[1], ink.rect[3]), max(ink.rect[1], ink.rect[3])
+
+
+def _ink_horizontal_span(ink: DrawboardInk) -> float:
+    if len(ink.rect) != 4:
+        return 0.0
+    return abs(ink.rect[2] - ink.rect[0])
+
+
+def _ink_vertical_span(ink: DrawboardInk) -> float:
+    bounds = _ink_vertical_bounds(ink)
+    return 0.0 if bounds is None else bounds[1] - bounds[0]
+
+
+def _is_vertical_guide(ink: DrawboardInk) -> bool:
+    height = _ink_vertical_span(ink)
+    width = _ink_horizontal_span(ink)
+    return (
+        height >= INK_VERTICAL_GUIDE_MIN_HEIGHT
+        and height >= max(width, 1.0) * INK_VERTICAL_GUIDE_ASPECT_RATIO
+    )
+
+
+def _vertical_ranges_overlap(
+    first: tuple[float, float],
+    second: tuple[float, float],
+    *,
+    tolerance: float,
+) -> bool:
+    return (
+        first[0] <= second[1] + tolerance
+        and second[0] <= first[1] + tolerance
+    )
+
+
+def _group_anchor(members: list[DrawboardInk]) -> DrawboardInk:
+    # The deliberately drawn vertical line should be the tallest/narrowest
+    # member. Using it as the identity keeps the group stable when the user
+    # adds or removes handwritten strokes around it.
+    return max(
+        members,
+        key=lambda ink: (
+            _is_vertical_guide(ink),
+            _ink_vertical_span(ink),
+            -_ink_horizontal_span(ink),
+            ink.fingerprint,
+        ),
+    )
+
+
+def _group_source_revision(members: list[DrawboardInk]) -> str:
+    payload = [
+        {
+            "fingerprint": ink.fingerprint,
+            "rect": [round(value, 3) for value in ink.rect],
+            "revision": ink.source_revision,
+        }
+        for ink in sorted(members, key=lambda item: item.fingerprint)
+    ]
+    return hashlib.sha1(
+        json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8"),
+        usedforsecurity=False,
+    ).hexdigest()
+
+
+def _merge_red_ink_group(members: list[DrawboardInk]) -> DrawboardInk:
+    ordered = sorted(
+        members,
+        key=lambda ink: (
+            ink.rect[1] if len(ink.rect) == 4 else 0.0,
+            ink.rect[0] if len(ink.rect) == 4 else 0.0,
+            ink.fingerprint,
+        ),
+    )
+    if len(ordered) == 1:
+        return ordered[0]
+
+    anchor = _group_anchor(ordered)
+    valid_rects = [ink.rect for ink in ordered if len(ink.rect) == 4]
+    rect = (
+        [
+            min(item[0] for item in valid_rects),
+            min(item[1] for item in valid_rects),
+            max(item[2] for item in valid_rects),
+            max(item[3] for item in valid_rects),
+        ]
+        if valid_rects
+        else []
+    )
+    vertex_sets = tuple(
+        vertex_set
+        for ink in ordered
+        for vertex_set in ink.ink_vertex_sets
+    )
+    member_fingerprints = tuple(
+        sorted(
+            fingerprint
+            for ink in ordered
+            for fingerprint in ink.member_fingerprints
+        )
+    )
+    return DrawboardInk(
+        fingerprint=anchor.fingerprint,
+        source_revision=_group_source_revision(ordered),
+        page=anchor.page,
+        color=anchor.color,
+        rgb=anchor.rgb,
+        created_at=min(ink.created_at for ink in ordered),
+        rect=rect,
+        ink_vertex_sets=vertex_sets,
+        member_fingerprints=member_fingerprints,
+    )
+
+
+def group_red_ink_annotations(
+    inks: list[DrawboardInk],
+    *,
+    tolerance: float = INK_VERTICAL_OVERLAP_TOLERANCE,
+) -> list[DrawboardInk]:
+    """Merge red handwritten strokes into page-local vertical bands.
+
+    Drawboard may expose handwriting as many independent Ink annotations. The
+    user draws a red vertical guide beside the paragraph; every red stroke whose
+    vertical range overlaps the current band joins the same group. The band is
+    expanded transitively, so the guide can connect several handwritten lines.
+    Each source stroke is consumed exactly once.
+    """
+
+    grouped: list[DrawboardInk] = []
+    by_page: dict[int, list[DrawboardInk]] = {}
+    for ink in inks:
+        by_page.setdefault(ink.page, []).append(ink)
+
+    for page in sorted(by_page):
+        remaining = sorted(
+            by_page[page],
+            key=lambda ink: (
+                ink.rect[1] if len(ink.rect) == 4 else 0.0,
+                ink.rect[0] if len(ink.rect) == 4 else 0.0,
+                ink.fingerprint,
+            ),
+        )
+        while remaining:
+            seed = remaining.pop(0)
+            seed_bounds = _ink_vertical_bounds(seed)
+            if seed_bounds is None:
+                grouped.append(seed)
+                continue
+
+            members = [seed]
+            band = seed_bounds
+            changed = True
+            while changed:
+                changed = False
+                still_remaining: list[DrawboardInk] = []
+                for candidate in remaining:
+                    candidate_bounds = _ink_vertical_bounds(candidate)
+                    if candidate_bounds is not None and _vertical_ranges_overlap(
+                        band,
+                        candidate_bounds,
+                        tolerance=tolerance,
+                    ):
+                        members.append(candidate)
+                        band = (
+                            min(band[0], candidate_bounds[0]),
+                            max(band[1], candidate_bounds[1]),
+                        )
+                        changed = True
+                    else:
+                        still_remaining.append(candidate)
+                remaining = still_remaining
+
+            grouped.append(_merge_red_ink_group(members))
+
+    grouped.sort(
+        key=lambda ink: (
+            ink.page,
+            ink.rect[1] if len(ink.rect) == 4 else 0.0,
+            ink.rect[0] if len(ink.rect) == 4 else 0.0,
+        )
+    )
+    return grouped
 
 
 def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
@@ -552,7 +745,7 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
             capture.annotation_kind,
         )
     )
-    red_ink.sort(key=lambda ink: (ink.page, ink.rect[1] if ink.rect else 0))
+    red_ink = group_red_ink_annotations(red_ink)
     return DrawboardExtraction(
         source_url=source_url,
         document_id=credentials.document_id,

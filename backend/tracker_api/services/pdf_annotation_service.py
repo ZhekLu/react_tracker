@@ -215,7 +215,7 @@ def extract_pdf_annotations(path: Path) -> PdfExtraction:
     captures: list[PdfCapture] = []
     ignored: dict[str, int] = {}
     try:
-        document: Any = pymupdf.open(pdf_path)  # type: ignore[no-untyped-call]
+        document: Any = pymupdf.open(pdf_path)
     except Exception as error:
         raise PdfAnnotationError(f"Could not open PDF: {pdf_path}") from error
     try:
@@ -374,6 +374,9 @@ def _drawboard_ink_command(
     metadata: dict[str, Any] = {
         "createdAt": ink.created_at,
         "drawboardDocumentId": document_id,
+        "inkGroupSize": len(ink.member_fingerprints),
+        "inkGrouping": "vertical-overlap-v1",
+        "inkMemberFingerprints": list(ink.member_fingerprints),
         "sourceContent": "",
         "sourceLabel": "Drawboard cloud PDF",
         "sourcePath": source_url,
@@ -472,7 +475,7 @@ def collect_resource_pdf_annotations(
             context = contexts.get(ink.fingerprint)
             sync_revision = (
                 f"{ink.source_revision}:"
-                f"{'book-ink-context-v2' if context else 'ink-plain-v1'}"
+                f"{'book-ink-context-v4' if context else 'ink-plain-v3'}"
             )
             command = _drawboard_ink_command(
                 resource_id,

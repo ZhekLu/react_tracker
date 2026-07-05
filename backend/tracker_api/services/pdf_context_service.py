@@ -304,7 +304,7 @@ def extract_pdf_annotation_contexts(
 ) -> dict[str, PdfAnnotationContext]:
     pdf_path = path.expanduser().resolve()
     try:
-        document: Any = pymupdf.open(pdf_path)  # type: ignore[no-untyped-call]
+        document: Any = pymupdf.open(pdf_path)
     except Exception as error:
         raise PdfContextError(f"Could not read PDF context: {pdf_path}") from error
     contexts: dict[str, PdfAnnotationContext] = {}

@@ -40,7 +40,7 @@ def _pdf_path(local_path: str | None) -> Path:
 
 
 def _page_title(page: pymupdf.Page, page_number: int) -> str:
-    clip = pymupdf.Rect(  # type: ignore[no-untyped-call]
+    clip = pymupdf.Rect(
         0,
         0,
         page.rect.width,
@@ -48,7 +48,7 @@ def _page_title(page: pymupdf.Page, page_number: int) -> str:
     )
     lines = [
         re.sub(r"\s+", " ", line).strip()
-        for line in page.get_text(  # type: ignore[no-untyped-call]
+        for line in page.get_text(
             "text",
             clip=clip,
         ).splitlines()
@@ -65,7 +65,7 @@ def _page_title(page: pymupdf.Page, page_number: int) -> str:
 def pdf_metadata(local_path: str | None) -> PdfReaderMetadata:
     path = _pdf_path(local_path)
     try:
-        with pymupdf.open(path) as document:  # type: ignore[no-untyped-call]
+        with pymupdf.open(path) as document:
             pages = [
                 PdfPage(
                     number=index + 1,
@@ -88,14 +88,14 @@ def render_pdf_page(
 ) -> bytes:
     path = _pdf_path(local_path)
     try:
-        with pymupdf.open(path) as document:  # type: ignore[no-untyped-call]
+        with pymupdf.open(path) as document:
             if page_number < 1 or page_number > document.page_count:
                 raise PdfReaderError(
                     f"Page {page_number} is outside this PDF."
                 )
             page = document[page_number - 1]
             pixmap = page.get_pixmap(
-                matrix=pymupdf.Matrix(2.2, 2.2),  # type: ignore[no-untyped-call]
+                matrix=pymupdf.Matrix(2.2, 2.2),
                 alpha=False,
                 colorspace=pymupdf.csRGB,
             )
