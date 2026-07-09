@@ -7,6 +7,7 @@ import {
   discussionEditorExtensions,
 } from "./discussionEditorExtensions";
 import { normalizeDiscussionMarkdown } from "../../lib/discussionText";
+import { importPastedMarkdown } from "../../lib/discussionImport";
 import type { DiscussionMarkdownSurfaceProps } from "./DiscussionMarkdownSurface";
 
 type FormulaDraft = {
@@ -69,6 +70,9 @@ export function DiscussionMarkdownSurfaceImpl({
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if ((event.target as HTMLElement).closest(".discussionFormulaComposer")) {
+      return;
+    }
     const key = event.key.toLowerCase();
     const command = event.metaKey || event.ctrlKey;
     if (command && key === "h") {
@@ -114,15 +118,11 @@ export function DiscussionMarkdownSurfaceImpl({
   }
 
   function handlePaste(event: React.ClipboardEvent<HTMLElement>) {
+    if (!(event.target as HTMLElement).closest(".ProseMirror")) return;
     const plainText = event.clipboardData.getData("text/plain");
-    if (
-      !plainText ||
-      !/[\n`]|\$\$|\\\[|^#{1,6}\s|^\s*(?:[-*+]|\d+[.)])\s/m.test(plainText)
-    ) {
-      return;
-    }
+    if (!plainText) return;
     event.preventDefault();
-    activeEditor.commands.insertContent(normalizeDiscussionMarkdown(plainText), {
+    activeEditor.commands.insertContent(importPastedMarkdown(plainText), {
       contentType: "markdown",
     });
   }
@@ -186,7 +186,11 @@ export function DiscussionMarkdownSurfaceImpl({
         </footer>
       ) : null}
       {formulaDraft ? (
-        <div className="formulaComposer discussionFormulaComposer">
+        <div
+          aria-label={`Edit ${formulaDraft.kind} formula`}
+          className="formulaComposer discussionFormulaComposer"
+          role="dialog"
+        >
           <label>
             <span>Edit {formulaDraft.kind} formula</span>
             <input

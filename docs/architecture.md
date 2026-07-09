@@ -59,9 +59,17 @@ Reasons:
 - Tasks own workflow state, optionality, rationale, links, and task notes.
 - Resources own reading state, file/URL identity, annotations, resource notes,
   and relationships to ordered discussion resources.
-- Discussions are first-class generated resources. Prompt batches seed immutable
-  user messages, while message-question relationships distinguish references,
+- Discussions are first-class generated resources. Prompt batches seed
+  snapshot-backed user messages, while message-question relationships distinguish references,
   partial answers, and complete answers.
+- A prompt-batch discussion relates to every resource implied by its explicit
+  resource, task, day, and question annotations. Prompt item order is the stable
+  identity bridge from `Q-001` response headings to annotation IDs; grouped
+  headings remain one answer section but expose every linked question control.
+- `discussionImport.ts` owns external clipboard canonicalization. It protects
+  code and math first, repairs degraded ChatGPT delimiters, parses Markdown into
+  an mdast tree, and performs paste-only compaction. Ordinary editor saves use
+  the conservative normalizer and never reflow a user's manual paragraphs.
 - Follow-up questions are annotations anchored to discussion messages and use
   the same queue and prompt-batch workflow as source-document questions.
 - Discussion deletion soft-deletes the generated resource, thread, and messages.

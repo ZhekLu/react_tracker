@@ -49,6 +49,7 @@ import {
   matchAnswerSectionsToQuestions,
   normalizeDiscussionMarkdown,
 } from "../../lib/discussionText";
+import { importPastedMarkdown } from "../../lib/discussionImport";
 import {
   discussionHighlights,
   discussionHighlightsMarkdown,
@@ -123,12 +124,14 @@ function DiscussionMessageContent({
   message,
   highlightsOnly,
   onQuestionLink,
+  questionOrderIds,
   resourceById,
 }: {
   annotationById: Map<string, Annotation>;
   message: DiscussionMessage;
   highlightsOnly: boolean;
   onQuestionLink: DiscussionsViewProps["onQuestionLink"];
+  questionOrderIds: string[];
   resourceById: Map<string, Resource>;
 }) {
   const markdown = normalizeDiscussionMarkdown(
@@ -142,8 +145,17 @@ function DiscussionMessageContent({
       />
     );
   }
-  const linkedQuestions = message.annotationLinks
-    .map((link) => annotationById.get(link.annotationId))
+  const linkedQuestionIds = new Set(
+    message.annotationLinks.map((link) => link.annotationId),
+  );
+  const orderedQuestionIds = [
+    ...questionOrderIds.filter((id) => linkedQuestionIds.has(id)),
+    ...message.annotationLinks
+      .map((link) => link.annotationId)
+      .filter((id) => !questionOrderIds.includes(id)),
+  ];
+  const linkedQuestions = orderedQuestionIds
+    .map((id) => annotationById.get(id))
     .filter((item): item is Annotation =>
       Boolean(item && ["question", "todo"].includes(item.kind)),
     );
@@ -163,7 +175,7 @@ function DiscussionMessageContent({
         id: question.id,
         text: questionText(question),
       })),
-    ).map((match) => [match.sectionLabel, match.questionId]),
+    ).map((match) => [match.sectionLabel, match.questionIds]),
   );
   return (
     <div className="discussionStructuredAnswer">
@@ -174,79 +186,80 @@ function DiscussionMessageContent({
         />
       ) : null}
       {parsed.sections.map((section) => {
-        const questionId = sectionMatches.get(section.label);
-        const question = questionId
-          ? annotationById.get(questionId)
-          : undefined;
-        const relation = question
-          ? message.annotationLinks.find(
-              (link) => link.annotationId === question.id,
-            )?.relation
-          : undefined;
-        const source = question
-          ? resourceById.get(question.resourceId)
-          : undefined;
+        const questions = (sectionMatches.get(section.label) ?? [])
+          .map((questionId) => annotationById.get(questionId))
+          .filter((item): item is Annotation => Boolean(item));
         return (
           <section className="discussionAnswerSection" key={section.label}>
-            {question ? (
-              <aside
-                className={`inlineAnsweredQuestion status-${question.status}`}
-              >
-                <header>
-                  <span>{section.label} · linked question</span>
-                  <strong>{relation ?? question.status}</strong>
-                </header>
-                <MarkdownMath>{questionText(question)}</MarkdownMath>
-                <footer>
-                  <span>
-                    {source?.title ?? "Source"}
-                    {question.anchor?.pageNumber
-                      ? ` · p. ${question.anchor.pageNumber}`
-                      : ""}
-                  </span>
-                  <div>
-                    <button
-                      className={relation === "references" ? "active" : ""}
-                      onClick={() =>
-                        onQuestionLink(
-                          message.id,
-                          question.id,
-                          "references",
-                        )
-                      }
-                      type="button"
-                    >
-                      Referenced
-                    </button>
-                    <button
-                      className={
-                        relation === "partially_answers" ? "active" : ""
-                      }
-                      onClick={() =>
-                        onQuestionLink(
-                          message.id,
-                          question.id,
-                          "partially_answers",
-                        )
-                      }
-                      type="button"
-                    >
-                      Partial
-                    </button>
-                    <button
-                      className={relation === "answers" ? "active" : ""}
-                      onClick={() =>
-                        onQuestionLink(message.id, question.id, "answers")
-                      }
-                      type="button"
-                    >
-                      <CheckCircle2 size={12} />
-                      Done
-                    </button>
-                  </div>
-                </footer>
-              </aside>
-            ) : null}
+            {questions.map((question, questionIndex) => {
+              const relation = message.annotationLinks.find(
+                (link) => link.annotationId === question.id,
+              )?.relation;
+              const source = resourceById.get(question.resourceId);
+              return (
+                <aside
+                  className={`inlineAnsweredQuestion status-${question.status}`}
+                  key={question.id}
+                >
+                  <header>
+                    <span>
+                      {section.labels[questionIndex] ?? section.label} · linked
+                      question
+                    </span>
+                    <strong>{relation ?? question.status}</strong>
+                  </header>
+                  <MarkdownMath>{questionText(question)}</MarkdownMath>
+                  <footer>
+                    <span>
+                      {source?.title ?? "Source"}
+                      {question.anchor?.pageNumber
+                        ? ` · p. ${question.anchor.pageNumber}`
+                        : ""}
+                    </span>
+                    <div>
+                      <button
+                        className={relation === "references" ? "active" : ""}
+                        onClick={() =>
+                          onQuestionLink(
+                            message.id,
+                            question.id,
+                            "references",
+                          )
+                        }
+                        type="button"
+                      >
+                        Referenced
+                      </button>
+                      <button
+                        className={
+                          relation === "partially_answers" ? "active" : ""
+                        }
+                        onClick={() =>
+                          onQuestionLink(
+                            message.id,
+                            question.id,
+                            "partially_answers",
+                          )
+                        }
+                        type="button"
+                      >
+                        Partial
+                      </button>
+                      <button
+                        className={relation === "answers" ? "active" : ""}
+                        onClick={() =>
+                          onQuestionLink(message.id, question.id, "answers")
+                        }
+                        type="button"
+                      >
+                        <CheckCircle2 size={12} />
+                        Done
+                      </button>
+                    </div>
+                  </footer>
+                </aside>
+              );
+            })}
             <DiscussionMarkdownSurface
               className="discussionMessageBody"
               markdown={section.markdown}
@@ -490,7 +503,9 @@ export function DiscussionsView({
     (focusedResourceId ? undefined : course.discussions[0]);
   const selectedSourceId =
     discussion
-      ? discussion.sourceResourceIds[0] ?? ""
+      ? discussion.sourceResourceIds.includes(focusedResourceId)
+        ? focusedResourceId
+        : discussion.sourceResourceIds[0] ?? ""
       : sourceResources.some((resource) => resource.id === focusedResourceId)
         ? focusedResourceId
         : sourceResources[0]?.id ?? "";
@@ -899,6 +914,7 @@ export function DiscussionsView({
                           highlightsOnly={highlightsOnly}
                           message={message}
                           onQuestionLink={onQuestionLink}
+                          questionOrderIds={discussion.questionIds}
                           resourceById={resourceById}
                         />
                       )}
@@ -1003,6 +1019,7 @@ function DiscussionComposer({
   onSubmit: (input: DiscussionMessageInput) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [importedFromClipboard, setImportedFromClipboard] = useState(false);
   const [role, setRole] = useState<DiscussionMessageInput["role"]>("assistant");
 
   function submit() {
@@ -1011,8 +1028,10 @@ function DiscussionComposer({
       markdown: draft,
       plainText: draft,
       role,
+      importedFromClipboard,
     });
     setDraft("");
+    setImportedFromClipboard(false);
   }
 
   return (
@@ -1035,6 +1054,18 @@ function DiscussionComposer({
       <textarea
         aria-label="Discussion message in Markdown"
         onChange={(event) => setDraft(event.target.value)}
+        onPaste={(event) => {
+          const pasted = event.clipboardData.getData("text/plain");
+          if (!pasted) return;
+          event.preventDefault();
+          const start = event.currentTarget.selectionStart;
+          const end = event.currentTarget.selectionEnd;
+          const imported = importPastedMarkdown(pasted);
+          setDraft(
+            `${draft.slice(0, start)}${imported}${draft.slice(end)}`,
+          );
+          setImportedFromClipboard(true);
+        }}
         placeholder="Paste or write Markdown. Use $...$ or $$...$$ for formulas."
         rows={8}
         value={draft}

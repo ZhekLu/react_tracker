@@ -85,6 +85,10 @@ def _seed_course(tmp_path: Path) -> tuple[str, str]:
         "Coverage assumption\n\nWhy it matters.",
         encoding="utf-8",
     )
+    (tmp_path / "slides.txt").write_text(
+        "Bellman equations\n\nDynamic programming.",
+        encoding="utf-8",
+    )
     plan_path = tmp_path / "plan.md"
     plan_path.write_text(
         """
@@ -98,6 +102,11 @@ mode = "full"
 title = "Paper"
 path = "paper.txt"
 kind = "paper"
+
+[resources.slides]
+title = "Slides"
+path = "slides.txt"
+kind = "slides"
 +++
 
 # Mutation Course
@@ -106,7 +115,7 @@ kind = "paper"
 
 #### Reading
 
-- [ ] Read the paper. {#read-paper resources=paper}
+- [ ] Read the paper and slides. {#read-paper resources="paper,slides"}
 
 Stop when: the paper is read. {#day01-stop}
 """.lstrip(),
@@ -126,6 +135,57 @@ Stop when: the paper is read. {#day01-stop}
             )
         ).scalar_one()
     return result.course_id, str(resource_id)
+
+
+def test_day_prompt_discussion_links_every_day_resource(tmp_path: Path) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        day_id = str(
+            connection.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM study_days
+                    WHERE course_id = :course_id
+                    """
+                ),
+                {"course_id": course_id},
+            ).scalar_one()
+        )
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="How do both sources explain the backup?",
+            ),
+        )
+        batch = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Day discussion",
+                source_scope="day_status",
+                source_day_id=day_id,
+                markdown="# Day questions",
+                annotation_ids=[question.id],
+            ),
+        )
+        create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                initial_prompt_batch_id=batch.id,
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+
+    source_titles = {
+        resource.title
+        for resource in workspace.resources
+        if resource.id in workspace.discussions[0].source_resource_ids
+    }
+    assert source_titles == {"Paper", "Slides"}
 
 
 def test_configured_pdf_application_is_used_without_system_fallback(

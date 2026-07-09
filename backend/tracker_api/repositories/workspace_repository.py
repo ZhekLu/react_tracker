@@ -2598,6 +2598,12 @@ def create_discussion(
         raise WorkspaceRepositoryError(
             "A discussion needs a source resource or an initial prompt batch."
         )
+    source_resource_ids = _discussion_source_resource_ids(
+        connection,
+        command,
+        source_resource=source_resource,
+        prompt_batch=prompt_batch,
+    )
     now = _now()
     resource_id = _new_id()
     discussion_id = _new_id()
@@ -2637,16 +2643,15 @@ def create_discussion(
                 {
                     "initial_prompt_batch_id": command.initial_prompt_batch_id,
                     "source_resource_id": (
-                        str(source_resource["id"])
-                        if source_resource is not None
-                        else None
+                        source_resource_ids[0] if source_resource_ids else None
                     ),
+                    "source_resource_ids": source_resource_ids,
                 }
             ),
             "now": now,
         },
     )
-    if source_resource is not None:
+    for source_resource_id in source_resource_ids:
         connection.execute(
             text(
                 """
@@ -2658,7 +2663,7 @@ def create_discussion(
             ),
             {
                 "source_id": resource_id,
-                "target_id": source_resource["id"],
+                "target_id": source_resource_id,
                 "created_at": now,
             },
         )
@@ -2788,7 +2793,8 @@ def _discussion_prompt_batch(
         connection,
         """
         SELECT
-          pb.id, pb.title, pb.source_resource_id, pb.prompt_document_id,
+          pb.id, pb.title, pb.source_resource_id, pb.source_day_id,
+          pb.source_task_id, pb.prompt_document_id,
           d.markdown, d.editor_json, d.plain_text
         FROM prompt_batches pb
         JOIN documents d ON d.id = pb.prompt_document_id
@@ -2806,6 +2812,85 @@ def _discussion_prompt_batch(
             f"Prompt batch does not exist in course: {command.initial_prompt_batch_id}"
         )
     return prompt_batch
+
+
+def _discussion_source_resource_ids(
+    connection: Connection,
+    command: DiscussionCreateCommand,
+    *,
+    source_resource: RowMapping | None,
+    prompt_batch: RowMapping | None,
+) -> list[str]:
+    resource_ids: list[str] = []
+
+    def append(resource_id: object | None) -> None:
+        if resource_id is None:
+            return
+        normalized = str(resource_id)
+        if normalized not in resource_ids:
+            resource_ids.append(normalized)
+
+    if source_resource is not None:
+        append(source_resource["id"])
+    if prompt_batch is None:
+        return resource_ids
+
+    append(prompt_batch["source_resource_id"])
+    source_task_id = cast(str | None, prompt_batch["source_task_id"])
+    if source_task_id:
+        for row in _rows(
+            connection,
+            """
+            SELECT tr.resource_id
+            FROM task_resources tr
+            JOIN tasks t ON t.id = tr.task_id
+            JOIN resources r ON r.id = tr.resource_id
+            WHERE tr.task_id = :task_id
+              AND t.deleted_at IS NULL
+              AND r.course_id = :course_id
+              AND r.deleted_at IS NULL
+            ORDER BY tr.order_index
+            """,
+            {"task_id": source_task_id, "course_id": command.course_id},
+        ):
+            append(row["resource_id"])
+
+    source_day_id = cast(str | None, prompt_batch["source_day_id"])
+    if source_day_id:
+        for row in _rows(
+            connection,
+            """
+            SELECT tr.resource_id
+            FROM tasks t
+            JOIN task_resources tr ON tr.task_id = t.id
+            JOIN resources r ON r.id = tr.resource_id
+            WHERE t.day_id = :day_id
+              AND t.deleted_at IS NULL
+              AND r.course_id = :course_id
+              AND r.deleted_at IS NULL
+            ORDER BY t.order_index, tr.order_index
+            """,
+            {"day_id": source_day_id, "course_id": command.course_id},
+        ):
+            append(row["resource_id"])
+
+    for row in _rows(
+        connection,
+        """
+        SELECT a.resource_id
+        FROM prompt_batch_items pbi
+        JOIN annotations a ON a.id = pbi.annotation_id
+        JOIN resources r ON r.id = a.resource_id
+        WHERE pbi.prompt_batch_id = :prompt_batch_id
+          AND a.deleted_at IS NULL
+          AND r.course_id = :course_id
+          AND r.deleted_at IS NULL
+        ORDER BY pbi.order_index
+        """,
+        {"prompt_batch_id": prompt_batch["id"], "course_id": command.course_id},
+    ):
+        append(row["resource_id"])
+    return resource_ids
 
 
 def create_discussion_message(

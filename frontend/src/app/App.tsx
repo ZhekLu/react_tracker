@@ -52,6 +52,7 @@ import {
   type PromptPayload,
 } from "../lib/prompts";
 import { normalizeDiscussionMarkdown } from "../lib/discussionText";
+import { importPastedMarkdown } from "../lib/discussionImport";
 import {
   extractedQuestionFingerprint,
   extractQuestionsFromMarkdown,
@@ -1058,7 +1059,7 @@ export function App() {
     setError(null);
     try {
       const clipboard = await navigator.clipboard.readText();
-      const markdown = normalizeDiscussionMarkdown(clipboard);
+      const markdown = importPastedMarkdown(clipboard);
       if (!markdown) throw new Error("The clipboard does not contain discussion text.");
       await runMutation(async () => {
         if (!workspace) return;

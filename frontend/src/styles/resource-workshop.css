@@ -1440,7 +1440,29 @@
 }
 
 .discussionFormulaComposer {
-  border-top: 1px solid var(--line);
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 150;
+  width: min(680px, calc(100vw - 36px));
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 18px 54px rgba(18, 43, 37, 0.22);
+  backdrop-filter: blur(12px);
+}
+
+@media (max-width: 640px) {
+  .discussionFormulaComposer {
+    right: 8px;
+    bottom: 8px;
+    width: calc(100vw - 16px);
+    flex-wrap: wrap;
+  }
+
+  .discussionFormulaComposer label {
+    flex-basis: 100%;
+  }
 }
 
 .discussionHighlightMode.active {

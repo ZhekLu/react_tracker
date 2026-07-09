@@ -205,15 +205,17 @@ rows. The complete format, patch semantics, and AI-generation rules are in
   Structured copy actions save an immutable prompt-batch snapshot alongside the
   clipboard text and can start a linked discussion.
 - Use Discussions to keep ordered tutor exchanges attached to one or more source
-  resources. Messages are immutable, render Markdown/LaTeX, and can answer,
+  resources. Messages are editable, render Markdown/LaTeX, and can answer,
   partially answer, or reference one or many questions. New questions can be
   anchored recursively to any discussion message. Tutor answers can be scanned
   for candidate questions with an editable review step. Pasted tutor responses
-  normalize common ChatGPT display-math delimiters and automatically link the
-  active questions of a directly opened resource. Explicit `Q1` / `Question 1`
-  answer sections place the closest linked question beside the answer with
-  reference, partial, and done controls. Deleting a discussion is a recoverable
-  soft deletion rather than destructive database removal.
+  pass through a Markdown syntax tree that repairs the common ChatGPT
+  display-math clipboard form, preserves language-labelled code, and compacts
+  accidental PDF/chat line breaks. Day prompt discussions link all resources
+  used by that day. Explicit `Q-001`, grouped `Q-002 and Q-003`, and `Question
+  4` answer headings place the exact prompt-batch questions beside their answers
+  with reference, partial, and done controls. Deleting a discussion is a
+  recoverable soft deletion rather than destructive database removal.
 
 ### Drawboard cloud PDFs
 
@@ -268,6 +270,46 @@ collection fails visibly and leaves existing tracker annotations untouched.
 Tiptap notes support editable inline and block formulas. Read-only Markdown
 surfaces use the same lazy KaTeX renderer so formula syntax remains consistent
 across notes, questions, plans, resource descriptions, and discussions.
+
+### Writing formulas and code
+
+Use ordinary Markdown with LaTeX inside dollar delimiters:
+
+```markdown
+The target is $V_{k+1}=T_*V_k$.
+
+$$
+V_{k+1}(s)=\max_a \sum_{s',r}p(s',r\mid s,a)
+\left[r+\gamma V_k(s')\right]
+$$
+```
+
+Use `$...$` for a formula inside a sentence and `$$...$$` on their own lines
+for a displayed derivation. Do not use bare `[ ... ]` when typing manually;
+that form is accepted only as a repair for pasted ChatGPT clipboard text.
+Click a rendered formula while editing to open its small floating LaTeX editor,
+which stays at the bottom-right instead of moving the discussion scroll
+position.
+
+For code, use a fenced block and keep the language label so syntax highlighting
+can select the right grammar:
+
+````markdown
+```python
+def bellman_backup(state: int) -> float:
+    return reward + gamma * value[next_state]
+```
+````
+
+The paste importer follows ChatGPT's language-labelled code-block convention
+and Tiptap's Markdown/LaTeX model. It runs only for paste and **Paste response**:
+manual saves preserve deliberate one-word paragraphs and line breaks. During a
+paste, short prose fragments are joined, small standalone formulas become
+inline formulas, and a short `text` fence becomes inline code. Python and other
+programming-language fences always remain blocks. See the
+[OpenAI code-block guide](https://help.openai.com/en/articles/20001246-working-with-writing-blocks-and-code-blocks-in-chatgpt),
+[Tiptap Markdown guide](https://tiptap.dev/docs/editor/markdown/getting-started/basic-usage),
+and [Tiptap mathematics extension](https://tiptap.dev/docs/editor/extensions/nodes/mathematics).
 
 ### Course file mentions
 

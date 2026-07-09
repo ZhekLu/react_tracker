@@ -32,27 +32,6 @@ function protectFencedCode(value: string): ProtectedMarkdown {
   };
 }
 
-function protectDisplayMath(value: string): ProtectedMarkdown {
-  const blocks: string[] = [];
-  const protectedValue = value.replace(/\$\$[\s\S]*?\$\$/g, (block) => {
-    const token = `@@DISCUSSION_DISPLAY_MATH_${blocks.length}@@`;
-    blocks.push(block);
-    return token;
-  });
-  return {
-    value: protectedValue,
-    restore: (markdown) =>
-      blocks.reduce(
-        (restored, block, index) =>
-          restored.replace(
-            `@@DISCUSSION_DISPLAY_MATH_${index}@@`,
-            () => block,
-          ),
-        markdown,
-      ),
-  };
-}
-
 function normalizeHtmlSpaceEntities(value: string): string {
   return value
     .replace(/\u00a0/g, " ")
@@ -67,67 +46,6 @@ function repairOrphanInlineMath(value: string): string {
   );
 }
 
-function sentenceCount(value: string): number {
-  return (value.match(/[.!?](?=(?:["')\]}*])?(?:\s|$))/g) ?? []).length;
-}
-
-function isStructuralMarkdownBlock(block: string): boolean {
-  const firstLine = block.split("\n", 1)[0].trim();
-  return (
-    /^(?:@@DISCUSSION_(?:FENCED_CODE|DISPLAY_MATH)_\d+@@$|#{1,6}\s|```|~~~|>\s?|[-*_]{3,}\s*$|\$\$|\\\[|<[\w!/])/.test(firstLine) ||
-    /^(?:[-+*]\s|\d+[.)]\s)/.test(firstLine) ||
-    (block.includes("\n") &&
-      block.split("\n").every((line) => /^\s*\|.*\|\s*$/.test(line)))
-  );
-}
-
-function compactProseBlock(block: string): string {
-  return block
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join(" ");
-}
-
-export function densifyDiscussionMarkdown(value: string): string {
-  const blocks = value
-    .replace(/\r\n?/g, "\n")
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean);
-  const dense: { markdown: string; prose: boolean }[] = [];
-  let proseBuffer = "";
-
-  function flushProse() {
-    if (!proseBuffer) return;
-    dense.push({ markdown: proseBuffer, prose: true });
-    proseBuffer = "";
-  }
-
-  for (const block of blocks) {
-    if (isStructuralMarkdownBlock(block)) {
-      flushProse();
-      dense.push({ markdown: block, prose: false });
-      continue;
-    }
-    const prose = compactProseBlock(block);
-    proseBuffer = proseBuffer ? `${proseBuffer} ${prose}` : prose;
-    if (sentenceCount(proseBuffer) >= 2) flushProse();
-  }
-  flushProse();
-
-  if (
-    dense.length >= 2 &&
-    dense.at(-1)?.prose &&
-    sentenceCount(dense.at(-1)?.markdown ?? "") < 2 &&
-    dense.at(-2)?.prose
-  ) {
-    const trailing = dense.pop();
-    dense[dense.length - 1].markdown += ` ${trailing?.markdown ?? ""}`;
-  }
-  return dense.map((block) => block.markdown).join("\n\n");
-}
-
 export function normalizeDiscussionMarkdown(value: string): string {
   const protectedMarkdown = protectFencedCode(value);
   const normalized = normalizeMathMarkdown(
@@ -140,14 +58,12 @@ export function normalizeDiscussionMarkdown(value: string): string {
     .replace(/^•\s+/gm, "- ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  const protectedMath = protectDisplayMath(normalized);
-  return protectedMarkdown.restore(
-    protectedMath.restore(densifyDiscussionMarkdown(protectedMath.value)),
-  );
+  return protectedMarkdown.restore(normalized);
 }
 
 export type DiscussionAnswerSection = {
   label: string;
+  labels: string[];
   markdown: string;
 };
 
@@ -157,11 +73,12 @@ export type DiscussionQuestionCandidate = {
 };
 
 export type DiscussionQuestionMatch = {
-  questionId: string;
+  questionIds: string[];
   sectionLabel: string;
 };
 
-const QUESTION_HEADING = /^#{1,6}\s+((?:question\s+|q)\d+)\b.*$/gim;
+const MARKDOWN_HEADING = /^#{1,6}\s+(.+)$/gim;
+const QUESTION_LABEL = /\b(?:Q(?:UESTION)?)[\s-]*(\d{1,3})\b/gi;
 const WORD_TOKEN = /[a-z0-9]+/g;
 const STOP_WORDS = new Set([
   "about",
@@ -198,7 +115,14 @@ export function discussionAnswerSections(markdown: string): {
   preamble: string;
   sections: DiscussionAnswerSection[];
 } {
-  const matches = [...markdown.matchAll(QUESTION_HEADING)];
+  const matches = [...markdown.matchAll(MARKDOWN_HEADING)]
+    .map((match) => ({
+      ...match,
+      labels: [...match[1].matchAll(QUESTION_LABEL)].map(
+        (labelMatch) => `Q-${labelMatch[1].padStart(3, "0")}`,
+      ),
+    }))
+    .filter((match) => match.labels.length > 0);
   if (!matches.length) return { preamble: markdown, sections: [] };
   return {
     preamble: markdown.slice(0, matches[0].index).trim(),
@@ -206,7 +130,8 @@ export function discussionAnswerSections(markdown: string): {
       const start = match.index ?? 0;
       const end = matches[index + 1]?.index ?? markdown.length;
       return {
-        label: match[1].toUpperCase().replace(/^QUESTION\s+/, "Q"),
+        label: match.labels.join(", "),
+        labels: match.labels,
         markdown: markdown.slice(start, end).trim(),
       };
     }),
@@ -231,6 +156,21 @@ export function matchAnswerSectionsToQuestions(
   );
   const matches: DiscussionQuestionMatch[] = [];
   for (const section of sections) {
+    const explicitlyMatched = section.labels
+      .map((label) => Number(label.slice(2)) - 1)
+      .map((questionIndex) => questions[questionIndex])
+      .filter(
+        (question): question is DiscussionQuestionCandidate =>
+          Boolean(question && remaining.has(question.id)),
+      );
+    if (explicitlyMatched.length) {
+      explicitlyMatched.forEach((question) => remaining.delete(question.id));
+      matches.push({
+        questionIds: explicitlyMatched.map((question) => question.id),
+        sectionLabel: section.label,
+      });
+      continue;
+    }
     const sectionTokens = textTokens(section.markdown);
     let best: { id: string; overlap: number; score: number } | null = null;
     for (const question of questions) {
@@ -249,7 +189,7 @@ export function matchAnswerSectionsToQuestions(
     if (best && best.overlap >= 2 && best.score >= 0.08) {
       remaining.delete(best.id);
       matches.push({
-        questionId: best.id,
+        questionIds: [best.id],
         sectionLabel: section.label,
       });
     }
