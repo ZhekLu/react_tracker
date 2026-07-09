@@ -124,6 +124,7 @@ function DiscussionMessageContent({
   message,
   highlightsOnly,
   onQuestionLink,
+  questionLabelsAreOrdered,
   questionOrderIds,
   resourceById,
 }: {
@@ -131,6 +132,7 @@ function DiscussionMessageContent({
   message: DiscussionMessage;
   highlightsOnly: boolean;
   onQuestionLink: DiscussionsViewProps["onQuestionLink"];
+  questionLabelsAreOrdered: boolean;
   questionOrderIds: string[];
   resourceById: Map<string, Resource>;
 }) {
@@ -159,6 +161,17 @@ function DiscussionMessageContent({
     .filter((item): item is Annotation =>
       Boolean(item && ["question", "todo"].includes(item.kind)),
     );
+  const questionCandidates = questionLabelsAreOrdered
+    ? linkedQuestions
+    : [...linkedQuestions].sort(
+        (left, right) =>
+          left.resourceId.localeCompare(right.resourceId) ||
+          (left.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER) -
+            (right.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER) ||
+          (left.anchor?.rect?.[1] ?? Number.MAX_SAFE_INTEGER) -
+            (right.anchor?.rect?.[1] ?? Number.MAX_SAFE_INTEGER) ||
+          left.createdAt.localeCompare(right.createdAt),
+      );
   const parsed = discussionAnswerSections(markdown);
   if (message.role !== "assistant" || !parsed.sections.length) {
     return (
@@ -171,10 +184,11 @@ function DiscussionMessageContent({
   const sectionMatches = new Map(
     matchAnswerSectionsToQuestions(
       parsed.sections,
-      linkedQuestions.map((question) => ({
+      questionCandidates.map((question) => ({
         id: question.id,
         text: questionText(question),
       })),
+      questionLabelsAreOrdered,
     ).map((match) => [match.sectionLabel, match.questionIds]),
   );
   return (
@@ -914,6 +928,9 @@ export function DiscussionsView({
                           highlightsOnly={highlightsOnly}
                           message={message}
                           onQuestionLink={onQuestionLink}
+                          questionLabelsAreOrdered={Boolean(
+                            discussion.initialPromptBatchId,
+                          )}
                           questionOrderIds={discussion.questionIds}
                           resourceById={resourceById}
                         />

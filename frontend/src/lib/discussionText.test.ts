@@ -54,4 +54,34 @@ describe("discussion answer mapping", () => {
       },
     ]);
   });
+
+  it("uses semantic multi-match for legacy resource threads without a batch", () => {
+    const sections = discussionAnswerSections([
+      "## Q-004, Q-005, Q-006",
+      "A deterministic policy chooses one action. The stochastic policy uses probabilities, so equality between q and v needs an expectation.",
+    ].join("\n")).sections;
+    const legacyQuestions = [
+      {
+        id: "deterministic",
+        text: "Why does equality between q and v hold for a deterministic policy?",
+      },
+      {
+        id: "stochastic",
+        text: "What changes for a stochastic policy with action probabilities?",
+      },
+      {
+        id: "screenshot-only",
+        text: "This item was flagged as an open question.",
+      },
+    ];
+
+    expect(
+      matchAnswerSectionsToQuestions(sections, legacyQuestions, false),
+    ).toEqual([
+      {
+        questionIds: ["deterministic", "stochastic", "screenshot-only"],
+        sectionLabel: "Q-004, Q-005, Q-006",
+      },
+    ]);
+  });
 });

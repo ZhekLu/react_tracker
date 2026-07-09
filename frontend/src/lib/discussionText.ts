@@ -82,6 +82,8 @@ const QUESTION_LABEL = /\b(?:Q(?:UESTION)?)[\s-]*(\d{1,3})\b/gi;
 const WORD_TOKEN = /[a-z0-9]+/g;
 const STOP_WORDS = new Set([
   "about",
+  "action",
+  "actions",
   "after",
   "again",
   "because",
@@ -90,11 +92,19 @@ const STOP_WORDS = new Set([
   "chapter",
   "could",
   "does",
+  "equation",
+  "equations",
+  "example",
   "every",
   "from",
   "have",
   "into",
   "only",
+  "policy",
+  "question",
+  "questions",
+  "state",
+  "states",
   "that",
   "their",
   "then",
@@ -103,6 +113,8 @@ const STOP_WORDS = new Set([
   "they",
   "this",
   "those",
+  "value",
+  "values",
   "what",
   "when",
   "where",
@@ -146,23 +158,65 @@ function textTokens(value: string): Set<string> {
   );
 }
 
+function inferLegacyQuestionOffset(
+  sections: DiscussionAnswerSection[],
+  questions: DiscussionQuestionCandidate[],
+  questionTokens: Map<string, Set<string>>,
+): number | null {
+  const candidates = new Map<number, { support: number; weight: number }>();
+  for (const section of sections) {
+    const sectionTokens = textTokens(section.markdown);
+    for (const question of questions) {
+      const tokens = questionTokens.get(question.id) ?? new Set<string>();
+      const overlap = [...tokens].filter((token) =>
+        sectionTokens.has(token),
+      ).length;
+      const score = tokens.size ? overlap / tokens.size : 0;
+      if (overlap < 1 || score < 0.08) continue;
+      for (const label of section.labels) {
+        const offset = Number(label.slice(2)) - (questions.indexOf(question) + 1);
+        const candidate = candidates.get(offset) ?? { support: 0, weight: 0 };
+        candidate.support += 1;
+        candidate.weight += overlap + score;
+        candidates.set(offset, candidate);
+      }
+    }
+  }
+  const ranked = [...candidates.entries()].sort(
+    ([leftOffset, left], [rightOffset, right]) =>
+      right.support - left.support ||
+      right.weight - left.weight ||
+      Math.abs(leftOffset) - Math.abs(rightOffset),
+  );
+  return ranked[0] && ranked[0][1].support >= 2 ? ranked[0][0] : null;
+}
+
 export function matchAnswerSectionsToQuestions(
   sections: DiscussionAnswerSection[],
   questions: DiscussionQuestionCandidate[],
+  labelOrderIsStable = true,
 ): DiscussionQuestionMatch[] {
   const remaining = new Set(questions.map((question) => question.id));
   const questionTokens = new Map(
     questions.map((question) => [question.id, textTokens(question.text)]),
   );
+  const legacyLabelOffset = labelOrderIsStable
+    ? null
+    : inferLegacyQuestionOffset(sections, questions, questionTokens);
   const matches: DiscussionQuestionMatch[] = [];
   for (const section of sections) {
-    const explicitlyMatched = section.labels
-      .map((label) => Number(label.slice(2)) - 1)
-      .map((questionIndex) => questions[questionIndex])
-      .filter(
-        (question): question is DiscussionQuestionCandidate =>
-          Boolean(question && remaining.has(question.id)),
-      );
+    const explicitlyMatched = labelOrderIsStable || legacyLabelOffset !== null
+      ? section.labels
+          .map(
+            (label) =>
+              Number(label.slice(2)) - 1 - (legacyLabelOffset ?? 0),
+          )
+          .map((questionIndex) => questions[questionIndex])
+          .filter(
+            (question): question is DiscussionQuestionCandidate =>
+              Boolean(question && remaining.has(question.id)),
+          )
+      : [];
     if (explicitlyMatched.length) {
       explicitlyMatched.forEach((question) => remaining.delete(question.id));
       matches.push({
@@ -172,24 +226,29 @@ export function matchAnswerSectionsToQuestions(
       continue;
     }
     const sectionTokens = textTokens(section.markdown);
-    let best: { id: string; overlap: number; score: number } | null = null;
-    for (const question of questions) {
-      if (!remaining.has(question.id)) continue;
-      const tokens = questionTokens.get(question.id) ?? new Set<string>();
-      const overlap = [...tokens].filter((token) => sectionTokens.has(token)).length;
-      const score = tokens.size ? overlap / tokens.size : 0;
-      if (
-        best === null ||
-        score > best.score ||
-        (score === best.score && overlap > best.overlap)
-      ) {
-        best = { id: question.id, overlap, score };
-      }
-    }
-    if (best && best.overlap >= 2 && best.score >= 0.08) {
-      remaining.delete(best.id);
+    const semanticMatches = questions
+      .filter((question) => remaining.has(question.id))
+      .map((question) => {
+        const tokens = questionTokens.get(question.id) ?? new Set<string>();
+        const overlap = [...tokens].filter((token) =>
+          sectionTokens.has(token),
+        ).length;
+        return {
+          id: question.id,
+          overlap,
+          score: tokens.size ? overlap / tokens.size : 0,
+        };
+      })
+      .filter((candidate) => candidate.overlap >= 2 && candidate.score >= 0.08)
+      .sort(
+        (left, right) =>
+          right.score - left.score || right.overlap - left.overlap,
+      )
+      .slice(0, labelOrderIsStable ? 1 : Math.max(1, section.labels.length));
+    if (semanticMatches.length) {
+      semanticMatches.forEach((match) => remaining.delete(match.id));
       matches.push({
-        questionIds: [best.id],
+        questionIds: semanticMatches.map((match) => match.id),
         sectionLabel: section.label,
       });
     }
