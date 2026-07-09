@@ -584,16 +584,19 @@ export function App() {
       "Prompt copied; discussion created for the response.",
     );
     if (!promptBatchId) return;
+    let discussionId = "";
     await runMutation(async () => {
-      await createDiscussion({
+      const created = await createDiscussion({
         courseId: workspace.id,
         initialPromptBatchId: promptBatchId,
         sourceResourceId: payload.sourceResourceId,
         title: payload.title,
       });
+      discussionId = created.id;
     });
+    if (!discussionId) return;
     navigationIntentRef.current = "push";
-    setFocusedResourceId(payload.sourceResourceId ?? "");
+    setFocusedResourceId(discussionId);
     setFocusedTaskId(payload.sourceTaskId ?? "");
     setView("discussions");
     setActionMessage("Prompt copied. Paste the tutor response into this discussion.");
@@ -1236,7 +1239,7 @@ export function App() {
       onBack={() => window.history.back()}
       onCourseChange={handleCourseChange}
       onCopyDayPrompt={(day) =>
-        void handleCopyPrompt(dayPrompt(workspace, day), "Day prompt copied")
+        void handleStartDiscussion(dayPrompt(workspace, day))
       }
       onCopyDayQuestions={(day) =>
         void handleCopyPrompt(

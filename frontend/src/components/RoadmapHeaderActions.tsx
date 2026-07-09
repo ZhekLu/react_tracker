@@ -100,9 +100,9 @@ export function RoadmapHeaderActions({
         <SkipForward size={15} />
       </button>
       <button
-        aria-label="Copy day prompt"
+        aria-label="Copy day prompt and start discussion"
         onClick={() => onCopyDayPrompt(activeDay)}
-        title="Copy structured day prompt"
+        title="Copy structured day prompt and start its discussion"
         type="button"
       >
         <ClipboardCopy size={15} />
