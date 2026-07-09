@@ -54,6 +54,10 @@ from ..schemas.workspace import (
     Task,
     TaskStatusCommand,
 )
+from ..services.chapter_scope_service import (
+    annotation_chapter_number,
+    referenced_chapter_numbers,
+)
 
 
 class WorkspaceRepositoryError(RuntimeError):
@@ -424,6 +428,41 @@ def _open_question_count(annotations: Iterable[Annotation]) -> int:
     )
 
 
+def _annotation_chapter(annotation: Annotation) -> int | None:
+    metadata = annotation.anchor.metadata if annotation.anchor is not None else {}
+    return annotation_chapter_number(
+        chapter_number=metadata.get("chapterNumber"),
+        chapter_title=metadata.get("chapterTitle"),
+        chapter_label=metadata.get("chapterLabel"),
+        subchapter_title=metadata.get("subchapterTitle"),
+        section_title=annotation.anchor.section_title if annotation.anchor else None,
+    )
+
+
+def _task_scoped_annotations(
+    resource_ids: Iterable[str],
+    annotations_by_resource: Mapping[str, list[Annotation]],
+    resource_kind_by_id: Mapping[str, str],
+    chapter_numbers: Sequence[int],
+) -> list[Annotation]:
+    chapter_scope = set(chapter_numbers)
+    scoped: list[Annotation] = []
+    seen: set[str] = set()
+    for resource_id in resource_ids:
+        for annotation in annotations_by_resource.get(resource_id, []):
+            if annotation.id in seen:
+                continue
+            if (
+                resource_kind_by_id.get(resource_id) == "book"
+                and chapter_scope
+                and _annotation_chapter(annotation) not in chapter_scope
+            ):
+                continue
+            seen.add(annotation.id)
+            scoped.append(annotation)
+    return scoped
+
+
 def _day_progress(row: Mapping[str, Any]) -> DayProgress:
     return DayProgress(
         required=int(cast(Any, row["required_task_count"] or 0)),
@@ -621,6 +660,19 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
     day_to_skills, skill_to_days = _day_skills(connection, course_id)
     versions = _resource_versions(connection, course_id)
     progress_by_resource = _resource_progress(connection, course_id)
+    resource_kind_by_id = {
+        str(row["id"]): str(row["kind"])
+        for row in _rows(
+            connection,
+            """
+            SELECT id, kind
+            FROM resources
+            WHERE course_id = :course_id AND deleted_at IS NULL
+            """,
+            {"course_id": course_id},
+        )
+    }
+    annotation_by_id = {annotation.id: annotation for annotation in annotations}
 
     day_progress = {
         str(row["day_id"]): _day_progress(cast(Mapping[str, Any], row))
@@ -654,15 +706,19 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
         {"course_id": course_id},
     )
     tasks_by_section: dict[str | None, list[Task]] = defaultdict(list)
+    task_annotation_ids: dict[str, set[str]] = {}
     for row in task_rows:
         task_id = str(row["id"])
         linked_resources = task_to_resources.get(task_id, [])
         linked_questions = task_to_exam_questions.get(task_id, [])
-        linked_annotations = [
-            annotation
-            for resource_id in [*linked_resources, *linked_questions]
-            for annotation in annotations_by_resource.get(resource_id, [])
-        ]
+        chapter_numbers = referenced_chapter_numbers(str(row["title"]))
+        linked_annotations = _task_scoped_annotations(
+            [*linked_resources, *linked_questions],
+            annotations_by_resource,
+            resource_kind_by_id,
+            chapter_numbers,
+        )
+        task_annotation_ids[task_id] = {annotation.id for annotation in linked_annotations}
         task = Task(
             id=task_id,
             day_id=str(row["day_id"]),
@@ -678,6 +734,7 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
             resource_ids=linked_resources,
             exam_question_ids=linked_questions,
             skill_ids=[],
+            chapter_numbers=chapter_numbers,
             rationale=documents.get(str(row["rationale_document_id"]))
             if row["rationale_document_id"]
             else None,
@@ -737,16 +794,16 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
                     tasks=day_orphan_tasks,
                 ),
             ]
-        linked_resource_ids = [
-            resource_id
+        linked_annotation_ids = {
+            annotation_id
             for section in day_sections
             for task in section.tasks
-            for resource_id in [*task.resource_ids, *task.exam_question_ids]
-        ]
+            for annotation_id in task_annotation_ids.get(task.id, set())
+        }
         linked_annotations = [
-            annotation
-            for resource_id in linked_resource_ids
-            for annotation in annotations_by_resource.get(resource_id, [])
+            annotation_by_id[annotation_id]
+            for annotation_id in linked_annotation_ids
+            if annotation_id in annotation_by_id
         ]
         days.append(
             StudyDay(

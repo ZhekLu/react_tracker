@@ -23,6 +23,71 @@ function noteText(notes: Note[]): string {
     .join("\n\n");
 }
 
+
+function annotationMetadata(annotation: Annotation): Record<string, unknown> {
+  const metadata = annotation.anchor?.metadata ?? {};
+  const selector = metadata.selector;
+  return selector && typeof selector === "object" && !Array.isArray(selector)
+    ? { ...metadata, ...(selector as Record<string, unknown>) }
+    : metadata;
+}
+
+function annotationChapterNumber(annotation: Annotation): number | null {
+  const metadata = annotationMetadata(annotation);
+  const direct = metadata.chapterNumber;
+  if (typeof direct === "number" && Number.isFinite(direct)) {
+    return Math.trunc(direct);
+  }
+  if (typeof direct === "string" && /^\d+$/.test(direct.trim())) {
+    return Number(direct.trim());
+  }
+  for (const value of [
+    metadata.chapterTitle,
+    metadata.chapterLabel,
+    metadata.subchapterTitle,
+    annotation.anchor?.sectionTitle,
+  ]) {
+    if (typeof value !== "string") continue;
+    const match = value.match(/(?:chapter\s+)?(\d{1,3})(?:\.\d+)?/i);
+    if (match) return Number(match[1]);
+  }
+  return null;
+}
+
+function dayScopedAnnotations(course: Course, day: StudyDay): Annotation[] {
+  const resourceById = new Map(
+    course.resources.map((resource) => [resource.id, resource]),
+  );
+  const resourceScopes = new Map<
+    string,
+    { unrestricted: boolean; chapters: Set<number> }
+  >();
+
+  for (const task of day.sections.flatMap((section) => section.tasks)) {
+    for (const resourceId of task.resourceIds) {
+      const resource = resourceById.get(resourceId);
+      const current = resourceScopes.get(resourceId) ?? {
+        chapters: new Set<number>(),
+        unrestricted: false,
+      };
+      if (resource?.kind !== "book" || task.chapterNumbers.length === 0) {
+        current.unrestricted = true;
+      } else {
+        task.chapterNumbers.forEach((chapter) => current.chapters.add(chapter));
+      }
+      resourceScopes.set(resourceId, current);
+    }
+  }
+
+  return course.annotations.filter((annotation) => {
+    const scope = resourceScopes.get(annotation.resourceId);
+    if (!scope) return false;
+    if (scope.unrestricted) return true;
+    const chapter = annotationChapterNumber(annotation);
+    return chapter !== null && scope.chapters.has(chapter);
+  });
+}
+
 function activeQuestions(annotations: Annotation[]): Annotation[] {
   return annotations.filter(
     (annotation) =>
@@ -47,11 +112,13 @@ function annotationLine(
     .join(" · ");
   const quote = annotation.anchor?.quote?.trim();
   const body = annotation.body?.plainText.trim();
+  const notes = noteText(annotation.notes);
   return [
     `### Q-${String(index).padStart(3, "0")} · ${location || "Tracker question"}`,
     `Tracker annotation ID: ${annotation.id}`,
     quote ? `> ${quote}` : "",
     body || "This item was flagged as an open question.",
+    notes ? `\n#### My note / attempted solution\n\n${notes}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -69,11 +136,7 @@ export function dayPrompt(course: Course, day: StudyDay): PromptPayload {
   const resources = [...resourceIds]
     .map((resourceId) => resourceById.get(resourceId))
     .filter((resource): resource is Resource => Boolean(resource));
-  const questions = activeQuestions(
-    course.annotations.filter((annotation) =>
-      resourceIds.has(annotation.resourceId),
-    ),
-  );
+  const questions = activeQuestions(dayScopedAnnotations(course, day));
   const sections = day.sections.map((section) => {
     const taskLines = section.tasks.map((task) => {
       const linked = task.resourceIds
@@ -135,7 +198,7 @@ export function dayPrompt(course: Course, day: StudyDay): PromptPayload {
       : "",
     "## Request",
     "",
-    "Guide me through this day in task order. Use my progress and notes, answer the open questions, and keep the work scoped to the stated stop condition.",
+    "Guide me through this day in task order. Use my progress and notes, answer the open questions.",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -152,16 +215,7 @@ export function dayQuestions(course: Course, day: StudyDay): PromptPayload {
   const resourceById = new Map(
     course.resources.map((resource) => [resource.id, resource]),
   );
-  const resourceIds = new Set(
-    day.sections.flatMap((section) =>
-      section.tasks.flatMap((task) => task.resourceIds),
-    ),
-  );
-  const questions = activeQuestions(
-    course.annotations.filter((annotation) =>
-      resourceIds.has(annotation.resourceId),
-    ),
-  );
+  const questions = activeQuestions(dayScopedAnnotations(course, day));
   const markdown = [
     `# ${course.title} · Day ${day.number} open questions`,
     "",

@@ -35,6 +35,7 @@ import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { DayCompletionParade } from "../../components/rewards/DayCompletionParade";
 import { PetCelebration } from "../../components/rewards/PetCelebration";
 import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
+import { annotationChapterNumber } from "../../components/annotations/annotationDisplay";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
@@ -62,6 +63,7 @@ import {
   formatPlannedTime,
   formatTrackedTime,
   isDayClosed,
+  isDayFullyComplete,
 } from "./dayPresentation";
 
 type RoadmapViewProps = {
@@ -148,6 +150,7 @@ function TaskRow({
       if (leftQuestion !== rightQuestion) return leftQuestion ? -1 : 1;
       return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
     });
+  const taskOpenQuestionCount = task.openQuestionCount;
 
   function toggleDone() {
     const nextStatus = task.status === "done" ? "todo" : "done";
@@ -167,7 +170,7 @@ function TaskRow({
 
   return (
     <article
-      className={`taskRow tone-${statusTone(task.status)} ${task.openQuestionCount ? "hasQuestions" : ""} ${reward.active ? "taskCelebrated" : ""}`}
+      className={`taskRow tone-${statusTone(task.status)} ${taskOpenQuestionCount ? "hasQuestions" : ""} ${reward.active ? "taskCelebrated" : ""}`}
       data-status={task.status}
       data-task-id={task.id}
     >
@@ -191,9 +194,12 @@ function TaskRow({
             {task.estimatedMinutes ? (
               <span className="taskMetaBadge"><Timer size={11} /> {task.estimatedMinutes}m</span>
             ) : null}
-            {task.openQuestionCount ? (
-              <span className="taskMetaBadge question">
-                <CircleHelp size={11} /> {task.openQuestionCount}
+            {taskOpenQuestionCount ? (
+              <span
+                className="taskMetaBadge question"
+                title="Open questions scoped to this task/chapter"
+              >
+                <CircleHelp size={11} /> {taskOpenQuestionCount}
               </span>
             ) : null}
             {task.status === "later" ? (
@@ -304,6 +310,7 @@ function TaskRow({
         {captures.length ? (
           <TaskCapturePanel
             captures={captures}
+            chapterNumbers={task.chapterNumbers}
             onAnnotationChange={onAnnotationChange}
             onNoteSave={onNoteSave}
             onOpenDiscussion={(resourceId) =>
@@ -357,37 +364,56 @@ function TaskRow({
 
 function TaskCapturePanel({
   captures,
+  chapterNumbers,
   onAnnotationChange,
   onNoteSave,
   onOpenDiscussion,
   onOpenResource,
 }: {
   captures: Array<{ annotation: Annotation; resource: Resource }>;
+  chapterNumbers: number[];
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
   onNoteSave: RoadmapViewProps["onNoteSave"];
   onOpenDiscussion: (resourceId: string) => void;
   onOpenResource: RoadmapViewProps["onOpenResource"];
 }) {
-  const [open, setOpen] = useState(captures.length > 0);
-  const previousCount = useRef(captures.length);
+  const chapterScope = new Set(chapterNumbers);
+  const isRelevantToTask = ({
+    annotation,
+    resource,
+  }: {
+    annotation: Annotation;
+    resource: Resource;
+  }) => {
+    if (resource.kind !== "book" || chapterScope.size === 0) return true;
+    const chapterNumber = annotationChapterNumber(annotation);
+    return chapterNumber !== null && chapterScope.has(chapterNumber);
+  };
   const activeQuestions = captures.filter(
-    ({ annotation }) =>
-      ["question", "todo"].includes(annotation.kind) &&
-      annotation.status === "open",
+    (capture) =>
+      isRelevantToTask(capture) &&
+      ["question", "todo"].includes(capture.annotation.kind) &&
+      capture.annotation.status === "open",
   );
+  const [open, setOpen] = useState(activeQuestions.length > 0);
+  const [questionsOnly, setQuestionsOnly] = useState(false);
+  const showingQuestionsOnly = questionsOnly && activeQuestions.length > 0;
+  const previousActiveQuestionCount = useRef(activeQuestions.length);
   const importedCaptures = captures.filter(({ annotation }) =>
     ["drawboard_cloud", "drawboard_cloud_ink", "pdf_import"].includes(
       annotation.origin,
     ),
   );
-  const manualQuestions = captures.filter(
-    ({ annotation }) =>
+  const visibleCaptures = showingQuestionsOnly ? activeQuestions : captures;
+  const manualQuestions = visibleCaptures.filter(
+    ({ annotation, resource }) =>
+      (resource.kind !== "book" || chapterScope.size === 0) &&
       ["question", "todo"].includes(annotation.kind) &&
       !["drawboard_cloud", "drawboard_cloud_ink", "pdf_import"].includes(
         annotation.origin,
       ),
   );
-  const groupedCaptures = captures.filter(
+  const groupedCaptures = visibleCaptures.filter(
     ({ annotation }) =>
       !manualQuestions.some(
         ({ annotation: question }) => question.id === annotation.id,
@@ -408,25 +434,31 @@ function TaskCapturePanel({
   ];
 
   useEffect(() => {
-    if (captures.length > previousCount.current) setOpen(true);
-    previousCount.current = captures.length;
-  }, [captures.length]);
+    if (activeQuestions.length > previousActiveQuestionCount.current) {
+      setOpen(true);
+    }
+    previousActiveQuestionCount.current = activeQuestions.length;
+  }, [activeQuestions.length]);
 
   return (
     <section className="taskCapturePanel">
-      <button
-        aria-expanded={open}
-        className="taskCaptureToggle"
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
+      <div className="taskCaptureToggle">
         <span>
           {activeQuestions.length ? (
-            <strong className="question">
+            <button
+              aria-pressed={showingQuestionsOnly}
+              className={`question ${showingQuestionsOnly ? "active" : ""}`}
+              onClick={() => {
+                setQuestionsOnly((current) => !current);
+                setOpen(true);
+              }}
+              title="Show only open questions and expand them"
+              type="button"
+            >
               <CircleHelp size={12} />
               {activeQuestions.length} active question
               {activeQuestions.length === 1 ? "" : "s"}
-            </strong>
+            </button>
           ) : null}
           {importedCaptures.length ? (
             <strong className="capture">
@@ -442,8 +474,16 @@ function TaskCapturePanel({
             </strong>
           ) : null}
         </span>
-        <ChevronDown className={open ? "expanded" : ""} size={14} />
-      </button>
+        <button
+          aria-expanded={open}
+          aria-label={open ? "Hide task captures" : "Show task captures"}
+          className="taskCaptureExpand"
+          onClick={() => setOpen((current) => !current)}
+          type="button"
+        >
+          <ChevronDown className={open ? "expanded" : ""} size={14} />
+        </button>
+      </div>
       {open ? (
         <div className="taskCaptureGroupedList">
           {manualQuestions.length ? (
@@ -460,6 +500,7 @@ function TaskCapturePanel({
                   ({ annotation }) => annotation,
                 )}
                 flat
+                initiallyExpandCaptures={showingQuestionsOnly}
                 onAnnotationChange={onAnnotationChange}
                 onDiscuss={(annotation) => {
                   const resource = manualQuestions.find(
@@ -472,7 +513,14 @@ function TaskCapturePanel({
               />
             </section>
           ) : null}
-          {captureGroups.map(({ annotations, resource }) => (
+          {captureGroups.map(({ annotations, resource }) => {
+            const relevantQuestions = annotations.filter(
+              (annotation) =>
+                isRelevantToTask({ annotation, resource }) &&
+                ["question", "todo"].includes(annotation.kind) &&
+                annotation.status === "open",
+            ).length;
+            return (
             <section className="taskCaptureResourceGroup" key={resource.id}>
               <header>
                 <button
@@ -482,16 +530,25 @@ function TaskCapturePanel({
                   <BookOpen size={12} />
                   <span>{resource.title}</span>
                 </button>
-                <strong>{annotations.length}</strong>
+                <strong>
+                  {relevantQuestions ? `${relevantQuestions} Q · ` : ""}
+                  {annotations.length}
+                </strong>
               </header>
               <AnnotationChapterGroups
                 annotations={annotations}
+                initiallyExpandCaptures={showingQuestionsOnly}
+                initiallyOpenAll={showingQuestionsOnly}
+                preferredChapterNumbers={
+                  resource.kind === "book" ? chapterNumbers : []
+                }
                 onAnnotationChange={onAnnotationChange}
                 onDiscuss={() => onOpenDiscussion(resource.id)}
                 onNoteSave={onNoteSave}
               />
             </section>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </section>
@@ -539,6 +596,10 @@ function DayCard({
   const trackedMinutes = day.trackedSeconds / 60;
   const timeRatio = plannedMinutes ? trackedMinutes / plannedMinutes : 0;
   const isClosed = isDayClosed(day);
+  const isFullyComplete = isDayFullyComplete(day);
+  const shouldCompact = isClosed || isFullyComplete;
+  const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
+  const showDetails = !shouldCompact || compactDetailsOpen;
   const tone = dayTone(day);
   const stopWhen = day.sections
     .filter((section) => section.title.toLowerCase() === "stop when")
@@ -555,7 +616,7 @@ function DayCard({
 
   return (
     <article
-      className={`dayCard tone-${tone} ${reward.active ? "dayCelebrated" : ""}`}
+      className={`dayCard tone-${tone} ${isFullyComplete ? "isFullyComplete" : ""} ${!showDetails ? "isCompact" : ""} ${reward.active ? "dayCelebrated" : ""}`}
       data-day-id={day.id}
       id={day.id}
     >
@@ -606,8 +667,19 @@ function DayCard({
         ) : day.trackedSeconds ? (
           <span><Timer size={14} /> {formatTrackedTime(day.trackedSeconds)}</span>
         ) : null}
+        {shouldCompact ? (
+          <button
+            className="dayDetailsToggle"
+            onClick={() => setCompactDetailsOpen((current) => !current)}
+            type="button"
+          >
+            <ChevronDown className={showDetails ? "expanded" : ""} size={14} />
+            <span>{showDetails ? "Hide details" : "Show tasks"}</span>
+          </button>
+        ) : null}
       </div>
-      <div className="dayBody">
+      {showDetails ? (
+        <div className="dayBody">
         <div className="taskList">
           {day.sections.map((section) => {
             const taskRows = section.tasks.map((task) => (
@@ -667,12 +739,15 @@ function DayCard({
             </section>
           ) : null}
         </aside>
-      </div>
-      <DayNotes
-        content={day.notes[0]?.document.markdown ?? ""}
-        dayTitle={day.title}
-        onSave={(noteHtml) => onDayNoteSave(day, noteHtml)}
-      />
+        </div>
+      ) : null}
+      {showDetails ? (
+        <DayNotes
+          content={day.notes[0]?.document.markdown ?? ""}
+          dayTitle={day.title}
+          onSave={(noteHtml) => onDayNoteSave(day, noteHtml)}
+        />
+      ) : null}
     </article>
   );
 }

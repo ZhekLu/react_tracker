@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -22,7 +22,7 @@ DRAWBOARD_DOCUMENT_PATH = re.compile(r"^/documents/([a-f0-9]+)")
 TEXT_MARKUP_TYPES = {"TextHighlight", "TextUnderline"}
 TEXT_ANNOTATION_TYPES = TEXT_MARKUP_TYPES | {"TextInsert"}
 INK_VERTICAL_OVERLAP_TOLERANCE = 2.0
-INK_VERTICAL_GUIDE_MIN_HEIGHT = 18.0
+INK_VERTICAL_GUIDE_MIN_HEIGHT = 36.0
 INK_VERTICAL_GUIDE_ASPECT_RATIO = 3.0
 _STATE_LOCK = threading.Lock()
 
@@ -82,6 +82,7 @@ class DrawboardExtraction:
     captures: list[DrawboardCapture]
     red_ink: list[DrawboardInk]
     ignored: dict[str, int]
+    all_ink: list[DrawboardInk] = field(default_factory=list)
 
 
 def is_drawboard_cloud_url(value: str | None) -> bool:
@@ -473,7 +474,7 @@ def _ink_capture(
         return None
     color, rgb = _annotation_color(annotation)
     ink_vertices = annotation.get("inkVertices")
-    if color != "red" or not isinstance(ink_vertices, list):
+    if not isinstance(ink_vertices, list):
         return None
     annotation_id = str(annotation.get("annotationId") or item.get("id") or "")
     if not annotation_id:
@@ -509,8 +510,8 @@ def _ink_capture(
         fingerprint=fingerprint,
         source_revision=source_revision,
         page=page,
-        color=color,
-        rgb=rgb,
+        color=color or "custom",
+        rgb=rgb or [0.12, 0.16, 0.14],
         created_at=_timestamp(annotation.get("created") or item.get("created")),
         rect=rect,
         ink_vertex_sets=(ink_vertices,),
@@ -554,6 +555,89 @@ def _vertical_ranges_overlap(
         first[0] <= second[1] + tolerance
         and second[0] <= first[1] + tolerance
     )
+
+
+def _vertical_overlap_amount(
+    first: tuple[float, float],
+    second: tuple[float, float],
+) -> float:
+    return max(0.0, min(first[1], second[1]) - max(first[0], second[0]))
+
+
+def _horizontal_distance(first: DrawboardInk, second: DrawboardInk) -> float:
+    if len(first.rect) != 4 or len(second.rect) != 4:
+        return float("inf")
+    if first.rect[2] < second.rect[0]:
+        return second.rect[0] - first.rect[2]
+    if second.rect[2] < first.rect[0]:
+        return first.rect[0] - second.rect[2]
+    return 0.0
+
+
+def _guide_assignment_key(
+    guide: DrawboardInk,
+    candidate: DrawboardInk,
+) -> tuple[float, float, float, str]:
+    guide_bounds = _ink_vertical_bounds(guide)
+    candidate_bounds = _ink_vertical_bounds(candidate)
+    if guide_bounds is None or candidate_bounds is None:
+        return (float("inf"), float("inf"), float("inf"), guide.fingerprint)
+    overlap = _vertical_overlap_amount(guide_bounds, candidate_bounds)
+    guide_center = sum(guide_bounds) / 2
+    candidate_center = sum(candidate_bounds) / 2
+    return (
+        -overlap,
+        abs(guide_center - candidate_center),
+        _horizontal_distance(guide, candidate),
+        guide.fingerprint,
+    )
+
+
+def _connected_vertical_groups(
+    inks: list[DrawboardInk],
+    *,
+    tolerance: float,
+) -> list[list[DrawboardInk]]:
+    remaining = sorted(
+        inks,
+        key=lambda ink: (
+            ink.rect[1] if len(ink.rect) == 4 else 0.0,
+            ink.rect[0] if len(ink.rect) == 4 else 0.0,
+            ink.fingerprint,
+        ),
+    )
+    groups: list[list[DrawboardInk]] = []
+    while remaining:
+        seed = remaining.pop(0)
+        seed_bounds = _ink_vertical_bounds(seed)
+        if seed_bounds is None:
+            groups.append([seed])
+            continue
+
+        members = [seed]
+        band = seed_bounds
+        changed = True
+        while changed:
+            changed = False
+            still_remaining: list[DrawboardInk] = []
+            for candidate in remaining:
+                candidate_bounds = _ink_vertical_bounds(candidate)
+                if candidate_bounds is not None and _vertical_ranges_overlap(
+                    band,
+                    candidate_bounds,
+                    tolerance=tolerance,
+                ):
+                    members.append(candidate)
+                    band = (
+                        min(band[0], candidate_bounds[0]),
+                        max(band[1], candidate_bounds[1]),
+                    )
+                    changed = True
+                else:
+                    still_remaining.append(candidate)
+            remaining = still_remaining
+        groups.append(members)
+    return groups
 
 
 def _group_anchor(members: list[DrawboardInk]) -> DrawboardInk:
@@ -640,13 +724,13 @@ def group_red_ink_annotations(
     *,
     tolerance: float = INK_VERTICAL_OVERLAP_TOLERANCE,
 ) -> list[DrawboardInk]:
-    """Merge red handwritten strokes into page-local vertical bands.
+    """Merge red handwritten strokes into page-local question groups.
 
     Drawboard may expose handwriting as many independent Ink annotations. The
-    user draws a red vertical guide beside the paragraph; every red stroke whose
-    vertical range overlaps the current band joins the same group. The band is
-    expanded transitively, so the guide can connect several handwritten lines.
-    Each source stroke is consumed exactly once.
+    user's deliberate red vertical guide is the stable group boundary. Strokes
+    are assigned to the best overlapping guide without expanding its band, so
+    two nearby questions cannot be joined transitively through their letters.
+    Pages without a guide retain the older connected-band fallback.
     """
 
     grouped: list[DrawboardInk] = []
@@ -655,45 +739,55 @@ def group_red_ink_annotations(
         by_page.setdefault(ink.page, []).append(ink)
 
     for page in sorted(by_page):
-        remaining = sorted(
-            by_page[page],
-            key=lambda ink: (
-                ink.rect[1] if len(ink.rect) == 4 else 0.0,
-                ink.rect[0] if len(ink.rect) == 4 else 0.0,
-                ink.fingerprint,
-            ),
-        )
-        while remaining:
-            seed = remaining.pop(0)
-            seed_bounds = _ink_vertical_bounds(seed)
-            if seed_bounds is None:
-                grouped.append(seed)
+        page_inks = by_page[page]
+        guides = [ink for ink in page_inks if _is_vertical_guide(ink)]
+        if not guides:
+            grouped.extend(
+                _merge_red_ink_group(members)
+                for members in _connected_vertical_groups(
+                    page_inks,
+                    tolerance=tolerance,
+                )
+            )
+            continue
+
+        guide_members = {guide.fingerprint: [guide] for guide in guides}
+        unassigned: list[DrawboardInk] = []
+        for candidate in page_inks:
+            if candidate.fingerprint in guide_members:
                 continue
+            candidate_bounds = _ink_vertical_bounds(candidate)
+            matching_guides = [
+                guide
+                for guide in guides
+                if candidate_bounds is not None
+                and _ink_vertical_bounds(guide) is not None
+                and _vertical_ranges_overlap(
+                    _ink_vertical_bounds(guide) or (0.0, 0.0),
+                    candidate_bounds,
+                    tolerance=tolerance,
+                )
+            ]
+            if not matching_guides:
+                unassigned.append(candidate)
+                continue
+            guide = min(
+                matching_guides,
+                key=lambda item: _guide_assignment_key(item, candidate),
+            )
+            guide_members[guide.fingerprint].append(candidate)
 
-            members = [seed]
-            band = seed_bounds
-            changed = True
-            while changed:
-                changed = False
-                still_remaining: list[DrawboardInk] = []
-                for candidate in remaining:
-                    candidate_bounds = _ink_vertical_bounds(candidate)
-                    if candidate_bounds is not None and _vertical_ranges_overlap(
-                        band,
-                        candidate_bounds,
-                        tolerance=tolerance,
-                    ):
-                        members.append(candidate)
-                        band = (
-                            min(band[0], candidate_bounds[0]),
-                            max(band[1], candidate_bounds[1]),
-                        )
-                        changed = True
-                    else:
-                        still_remaining.append(candidate)
-                remaining = still_remaining
-
-            grouped.append(_merge_red_ink_group(members))
+        grouped.extend(
+            _merge_red_ink_group(guide_members[guide.fingerprint])
+            for guide in guides
+        )
+        grouped.extend(
+            _merge_red_ink_group(members)
+            for members in _connected_vertical_groups(
+                unassigned,
+                tolerance=tolerance,
+            )
+        )
 
     grouped.sort(
         key=lambda ink: (
@@ -716,6 +810,7 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
     raw_annotations = _annotation_batches(credentials.document_id, access_token)
     captures: list[DrawboardCapture] = []
     red_ink: list[DrawboardInk] = []
+    all_ink: list[DrawboardInk] = []
     ignored: dict[str, int] = {}
     for item in raw_annotations:
         raw_annotation = item.get("annotation")
@@ -728,7 +823,9 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
         if annotation_kind == "Ink":
             ink = _ink_capture(item, credentials.document_id, pages)
             if ink is not None:
-                red_ink.append(ink)
+                all_ink.append(ink)
+                if ink.color == "red":
+                    red_ink.append(ink)
             else:
                 ignored[annotation_kind] = ignored.get(annotation_kind, 0) + 1
             continue
@@ -752,4 +849,5 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
         captures=captures,
         red_ink=red_ink,
         ignored=ignored,
+        all_ink=all_ink,
     )

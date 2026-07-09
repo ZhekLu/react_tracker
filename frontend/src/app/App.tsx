@@ -521,9 +521,10 @@ export function App() {
   ): Promise<string | null> {
     if (!workspace) return null;
     setError(null);
+
+    let batch: Awaited<ReturnType<typeof createPromptBatch>>;
     try {
-      await writeClipboard(payload.markdown);
-      const batch = await createPromptBatch({
+      batch = await createPromptBatch({
         annotationIds: payload.annotationIds,
         courseId: workspace.id,
         markdown: payload.markdown,
@@ -533,16 +534,42 @@ export function App() {
         sourceTaskId: payload.sourceTaskId,
         title: payload.title,
       });
-      setActionMessage(label);
-      return batch.id;
     } catch (caught) {
+      try {
+        await writeClipboard(payload.markdown);
+        setActionMessage(`${label} No attachment folder was prepared.`);
+      } catch {
+        setError("Clipboard access failed. Check browser permissions.");
+        return null;
+      }
       setError(
         caught instanceof Error
-          ? caught.message
-          : "The prompt was copied, but its audit record could not be saved.",
+          ? `Prompt copied without attachments: ${caught.message}`
+          : "Prompt copied without attachments because the prompt batch could not be prepared.",
       );
       return null;
     }
+
+    try {
+      await writeClipboard(batch.markdown);
+    } catch {
+      setError(
+        "The prompt batch and attachment folder were prepared, but clipboard access failed. Check browser permissions and copy the prompt again.",
+      );
+      return null;
+    }
+
+    const attachmentCount = batch.attachments.filter(
+      (attachment) => attachment.kind !== "manifest",
+    ).length;
+    const attachmentMessage = attachmentCount
+      ? ` ${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"} ready in ${batch.attachmentDirectory}.`
+      : " No extra files were needed for this prompt.";
+    const warningMessage = batch.warnings.length
+      ? ` ${batch.warnings.length} file warning${batch.warnings.length === 1 ? "" : "s"}.`
+      : "";
+    setActionMessage(`${label}${attachmentMessage}${warningMessage}`);
+    return batch.id;
   }
 
   async function handleCopyPrompt(payload: PromptPayload, label: string) {

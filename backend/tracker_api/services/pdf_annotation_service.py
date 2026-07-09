@@ -215,7 +215,9 @@ def extract_pdf_annotations(path: Path) -> PdfExtraction:
     captures: list[PdfCapture] = []
     ignored: dict[str, int] = {}
     try:
-        document: Any = pymupdf.open(pdf_path)
+        document: Any = pymupdf.open(  # type: ignore[no-untyped-call]
+            pdf_path
+        )
     except Exception as error:
         raise PdfAnnotationError(f"Could not open PDF: {pdf_path}") from error
     try:
@@ -253,6 +255,8 @@ def _annotation_command(
     resource_id: str,
     source_path: Path,
     capture: PdfCapture,
+    context: PdfAnnotationContext | None,
+    sync_revision: str,
 ) -> AnnotationCreateCommand:
     kind = (
         "question"
@@ -261,6 +265,13 @@ def _annotation_command(
         if capture.quote
         else "note"
     )
+    metadata: dict[str, Any] = {
+        "createdAt": capture.created_at,
+        "sourceLabel": source_path.name,
+        "sourcePath": str(source_path),
+        "syncRevision": sync_revision,
+        **_context_metadata(context),
+    }
     return AnnotationCreateCommand(
         resource_id=resource_id,
         kind=kind,
@@ -272,16 +283,13 @@ def _annotation_command(
         anchor=AnnotationAnchorCreate(
             anchor_type="pdf_rect",
             quote=capture.quote or None,
+            section_title=context.subchapter_title if context else None,
             page_number=capture.page,
             rect=capture.rect,
             color=capture.color or None,
             rgb=capture.rgb or None,
             annotation_kind=capture.annotation_kind,
-            metadata={
-                "createdAt": capture.created_at,
-                "sourceLabel": source_path.name,
-                "sourcePath": str(source_path),
-            },
+            metadata=metadata,
         ),
     )
 
@@ -320,6 +328,11 @@ def _drawboard_annotation_command(
                 "contextBefore": context.context_before,
                 "contextMatch": context.match_method,
                 "contextSentence": context.context_sentence,
+                "contextGroupId": context.paragraph_id,
+                "contextParagraph": context.paragraph_text,
+                "contextParagraphEndPage": context.paragraph_end_page,
+                "contextParagraphStartPage": context.paragraph_start_page,
+                "contextParagraphTruncated": context.paragraph_truncated,
                 "subchapterTitle": context.subchapter_title,
             }
         )
@@ -357,6 +370,11 @@ def _context_metadata(
         "contextBefore": context.context_before,
         "contextMatch": context.match_method,
         "contextSentence": context.context_sentence,
+        "contextGroupId": context.paragraph_id,
+        "contextParagraph": context.paragraph_text,
+        "contextParagraphEndPage": context.paragraph_end_page,
+        "contextParagraphStartPage": context.paragraph_start_page,
+        "contextParagraphTruncated": context.paragraph_truncated,
         "subchapterTitle": context.subchapter_title,
     }
 
@@ -370,12 +388,33 @@ def _drawboard_ink_command(
     image_url: str | None,
     sync_revision: str,
 ) -> AnnotationCreateCommand:
-    markdown = context.context_sentence if context else "Handwritten question"
+    context_text = " ".join(
+        part
+        for part in (
+            context.context_sentence if context else "",
+            context.paragraph_text if context else "",
+        )
+        if part
+    )
+    nearby_tag = re.search(
+        r"\b(?:Exercise|Example|Figure|Algorithm|Theorem|Definition)\s+"
+        r"\d+(?:\.\d+)*\b",
+        context_text,
+        re.IGNORECASE,
+    )
+    label = (
+        nearby_tag.group(0)
+        if nearby_tag
+        else context.subchapter_title
+        if context and context.subchapter_title
+        else "handwriting"
+    )
+    markdown = f"Screenshot · {label}"
     metadata: dict[str, Any] = {
         "createdAt": ink.created_at,
         "drawboardDocumentId": document_id,
         "inkGroupSize": len(ink.member_fingerprints),
-        "inkGrouping": "vertical-overlap-v1",
+        "inkGrouping": "guide-bands-v2",
         "inkMemberFingerprints": list(ink.member_fingerprints),
         "sourceContent": "",
         "sourceLabel": "Drawboard cloud PDF",
@@ -424,25 +463,28 @@ def collect_resource_pdf_annotations(
         contexts: dict[str, PdfAnnotationContext] = {}
         image_urls: dict[str, str] = {}
         safe_path: Path | None = None
-        if (
-            workspace_repository.resource_kind(connection, resource_id) == "book"
-            and local_path
-        ):
+        if local_path:
             try:
                 safe_path = safe_local_resource_path(local_path)
+            except ResourceOpenError:
+                safe_path = None
+        if safe_path is not None:
+            try:
                 contexts = extract_pdf_annotation_contexts(
                     safe_path,
                     [*cloud_extraction.captures, *cloud_extraction.red_ink],
                     drawboard_coordinates=True,
                 )
-            except (PdfContextError, ResourceOpenError):
+            except PdfContextError:
                 contexts = {}
-            if safe_path is not None and cloud_extraction.red_ink:
+            if cloud_extraction.red_ink:
                 try:
                     image_urls = render_ink_context_images(
                         safe_path,
                         resource_id,
                         cloud_extraction.red_ink,
+                        captures=cloud_extraction.captures,
+                        page_inks=cloud_extraction.all_ink,
                     )
                 except PdfInkImageError:
                     image_urls = {}
@@ -452,7 +494,7 @@ def collect_resource_pdf_annotations(
             context = contexts.get(cloud_capture.fingerprint)
             sync_revision = (
                 f"{cloud_capture.source_revision}:"
-                f"{'book-context-v2' if context else 'plain-v1'}"
+                f"{'pdf-paragraph-context-v1' if context else 'plain-v1'}"
             )
             command = _drawboard_annotation_command(
                 resource_id,
@@ -475,7 +517,7 @@ def collect_resource_pdf_annotations(
             context = contexts.get(ink.fingerprint)
             sync_revision = (
                 f"{ink.source_revision}:"
-                f"{'book-ink-context-v4' if context else 'ink-plain-v3'}"
+                f"{'ink-paragraph-context-v2' if context else 'ink-plain-v4'}"
             )
             command = _drawboard_ink_command(
                 resource_id,
@@ -526,30 +568,47 @@ def collect_resource_pdf_annotations(
     except ResourceOpenError as error:
         raise PdfAnnotationError(str(error)) from error
     local_extraction = extract_pdf_annotations(safe_path)
-    existing = workspace_repository.annotation_source_fingerprints(
-        connection,
-        resource_id,
-    )
-    created_count = 0
+    try:
+        contexts = extract_pdf_annotation_contexts(
+            safe_path,
+            local_extraction.captures,
+        )
+    except PdfContextError:
+        contexts = {}
+    try:
+        source_version = str(safe_path.stat().st_mtime_ns)
+    except OSError:
+        source_version = "unknown"
+
+    counts = {"created": 0, "existing": 0, "updated": 0}
     kind_counts: dict[str, int] = {}
     for local_capture in local_extraction.captures:
+        context = contexts.get(local_capture.fingerprint)
+        sync_revision = (
+            f"{source_version}:"
+            f"{'pdf-paragraph-context-v1' if context else 'local-plain-v1'}"
+        )
         command = _annotation_command(
             resource_id,
             local_extraction.path,
             local_capture,
+            context,
+            sync_revision,
         )
         kind_counts[command.kind] = kind_counts.get(command.kind, 0) + 1
-        workspace_repository.create_annotation(connection, command)
-        if local_capture.fingerprint not in existing:
-            created_count += 1
-            existing.add(local_capture.fingerprint)
+        outcome = workspace_repository.upsert_imported_annotation(
+            connection,
+            command,
+            source_revision=sync_revision,
+        )
+        counts[outcome] += 1
     return PdfCollection(
         resource_id=resource_id,
         path=str(local_extraction.path),
         extracted_count=len(local_extraction.captures),
-        created_count=created_count,
-        updated_count=0,
-        existing_count=len(local_extraction.captures) - created_count,
+        created_count=counts["created"],
+        updated_count=counts["updated"],
+        existing_count=counts["existing"],
         removed_count=0,
         ignored=local_extraction.ignored,
         kind_counts=kind_counts,

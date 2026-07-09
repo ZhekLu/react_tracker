@@ -78,3 +78,46 @@ Reasons:
 - Recreating every current feature in one slice.
 - Removing the stable static tracker entry point before the React app is proven.
 - Editing `tracker.html` directly to support the React app.
+
+## Prompt Attachments, PDF Paragraphs, and Book Scope
+
+Three derived workflows intentionally live outside the database schema:
+
+- `tracker_api/services/prompt_attachment_service.py` owns the ephemeral
+  ChatGPT upload folder. It resolves the resources implied by a prompt's
+  day/task/resource/question scope, clears the previous folder, copies safe
+  local source files, copies red-ink screenshots, and names screenshots with
+  the same `Q-xxx` labels used by `prompt_batch_items`.
+- `tracker_api/services/prompt_batch_service.py` is the application-level
+  orchestrator. It prepares attachments first, appends the exact filenames to
+  the prompt, then persists that exact copied prompt through the repository.
+  Repositories remain responsible for database writes; filesystem side effects
+  remain in the service layer.
+- `tracker_api/services/pdf_context_service.py` interprets PDF layout. It maps
+  every imported capture to a paragraph-level context group, joins likely
+  paragraph continuations across a page break, and shortens very long
+  paragraphs to sentence windows around all captures in the group.
+- `tracker_api/services/pdf_ink_image_service.py` renders lossless, high-density
+  handwriting screenshots. The crop is owned by the red question group, while
+  every Drawboard ink stroke and text markup intersecting that crop is rendered
+  in its original color. Deliberate vertical guide strokes define independent
+  handwriting groups and prevent nearby questions from merging transitively.
+
+Paragraph grouping is a presentation projection rather than a destructive
+merge. Each annotation keeps its own ID, anchor, workflow state, note, and
+import fingerprint. `AnnotationChapterGroups.tsx` groups annotations sharing
+`contextGroupId` into one paragraph card while preserving the individual
+annotation controls underneath it.
+
+Open-question filtering is a presentation state. It narrows the current task
+to open question/todo annotations, opens all remaining chapter groups and
+expands their cards; it never changes annotation persistence. Prompt exports
+include notes linked directly to each question because those notes commonly
+contain attempted solutions or tutor-specific context.
+
+Book chapter scope is also derived rather than persisted. The backend parses
+explicit chapter/section references from task titles in
+`chapter_scope_service.py`, exposes chapter numbers on each task, and uses them
+for task/day open-question counts. The Roadmap passes the same scope to the
+annotation view: relevant chapters open initially and contribute to the task
+question count, while all other chapters remain visible but collapsed.

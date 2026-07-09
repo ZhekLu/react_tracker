@@ -120,6 +120,7 @@ def test_red_ink_context_image_uses_full_page_width(
     )
     get_settings.cache_clear()
     source = pymupdf.open(path)
+    page_width = source[1].rect.width
     page_height = source[1].rect.height
     source.close()
     ink = DrawboardInk(
@@ -135,7 +136,7 @@ def test_red_ink_context_image_uses_full_page_width(
             190.0,
             page_height - 90.0,
         ],
-        ink_vertices=[
+        ink_vertex_sets=(
             [
                 [
                     [72.0, page_height - 100.0],
@@ -149,8 +150,9 @@ def test_red_ink_context_image_uses_full_page_width(
                     ],
                     [190.0, page_height - 110.0],
                 ]
-            ]
-        ],
+            ],
+        ),
+        member_fingerprints=("drawboard-document-red-ink",),
     )
 
     urls = render_ink_context_images(path, "resource-1", [ink])
@@ -162,10 +164,11 @@ def test_red_ink_context_image_uses_full_page_width(
     )
     pixmap = pymupdf.Pixmap(output)
 
-    assert urls[ink.fingerprint].endswith(
-        "/resource-1/annotation-images/drawboard-document-red-ink"
+    assert urls[ink.fingerprint].startswith(
+        "/api/resources/resource-1/annotation-images/drawboard-document-red-ink?v="
     )
     assert output.read_bytes().startswith(b"\x89PNG")
+    assert pixmap.width == round(page_width * 5)
     assert pixmap.width > pixmap.height
     get_settings.cache_clear()
 
@@ -200,3 +203,139 @@ def test_drawboard_margin_coordinates_are_flipped_for_text_context(
     context = contexts[capture.fingerprint]
     assert context.context_sentence == "A clue identifies the current bandit task."
     assert context.match_method == "nearest_line"
+
+
+
+def test_captures_in_the_same_pdf_paragraph_share_context_group(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "paragraph.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    paragraph = (
+        "Offline evaluation requires overlap between the logging policy and "
+        "the target policy. Importance weights become unstable when the "
+        "logging probability is very small. Clipping reduces variance but "
+        "introduces bias into the estimate."
+    )
+    page.insert_textbox(pymupdf.Rect(72, 100, 520, 220), paragraph, fontsize=11)
+    document.save(path)
+    document.close()
+
+    captures = [
+        Capture(
+            fingerprint="overlap",
+            page=1,
+            quote="overlap between the logging policy and the target policy",
+            comment="",
+            rect=[72, 100, 420, 125],
+        ),
+        Capture(
+            fingerprint="clipping",
+            page=1,
+            quote="Clipping reduces variance but introduces bias",
+            comment="",
+            rect=[72, 150, 420, 175],
+        ),
+    ]
+
+    contexts = extract_pdf_annotation_contexts(path, captures)
+
+    assert contexts["overlap"].paragraph_id
+    assert contexts["overlap"].paragraph_id == contexts["clipping"].paragraph_id
+    assert contexts["overlap"].paragraph_text == paragraph
+    assert contexts["clipping"].paragraph_text == paragraph
+    assert contexts["overlap"].paragraph_start_page == 1
+    assert contexts["overlap"].paragraph_end_page == 1
+    assert contexts["overlap"].paragraph_truncated is False
+
+
+def test_pdf_paragraph_context_can_continue_across_a_page_break(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "continued-paragraph.pdf"
+    document = pymupdf.open()
+    first = document.new_page()
+    first.insert_textbox(
+        pymupdf.Rect(72, 650, 520, 790),
+        "The estimator remains identifiable only while the observed data "
+        "contain support for the actions selected by the target policy and",
+        fontsize=11,
+    )
+    second = document.new_page()
+    second.insert_textbox(
+        pymupdf.Rect(72, 40, 520, 180),
+        "this condition must hold in every state that the target policy may visit. "
+        "Without it, no amount of reweighting can recover the missing outcomes.",
+        fontsize=11,
+    )
+    document.save(path)
+    document.close()
+
+    captures = [
+        Capture(
+            fingerprint="page-one",
+            page=1,
+            quote="support for the actions selected by the target policy",
+            comment="",
+            rect=[72, 700, 500, 740],
+        ),
+        Capture(
+            fingerprint="page-two",
+            page=2,
+            quote="this condition must hold in every state",
+            comment="",
+            rect=[72, 40, 500, 85],
+        ),
+    ]
+
+    contexts = extract_pdf_annotation_contexts(path, captures)
+
+    first_context = contexts["page-one"]
+    second_context = contexts["page-two"]
+    assert first_context.paragraph_id == second_context.paragraph_id
+    assert first_context.paragraph_start_page == 1
+    assert first_context.paragraph_end_page == 2
+    assert "target policy and this condition" in first_context.paragraph_text
+
+
+def test_long_pdf_paragraph_is_shortened_around_all_captures(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "long-paragraph.pdf"
+    sentences = [
+        f"Sentence {index} explains a separate detail of the estimator."
+        for index in range(1, 17)
+    ]
+    paragraph = " ".join(sentences)
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_textbox(pymupdf.Rect(50, 50, 545, 760), paragraph, fontsize=10)
+    document.save(path)
+    document.close()
+
+    captures = [
+        Capture(
+            fingerprint="early",
+            page=1,
+            quote="Sentence 3 explains a separate detail",
+            comment="",
+            rect=[50, 120, 500, 145],
+        ),
+        Capture(
+            fingerprint="late",
+            page=1,
+            quote="Sentence 14 explains a separate detail",
+            comment="",
+            rect=[50, 580, 500, 605],
+        ),
+    ]
+
+    contexts = extract_pdf_annotation_contexts(path, captures)
+
+    excerpt = contexts["early"].paragraph_text
+    assert contexts["early"].paragraph_id == contexts["late"].paragraph_id
+    assert contexts["early"].paragraph_truncated is True
+    assert "Sentence 3 explains" in excerpt
+    assert "Sentence 14 explains" in excerpt
+    assert len(excerpt) < len(paragraph)

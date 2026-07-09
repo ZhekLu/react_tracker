@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     helper_state_path: Path = Field(default=TRACKER_ROOT / "toggl_state.json")
     drawboard_state_path: Path = Field(default=TRACKER_ROOT / "drawboard_state.json")
     annotation_image_dir: Path = Field(default=DATA_DIR / "annotation_images")
+    chatgpt_attachment_dir: Path = Field(
+        default=DATA_DIR / "chatgpt_prompt_attachments"
+    )
     frontend_dist_path: Path = Field(default=PROJECT_ROOT / "frontend" / "dist")
     course_files_config_path: Path = Field(
         default=PROJECT_ROOT / "course_files.json"

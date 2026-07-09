@@ -34,6 +34,7 @@ from ..schemas.workspace import (
     PdfReaderMetadataResponse,
     PdfReaderPage,
     PromptBatchCreateCommand,
+    PromptBatchCreateResponse,
     ResourceContentResponse,
     ResourceOpenResponse,
     ResourceProgressCommand,
@@ -59,6 +60,10 @@ from ..services.pdf_reader_service import (
     PdfReaderError,
     pdf_metadata,
     render_pdf_page,
+)
+from ..services.prompt_attachment_service import PromptAttachmentError
+from ..services.prompt_batch_service import (
+    create_prompt_batch as create_prompt_batch_with_attachments,
 )
 from ..services.resource_content_service import read_resource_content
 from ..services.resource_open_service import ResourceOpenError, open_resource
@@ -502,15 +507,20 @@ def upsert_note(command: NoteUpsertCommand, connection: Database) -> MutationRes
         raise _translate_repository_error(error) from error
 
 
-@router.post("/prompt-batches", response_model=MutationResponse)
+@router.post("/prompt-batches", response_model=PromptBatchCreateResponse)
 def create_prompt_batch(
     command: PromptBatchCreateCommand,
     connection: Database,
-) -> MutationResponse:
+) -> PromptBatchCreateResponse:
     try:
-        return workspace_repository.create_prompt_batch(connection, command)
+        return create_prompt_batch_with_attachments(connection, command)
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error
+    except PromptAttachmentError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
 
 
 @router.post("/discussions", response_model=MutationResponse)

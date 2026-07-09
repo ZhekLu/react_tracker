@@ -1950,3 +1950,949 @@
     max-height: none;
   }
 }
+
+/* Paragraph-level PDF capture grouping. The normalized annotations remain
+   independently editable; only their presentation shares one source context. */
+.annotationChapterGroup.preferred {
+  border-color: color-mix(in srgb, var(--course-accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--course-accent) 3%, var(--surface-soft));
+}
+
+.annotationChapterGroup.preferred > summary {
+  color: color-mix(in srgb, var(--course-accent) 72%, var(--muted));
+}
+
+.paragraphCaptureGroup {
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 76%, transparent);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+  display: grid;
+  gap: 6px;
+}
+
+.paragraphCaptureGroup > header {
+  min-width: 0;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 7px;
+  font-weight: 760;
+}
+
+.paragraphCaptureGroup > header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.paragraphCaptureGroup > header .question {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.paragraphCaptureGroup > header em {
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.paragraphCaptureContext {
+  margin: 0;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.paragraphCaptureContext small {
+  color: var(--faint);
+  font-size: 7px;
+}
+
+.paragraphCaptureHighlight {
+  --capture-color: #f3dc79;
+  padding: 0 1px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--capture-color) 36%, transparent);
+  color: inherit;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--capture-color) 72%, transparent);
+}
+
+.paragraphCaptureHighlight.color-red {
+  --capture-color: #de5b69;
+}
+
+.paragraphCaptureHighlight.color-yellow {
+  --capture-color: #e4b52f;
+}
+
+.paragraphCaptureHighlight.color-cyan {
+  --capture-color: #32aeb5;
+}
+
+.paragraphCaptureHighlight.color-green {
+  --capture-color: #4da56d;
+}
+
+.paragraphCaptureHighlight.color-blue {
+  --capture-color: #4d83cf;
+}
+
+.paragraphCaptureItems {
+  display: grid;
+  gap: 4px;
+}
+
+.paragraphCaptureImages {
+  display: grid;
+  gap: 5px;
+}
+
+.paragraphCaptureImages img {
+  width: 100%;
+  max-height: 320px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  object-fit: contain;
+}
+
+/* Roadmap visual refresh: clearer completion, denser calm cards, scoped question feedback */
+:root {
+  --canvas: #f3f4ef;
+  --surface-soft: #f8f9f5;
+  --surface-tint: #eef4ee;
+  --ink: #16211d;
+  --ink-soft: #3c4d45;
+  --muted: #69766f;
+  --line: #d9e2da;
+  --green: #18a567;
+  --green-deep: #0f6f48;
+  --green-soft: #e4f8ed;
+  --amber: #d58b18;
+  --amber-deep: #875105;
+  --amber-soft: #fff2d8;
+  --blue: #4a78d6;
+  --blue-deep: #2f56a8;
+  --blue-soft: #eaf0ff;
+  --success-glow: 0 16px 46px color-mix(in srgb, var(--green) 13%, transparent);
+}
+
+.dayStack {
+  gap: 15px;
+}
+
+.dayCard {
+  border-radius: 16px;
+}
+
+.dayCard::before {
+  top: 14px;
+  bottom: 14px;
+  width: 5px;
+  border-radius: 0 999px 999px 0;
+}
+
+.dayCard.tone-complete {
+  border-color: color-mix(in srgb, var(--green) 34%, var(--line));
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--green-soft) 52%, #fff), #fff 46%);
+  box-shadow: var(--success-glow);
+}
+
+.dayCard.tone-complete::before {
+  background:
+    linear-gradient(180deg, #37d987, var(--green-deep));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--green) 36%, transparent);
+}
+
+.dayCard.tone-question {
+  border-color: color-mix(in srgb, var(--amber) 28%, var(--line));
+}
+
+.dayCard.isCompact {
+  overflow: hidden;
+}
+
+.dayCard.isCompact .dayHeader {
+  padding-block: 16px 13px;
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--day-tone) 12%, #fff), #fff 50%);
+}
+
+.dayCard.isCompact.tone-complete .dayHeader {
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--green-soft) 74%, #fff), #fff 54%);
+}
+
+.dayCard.isCompact .dayHeader h2 {
+  color: color-mix(in srgb, var(--day-tone) 42%, var(--ink));
+}
+
+.dayCard.isCompact .daySummary {
+  border-bottom: 0;
+  background: color-mix(in srgb, var(--day-tone) 5%, #fff);
+}
+
+.dayHeader {
+  padding: 17px 18px 13px;
+}
+
+.dayHeader h2 {
+  font-size: 18px;
+}
+
+.dayHeader p {
+  max-width: 920px;
+  font-size: 11.5px;
+}
+
+.dayNumber {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+}
+
+.dayStatePill.tone-complete {
+  border-color: color-mix(in srgb, var(--green) 40%, var(--line));
+  background: color-mix(in srgb, var(--green-soft) 78%, #fff);
+  color: var(--green-deep);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 8%, transparent);
+}
+
+.daySummary {
+  min-height: 37px;
+  padding: 7px 18px;
+  flex-wrap: wrap;
+  gap: 9px 13px;
+}
+
+.daySummary > span:not(.dayTimeBudget) {
+  min-height: 24px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--day-tone) 16%, var(--line));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.dayDetailsToggle {
+  min-height: 28px;
+  padding: 5px 9px;
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--day-tone) 25%, var(--line));
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.74);
+  color: color-mix(in srgb, var(--day-tone) 76%, var(--ink));
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 790;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.dayDetailsToggle:hover {
+  border-color: color-mix(in srgb, var(--day-tone) 42%, var(--line));
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--day-tone) 10%, transparent);
+  transform: translateY(-1px);
+}
+
+.dayDetailsToggle svg {
+  transition: transform 160ms ease;
+}
+
+.dayDetailsToggle svg.expanded {
+  transform: rotate(180deg);
+}
+
+.dayBody {
+  padding: 13px 18px 16px;
+  grid-template-columns: minmax(0, 1fr) 215px;
+  gap: 18px;
+}
+
+.dayNotes {
+  margin: 0 18px 16px;
+}
+
+.taskSectionRows {
+  border-radius: 11px;
+}
+
+.taskRow {
+  min-height: 58px;
+  padding: 11px 12px;
+  gap: 10px;
+}
+
+.taskRow:hover {
+  background: #fbfcfa;
+}
+
+.taskRow.hasQuestions:not([data-status="done"]):not([data-status="skipped"]) {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--amber-soft) 64%, #fff), #fff 34%);
+}
+
+.taskRow[data-status="done"] {
+  opacity: 1;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--green-soft) 67%, #fff), #fff 58%);
+}
+
+.taskRow[data-status="done"]::before {
+  background: linear-gradient(180deg, #35d889, var(--green));
+}
+
+.taskRow[data-status="done"]:hover {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--green-soft) 84%, #fff), #fff 66%);
+}
+
+.taskRow[data-status="done"] .taskStatus {
+  border-color: color-mix(in srgb, var(--green) 50%, var(--line));
+  background: var(--green);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--green) 10%, transparent),
+    0 8px 20px color-mix(in srgb, var(--green) 16%, transparent);
+  color: #fff;
+}
+
+.taskRow[data-status="done"] .taskBody h3 {
+  color: var(--green-deep);
+  text-decoration: none;
+}
+
+.taskRow[data-status="done"] .taskBody h3::before {
+  content: "Done · ";
+  color: color-mix(in srgb, var(--green) 72%, var(--ink));
+  font-weight: 850;
+}
+
+.taskTitleRow {
+  padding-right: 72px;
+}
+
+.taskBody h3,
+.resourceRow h3 {
+  font-size: 12.5px;
+  line-height: 1.46;
+}
+
+.taskBadges {
+  margin-top: 6px;
+  gap: 4px;
+}
+
+.taskMetaBadge,
+.taskStateLabel {
+  min-height: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.taskMetaBadge.question {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 7%, transparent);
+}
+
+.taskLinks {
+  margin-top: 7px;
+  gap: 4px;
+}
+
+.taskLink {
+  min-height: 27px;
+  font-size: 9.5px;
+}
+
+.taskLinkIcon {
+  height: 27px;
+}
+
+.taskActions {
+  top: 9px;
+  right: 10px;
+}
+
+.taskActionButton {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+
+.taskCapturePanel {
+  margin-top: 7px;
+  border-color: color-mix(in srgb, var(--amber) 18%, var(--line));
+  background: color-mix(in srgb, var(--amber-soft) 20%, #fff);
+}
+
+.taskCaptureToggle {
+  min-height: 29px;
+}
+
+.taskCaptureToggle strong {
+  border-radius: 999px;
+}
+
+.sidebarDayItem.tone-complete {
+  --day-tone: #2bd47f;
+  background: color-mix(in srgb, var(--day-tone) 9%, transparent);
+}
+
+.sidebarDayItem.tone-complete .sidebarDayNumber {
+  background: color-mix(in srgb, var(--day-tone) 28%, rgba(255, 255, 255, 0.05));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--day-tone) 20%, transparent);
+}
+
+.sidebarDayItem.tone-complete.active .sidebarDayNumber {
+  background: var(--day-tone);
+  color: #10201a;
+}
+
+@media (max-width: 1180px) {
+  .dayBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dayFocusRail {
+    position: static;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .dayFocusRail section {
+    padding: 10px 0 0;
+  }
+
+  .dayFocusRail section + section {
+    border-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dayDetailsToggle,
+  .dayDetailsToggle svg,
+  .taskRow,
+  .taskStatus,
+  .progressBarFill {
+    transition: none;
+  }
+}
+
+/* Capture workflow overrides live last so earlier visual refresh blocks cannot undo them. */
+.taskCaptureToggle > span > button,
+.taskCaptureToggle strong {
+  min-height: 20px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 8px;
+  font-weight: 780;
+}
+
+.taskCaptureToggle > span > button.question {
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--line));
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.taskCaptureToggle > span > button.question.active {
+  border-color: color-mix(in srgb, #de5b69 48%, var(--line));
+  background: color-mix(in srgb, #f8c2cf 46%, #fff);
+  color: #9f2946;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #de5b69 18%, transparent);
+}
+
+.taskCaptureExpand {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+}
+
+.taskCaptureExpand svg {
+  transition: transform 150ms ease;
+}
+
+.taskCaptureExpand svg.expanded {
+  transform: rotate(180deg);
+}
+
+.compactCaptureImage,
+.paragraphCaptureImages img {
+  height: auto;
+  max-height: none;
+}
+
+.paragraphCaptureImages {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Paragraph-level PDF capture grouping. The normalized annotations remain
+   independently editable; only their presentation shares one source context. */
+.annotationChapterGroup.preferred {
+  border-color: color-mix(in srgb, var(--course-accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--course-accent) 3%, var(--surface-soft));
+}
+
+.annotationChapterGroup.preferred > summary {
+  color: color-mix(in srgb, var(--course-accent) 72%, var(--muted));
+}
+
+.paragraphCaptureGroup {
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 76%, transparent);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+  display: grid;
+  gap: 6px;
+}
+
+.paragraphCaptureGroup > header {
+  min-width: 0;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 7px;
+  font-weight: 760;
+}
+
+.paragraphCaptureGroup > header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.paragraphCaptureGroup > header .question {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.paragraphCaptureGroup > header em {
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.paragraphCaptureContext {
+  margin: 0;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.paragraphCaptureContext small {
+  color: var(--faint);
+  font-size: 7px;
+}
+
+.paragraphCaptureHighlight {
+  --capture-color: #f3dc79;
+  padding: 0 1px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--capture-color) 36%, transparent);
+  color: inherit;
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--capture-color) 72%, transparent);
+}
+
+.paragraphCaptureHighlight.color-red {
+  --capture-color: #de5b69;
+}
+
+.paragraphCaptureHighlight.color-yellow {
+  --capture-color: #e4b52f;
+}
+
+.paragraphCaptureHighlight.color-cyan {
+  --capture-color: #32aeb5;
+}
+
+.paragraphCaptureHighlight.color-green {
+  --capture-color: #4da56d;
+}
+
+.paragraphCaptureHighlight.color-blue {
+  --capture-color: #4d83cf;
+}
+
+.paragraphCaptureItems {
+  display: grid;
+  gap: 4px;
+}
+
+.paragraphCaptureImages {
+  display: grid;
+  gap: 5px;
+}
+
+.paragraphCaptureImages img {
+  width: 100%;
+  max-height: 320px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  object-fit: contain;
+}
+
+/* Roadmap visual refresh: clearer completion, denser calm cards, scoped question feedback */
+:root {
+  --canvas: #f3f4ef;
+  --surface-soft: #f8f9f5;
+  --surface-tint: #eef4ee;
+  --ink: #16211d;
+  --ink-soft: #3c4d45;
+  --muted: #69766f;
+  --line: #d9e2da;
+  --green: #18a567;
+  --green-deep: #0f6f48;
+  --green-soft: #e4f8ed;
+  --amber: #d58b18;
+  --amber-deep: #875105;
+  --amber-soft: #fff2d8;
+  --blue: #4a78d6;
+  --blue-deep: #2f56a8;
+  --blue-soft: #eaf0ff;
+  --success-glow: 0 16px 46px color-mix(in srgb, var(--green) 13%, transparent);
+}
+
+.dayStack {
+  gap: 15px;
+}
+
+.dayCard {
+  border-radius: 16px;
+}
+
+.dayCard::before {
+  top: 14px;
+  bottom: 14px;
+  width: 5px;
+  border-radius: 0 999px 999px 0;
+}
+
+.dayCard.tone-complete {
+  border-color: color-mix(in srgb, var(--green) 34%, var(--line));
+  background:
+    linear-gradient(110deg, color-mix(in srgb, var(--green-soft) 52%, #fff), #fff 46%);
+  box-shadow: var(--success-glow);
+}
+
+.dayCard.tone-complete::before {
+  background:
+    linear-gradient(180deg, #37d987, var(--green-deep));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--green) 36%, transparent);
+}
+
+.dayCard.tone-question {
+  border-color: color-mix(in srgb, var(--amber) 28%, var(--line));
+}
+
+.dayCard.isCompact {
+  overflow: hidden;
+}
+
+.dayCard.isCompact .dayHeader {
+  padding-block: 16px 13px;
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--day-tone) 12%, #fff), #fff 50%);
+}
+
+.dayCard.isCompact.tone-complete .dayHeader {
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--green-soft) 74%, #fff), #fff 54%);
+}
+
+.dayCard.isCompact .dayHeader h2 {
+  color: color-mix(in srgb, var(--day-tone) 42%, var(--ink));
+}
+
+.dayCard.isCompact .daySummary {
+  border-bottom: 0;
+  background: color-mix(in srgb, var(--day-tone) 5%, #fff);
+}
+
+.dayHeader {
+  padding: 17px 18px 13px;
+}
+
+.dayHeader h2 {
+  font-size: 18px;
+}
+
+.dayHeader p {
+  max-width: 920px;
+  font-size: 11.5px;
+}
+
+.dayNumber {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+}
+
+.dayStatePill.tone-complete {
+  border-color: color-mix(in srgb, var(--green) 40%, var(--line));
+  background: color-mix(in srgb, var(--green-soft) 78%, #fff);
+  color: var(--green-deep);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 8%, transparent);
+}
+
+.daySummary {
+  min-height: 37px;
+  padding: 7px 18px;
+  flex-wrap: wrap;
+  gap: 9px 13px;
+}
+
+.daySummary > span:not(.dayTimeBudget) {
+  min-height: 24px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--day-tone) 16%, var(--line));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.dayDetailsToggle {
+  min-height: 28px;
+  padding: 5px 9px;
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--day-tone) 25%, var(--line));
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.74);
+  color: color-mix(in srgb, var(--day-tone) 76%, var(--ink));
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 790;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.dayDetailsToggle:hover {
+  border-color: color-mix(in srgb, var(--day-tone) 42%, var(--line));
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--day-tone) 10%, transparent);
+  transform: translateY(-1px);
+}
+
+.dayDetailsToggle svg {
+  transition: transform 160ms ease;
+}
+
+.dayDetailsToggle svg.expanded {
+  transform: rotate(180deg);
+}
+
+.dayBody {
+  padding: 13px 18px 16px;
+  grid-template-columns: minmax(0, 1fr) 215px;
+  gap: 18px;
+}
+
+.dayNotes {
+  margin: 0 18px 16px;
+}
+
+.taskSectionRows {
+  border-radius: 11px;
+}
+
+.taskRow {
+  min-height: 58px;
+  padding: 11px 12px;
+  gap: 10px;
+}
+
+.taskRow:hover {
+  background: #fbfcfa;
+}
+
+.taskRow.hasQuestions:not([data-status="done"]):not([data-status="skipped"]) {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--amber-soft) 64%, #fff), #fff 34%);
+}
+
+.taskRow[data-status="done"] {
+  opacity: 1;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--green-soft) 67%, #fff), #fff 58%);
+}
+
+.taskRow[data-status="done"]::before {
+  background: linear-gradient(180deg, #35d889, var(--green));
+}
+
+.taskRow[data-status="done"]:hover {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--green-soft) 84%, #fff), #fff 66%);
+}
+
+.taskRow[data-status="done"] .taskStatus {
+  border-color: color-mix(in srgb, var(--green) 50%, var(--line));
+  background: var(--green);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--green) 10%, transparent),
+    0 8px 20px color-mix(in srgb, var(--green) 16%, transparent);
+  color: #fff;
+}
+
+.taskRow[data-status="done"] .taskBody h3 {
+  color: var(--green-deep);
+  text-decoration: none;
+}
+
+.taskRow[data-status="done"] .taskBody h3::before {
+  content: "Done · ";
+  color: color-mix(in srgb, var(--green) 72%, var(--ink));
+  font-weight: 850;
+}
+
+.taskTitleRow {
+  padding-right: 72px;
+}
+
+.taskBody h3,
+.resourceRow h3 {
+  font-size: 12.5px;
+  line-height: 1.46;
+}
+
+.taskBadges {
+  margin-top: 6px;
+  gap: 4px;
+}
+
+.taskMetaBadge,
+.taskStateLabel {
+  min-height: 20px;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+.taskMetaBadge.question {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--amber) 7%, transparent);
+}
+
+.taskLinks {
+  margin-top: 7px;
+  gap: 4px;
+}
+
+.taskLink {
+  min-height: 27px;
+  font-size: 9.5px;
+}
+
+.taskLinkIcon {
+  height: 27px;
+}
+
+.taskActions {
+  top: 9px;
+  right: 10px;
+}
+
+.taskActionButton {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+
+.taskCapturePanel {
+  margin-top: 7px;
+  border-color: color-mix(in srgb, var(--amber) 18%, var(--line));
+  background: color-mix(in srgb, var(--amber-soft) 20%, #fff);
+}
+
+.taskCaptureToggle {
+  min-height: 29px;
+}
+
+.taskCaptureToggle strong {
+  border-radius: 999px;
+}
+
+.sidebarDayItem.tone-complete {
+  --day-tone: #2bd47f;
+  background: color-mix(in srgb, var(--day-tone) 9%, transparent);
+}
+
+.sidebarDayItem.tone-complete .sidebarDayNumber {
+  background: color-mix(in srgb, var(--day-tone) 28%, rgba(255, 255, 255, 0.05));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--day-tone) 20%, transparent);
+}
+
+.sidebarDayItem.tone-complete.active .sidebarDayNumber {
+  background: var(--day-tone);
+  color: #10201a;
+}
+
+@media (max-width: 1180px) {
+  .dayBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dayFocusRail {
+    position: static;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .dayFocusRail section {
+    padding: 10px 0 0;
+  }
+
+  .dayFocusRail section + section {
+    border-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dayDetailsToggle,
+  .dayDetailsToggle svg,
+  .taskRow,
+  .taskStatus,
+  .progressBarFill {
+    transition: none;
+  }
+}

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -16,6 +18,11 @@ SENTENCE_BREAK = re.compile(
     r"(?<=[.!?])\s+(?=(?:[A-Z0-9“\"'(\[]|Exercise\s|Figure\s))"
 )
 WORD_TOKEN = re.compile(r"[a-z0-9]+")
+TERMINAL_PUNCTUATION = re.compile(r"[.!?][\"'\u2019\u201d\])}]*$")
+PAGE_NUMBER_ONLY = re.compile(r"^\s*(?:page\s+)?\d+\s*$", re.IGNORECASE)
+MAX_PARAGRAPH_CONTEXT_CHARACTERS = 1800
+MAX_PARAGRAPH_CONTEXT_SENTENCES = 12
+PARAGRAPH_SENTENCE_MARGIN = 1
 
 
 class PdfContextError(RuntimeError):
@@ -57,6 +64,23 @@ class ChapterEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class PdfTextBlock:
+    page: int
+    index: int
+    rect: tuple[float, float, float, float]
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class PdfParagraph:
+    id: str
+    blocks: tuple[PdfTextBlock, ...]
+    text: str
+    start_page: int
+    end_page: int
+
+
+@dataclass(frozen=True, slots=True)
 class PdfAnnotationContext:
     chapter_number: int | None
     chapter_title: str
@@ -65,6 +89,11 @@ class PdfAnnotationContext:
     context_sentence: str
     match_method: str
     subchapter_title: str
+    paragraph_id: str = ""
+    paragraph_text: str = ""
+    paragraph_start_page: int | None = None
+    paragraph_end_page: int | None = None
+    paragraph_truncated: bool = False
 
 
 def _normalized_text(value: str) -> str:
@@ -296,6 +325,279 @@ def _sentence_context(
     )
 
 
+def _text_blocks(page: Any, page_number: int) -> list[PdfTextBlock]:
+    blocks: list[PdfTextBlock] = []
+    page_height = float(page.rect.height)
+    for index, raw in enumerate(page.get_text("blocks", sort=True)):
+        if len(raw) < 5:
+            continue
+        block_type = int(raw[6]) if len(raw) > 6 else 0
+        if block_type != 0:
+            continue
+        x0, y0, x1, y1, raw_text = raw[:5]
+        text_value = _normalized_text(str(raw_text))
+        if not text_value:
+            continue
+        if PAGE_NUMBER_ONLY.fullmatch(text_value) and (
+            float(y0) < page_height * 0.08 or float(y1) > page_height * 0.92
+        ):
+            continue
+        blocks.append(
+            PdfTextBlock(
+                page=page_number,
+                index=index,
+                rect=(float(x0), float(y0), float(x1), float(y1)),
+                text=text_value,
+            )
+        )
+    return blocks
+
+
+def _starts_like_continuation(text_value: str) -> bool:
+    stripped = text_value.lstrip()
+    if not stripped:
+        return False
+    first = stripped[0]
+    return first.islower() or first in ",;:)]}\u201d\u2019"
+
+
+def _ends_like_continuation(text_value: str) -> bool:
+    stripped = text_value.rstrip()
+    return bool(stripped) and (
+        stripped.endswith(("-", "\u2013", "\u2014"))
+        or TERMINAL_PUNCTUATION.search(stripped) is None
+    )
+
+
+def _merge_across_page_break(
+    left: PdfTextBlock,
+    right: PdfTextBlock,
+    *,
+    left_page_height: float,
+    right_page_height: float,
+) -> bool:
+    if left.page + 1 != right.page:
+        return False
+    near_bottom = left.rect[3] >= left_page_height * 0.68
+    near_top = right.rect[1] <= right_page_height * 0.34
+    if not near_bottom or not near_top:
+        return False
+    return _starts_like_continuation(right.text) or _ends_like_continuation(left.text)
+
+
+def _paragraph_id(blocks: Sequence[PdfTextBlock], text_value: str) -> str:
+    first = blocks[0]
+    last = blocks[-1]
+    digest = hashlib.sha1(
+        (
+            f"{first.page}:{first.index}:{last.page}:{last.index}:"
+            f"{_normalized_text(text_value).casefold()}"
+        ).encode(),
+        usedforsecurity=False,
+    ).hexdigest()[:20]
+    return f"pdf-paragraph-{digest}"
+
+
+def _paragraphs(document: Any) -> tuple[list[PdfParagraph], dict[int, list[PdfParagraph]]]:
+    blocks_by_page: dict[int, list[PdfTextBlock]] = {}
+    page_heights: dict[int, float] = {}
+    for page_index in range(document.page_count):
+        page_number = page_index + 1
+        page = document[page_index]
+        page_heights[page_number] = float(page.rect.height)
+        blocks_by_page[page_number] = _text_blocks(page, page_number)
+
+    groups: list[list[PdfTextBlock]] = []
+    for page_number in range(1, document.page_count + 1):
+        for block in blocks_by_page.get(page_number, []):
+            if groups:
+                previous = groups[-1][-1]
+                previous_page_blocks = blocks_by_page.get(previous.page, [])
+                current_page_blocks = blocks_by_page.get(block.page, [])
+                is_last_previous = (
+                    bool(previous_page_blocks)
+                    and previous is previous_page_blocks[-1]
+                )
+                is_first_current = (
+                    bool(current_page_blocks)
+                    and block is current_page_blocks[0]
+                )
+                if (
+                    is_last_previous
+                    and is_first_current
+                    and _merge_across_page_break(
+                        previous,
+                        block,
+                        left_page_height=page_heights[previous.page],
+                        right_page_height=page_heights[block.page],
+                    )
+                ):
+                    groups[-1].append(block)
+                    continue
+            groups.append([block])
+
+    paragraphs: list[PdfParagraph] = []
+    by_page: dict[int, list[PdfParagraph]] = defaultdict(list)
+    for block_group in groups:
+        paragraph_text = _normalized_text(" ".join(block.text for block in block_group))
+        paragraph = PdfParagraph(
+            id=_paragraph_id(block_group, paragraph_text),
+            blocks=tuple(block_group),
+            text=paragraph_text,
+            start_page=block_group[0].page,
+            end_page=block_group[-1].page,
+        )
+        paragraphs.append(paragraph)
+        for page_number in range(paragraph.start_page, paragraph.end_page + 1):
+            by_page[page_number].append(paragraph)
+    return paragraphs, by_page
+
+
+def _capture_pdf_rect(
+    page: Any,
+    capture: ContextCapture,
+    *,
+    drawboard_coordinates: bool,
+) -> list[float]:
+    return (
+        drawboard_rect_to_pdf(capture.rect, page.rect.height)
+        if drawboard_coordinates
+        else capture.rect
+    )
+
+
+def _vertical_distance(rect: Sequence[float], block: PdfTextBlock) -> float:
+    if len(rect) != 4:
+        return float("inf")
+    center = (float(rect[1]) + float(rect[3])) / 2
+    block_center = (block.rect[1] + block.rect[3]) / 2
+    return abs(center - block_center)
+
+
+def _vertical_overlap(rect: Sequence[float], block: PdfTextBlock) -> float:
+    if len(rect) != 4:
+        return 0.0
+    top = max(float(rect[1]), block.rect[1])
+    bottom = min(float(rect[3]), block.rect[3])
+    return max(0.0, bottom - top)
+
+
+def _paragraph_for_capture(
+    page: Any,
+    capture: ContextCapture,
+    candidates: Sequence[PdfParagraph],
+    *,
+    drawboard_coordinates: bool,
+) -> PdfParagraph | None:
+    if not candidates:
+        return None
+    normalized_quote = _normalized_text(capture.quote).casefold()
+    quote_tokens = _tokens(capture.quote)
+    rect = _capture_pdf_rect(
+        page,
+        capture,
+        drawboard_coordinates=drawboard_coordinates,
+    )
+    scored: list[tuple[float, PdfParagraph]] = []
+    for paragraph in candidates:
+        page_blocks = [block for block in paragraph.blocks if block.page == capture.page]
+        if not page_blocks:
+            continue
+        normalized_paragraph = paragraph.text.casefold()
+        exact = 1.0 if normalized_quote and normalized_quote in normalized_paragraph else 0.0
+        overlap = (
+            len(quote_tokens & _tokens(paragraph.text)) / len(quote_tokens)
+            if quote_tokens
+            else 0.0
+        )
+        geometry_overlap = max(_vertical_overlap(rect, block) for block in page_blocks)
+        distance = min(_vertical_distance(rect, block) for block in page_blocks)
+        geometry_score = geometry_overlap * 0.1 + (1.0 / (1.0 + distance))
+        scored.append((exact * 100 + overlap * 10 + geometry_score, paragraph))
+    if not scored:
+        return None
+    score, paragraph = max(scored, key=lambda item: item[0])
+    if normalized_quote and score < 3.5:
+        return None
+    return paragraph
+
+
+def _capture_sentence_indexes_in_paragraph(
+    document: Any,
+    paragraph: PdfParagraph,
+    capture: ContextCapture,
+    *,
+    drawboard_coordinates: bool,
+) -> list[int]:
+    sentences = _sentences(paragraph.text)
+    exact = _exact_sentence_indexes(sentences, capture.quote)
+    if exact:
+        return exact
+    page = document[capture.page - 1]
+    rect = _capture_pdf_rect(page, capture, drawboard_coordinates=drawboard_coordinates)
+    hint = capture.quote or _nearest_line_hint(page, rect)
+    index = _best_sentence_index(sentences, hint)
+    return [index] if index is not None else []
+
+
+def _merge_windows(windows: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    if not windows:
+        return []
+    ordered = sorted(windows)
+    merged = [ordered[0]]
+    for start, end in ordered[1:]:
+        previous_start, previous_end = merged[-1]
+        if start <= previous_end + 1:
+            merged[-1] = (previous_start, max(previous_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _paragraph_excerpt(
+    document: Any,
+    paragraph: PdfParagraph,
+    captures: Sequence[ContextCapture],
+    *,
+    drawboard_coordinates: bool,
+) -> tuple[str, bool]:
+    sentences = _sentences(paragraph.text)
+    if (
+        len(paragraph.text) <= MAX_PARAGRAPH_CONTEXT_CHARACTERS
+        and len(sentences) <= MAX_PARAGRAPH_CONTEXT_SENTENCES
+    ):
+        return paragraph.text, False
+    if not sentences:
+        return paragraph.text[:MAX_PARAGRAPH_CONTEXT_CHARACTERS].rstrip(), True
+
+    indexes = {
+        index
+        for capture in captures
+        for index in _capture_sentence_indexes_in_paragraph(
+            document,
+            paragraph,
+            capture,
+            drawboard_coordinates=drawboard_coordinates,
+        )
+    }
+    if not indexes:
+        indexes = {0}
+    windows = _merge_windows(
+        [
+            (
+                max(0, index - PARAGRAPH_SENTENCE_MARGIN),
+                min(len(sentences) - 1, index + PARAGRAPH_SENTENCE_MARGIN),
+            )
+            for index in sorted(indexes)
+        ]
+    )
+    chunks = [" ".join(sentences[start : end + 1]) for start, end in windows]
+    excerpt = " … ".join(chunks)
+    if len(excerpt) > MAX_PARAGRAPH_CONTEXT_CHARACTERS:
+        excerpt = excerpt[:MAX_PARAGRAPH_CONTEXT_CHARACTERS].rsplit(" ", 1)[0] + " …"
+    return excerpt, True
+
+
 def extract_pdf_annotation_contexts(
     path: Path,
     captures: Iterable[ContextCapture],
@@ -304,14 +606,45 @@ def extract_pdf_annotation_contexts(
 ) -> dict[str, PdfAnnotationContext]:
     pdf_path = path.expanduser().resolve()
     try:
-        document: Any = pymupdf.open(pdf_path)
+        document: Any = pymupdf.open(  # type: ignore[no-untyped-call]
+            pdf_path
+        )
     except Exception as error:
         raise PdfContextError(f"Could not read PDF context: {pdf_path}") from error
     contexts: dict[str, PdfAnnotationContext] = {}
+    capture_list = list(captures)
     try:
         outline = _outline_entries(document)
         chapters = _chapter_entries(outline)
-        for capture in captures:
+        _all_paragraphs, paragraphs_by_page = _paragraphs(document)
+        paragraph_by_capture: dict[str, PdfParagraph] = {}
+        captures_by_paragraph: dict[str, list[ContextCapture]] = defaultdict(list)
+
+        for capture in capture_list:
+            if capture.page < 1 or capture.page > document.page_count:
+                continue
+            page = document[capture.page - 1]
+            paragraph = _paragraph_for_capture(
+                page,
+                capture,
+                paragraphs_by_page.get(capture.page, []),
+                drawboard_coordinates=drawboard_coordinates,
+            )
+            if paragraph is not None:
+                paragraph_by_capture[capture.fingerprint] = paragraph
+                captures_by_paragraph[paragraph.id].append(capture)
+
+        paragraph_context: dict[str, tuple[str, bool]] = {
+            paragraph.id: _paragraph_excerpt(
+                document,
+                paragraph,
+                captures_by_paragraph[paragraph.id],
+                drawboard_coordinates=drawboard_coordinates,
+            )
+            for paragraph in set(paragraph_by_capture.values())
+        }
+
+        for capture in capture_list:
             if capture.page < 1 or capture.page > document.page_count:
                 continue
             chapter = _active_chapter(chapters, capture.page)
@@ -321,6 +654,11 @@ def extract_pdf_annotation_contexts(
                 capture,
                 drawboard_coordinates=drawboard_coordinates,
             )
+            paragraph = paragraph_by_capture.get(capture.fingerprint)
+            paragraph_text = ""
+            paragraph_truncated = False
+            if paragraph is not None:
+                paragraph_text, paragraph_truncated = paragraph_context[paragraph.id]
             contexts[capture.fingerprint] = PdfAnnotationContext(
                 chapter_number=chapter.number if chapter else None,
                 chapter_title=(
@@ -338,6 +676,11 @@ def extract_pdf_annotation_contexts(
                     chapter,
                     capture.page,
                 ),
+                paragraph_id=paragraph.id if paragraph else "",
+                paragraph_text=paragraph_text,
+                paragraph_start_page=(paragraph.start_page if paragraph else None),
+                paragraph_end_page=(paragraph.end_page if paragraph else None),
+                paragraph_truncated=paragraph_truncated,
             )
     finally:
         cast(Any, document).close()

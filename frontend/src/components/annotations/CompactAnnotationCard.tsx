@@ -29,6 +29,8 @@ type CompactAnnotationCardProps = {
   ) => void;
   onDiscuss?: (annotation: Annotation) => void;
   onNoteSave?: (input: EntityNoteSaveInput) => void;
+  showExtendedContext?: boolean;
+  initiallyExpanded?: boolean;
 };
 
 export function CompactAnnotationCard({
@@ -36,8 +38,11 @@ export function CompactAnnotationCard({
   onAnnotationChange,
   onDiscuss,
   onNoteSave,
+  showExtendedContext = true,
+  initiallyExpanded = false,
 }: CompactAnnotationCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
+  const isScreenshot = annotation.origin === "drawboard_cloud_ink";
   const color = annotation.anchor?.color || "none";
   const rgb = annotationRgbCss(annotation);
   const sectionTitle = annotationSubchapter(annotation);
@@ -47,7 +52,8 @@ export function CompactAnnotationCard({
   const displayText = annotationDisplayText(annotation);
   const canAnswer =
     annotation.kind === "question" || annotation.kind === "todo";
-  const hasContext = annotationHasExtendedContext(annotation);
+  const hasContext =
+    showExtendedContext && annotationHasExtendedContext(annotation);
   const canExpand = hasContext || Boolean(onNoteSave);
 
   return (
@@ -130,21 +136,21 @@ export function CompactAnnotationCard({
       </div>
       {expanded ? (
         <div className="compactCaptureContext">
-          {sectionTitle ? (
+          {showExtendedContext && sectionTitle ? (
             <p className="compactCaptureSectionTitle">{sectionTitle}</p>
           ) : null}
-          {contextImageUrl ? (
+          {showExtendedContext && contextImageUrl ? (
             <img
               alt={`Page ${annotation.anchor?.pageNumber ?? ""} around handwritten question`}
               className="compactCaptureImage"
               src={contextImageUrl}
             />
           ) : null}
-          {contextBefore ? <p>{contextBefore}</p> : null}
-          {annotation.anchor?.quote ? (
+          {showExtendedContext && !isScreenshot && contextBefore ? <p>{contextBefore}</p> : null}
+          {showExtendedContext && !isScreenshot && annotation.anchor?.quote ? (
             <blockquote>{annotation.anchor.quote}</blockquote>
           ) : null}
-          {contextAfter ? <p>{contextAfter}</p> : null}
+          {showExtendedContext && !isScreenshot && contextAfter ? <p>{contextAfter}</p> : null}
           {onNoteSave ? (
             <EntityNoteEditor
               label="My note"

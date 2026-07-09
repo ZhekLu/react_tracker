@@ -135,6 +135,7 @@ export type Task = {
   resourceIds: string[];
   examQuestionIds: string[];
   skillIds: string[];
+  chapterNumbers: number[];
   rationale?: DocumentContent | null;
   notes: Note[];
   openQuestionCount: number;

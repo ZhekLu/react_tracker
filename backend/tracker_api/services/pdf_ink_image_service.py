@@ -4,15 +4,15 @@ import hashlib
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 import pymupdf
 
 from ..config import get_settings
-from .drawboard_service import DrawboardInk
+from .drawboard_service import DrawboardCapture, DrawboardInk
 
 SAFE_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
-INK_RENDERER_VERSION = "ink-render-v2"
+INK_RENDERER_VERSION = "ink-render-v3"
 
 
 class PdfInkImageError(RuntimeError):
@@ -35,7 +35,7 @@ def annotation_image_url(
     if not source_revision:
         return base
     version = hashlib.sha1(
-        f"{INK_RENDERER_VERSION}:{source_revision}".encode("utf-8"),
+        f"{INK_RENDERER_VERSION}:{source_revision}".encode(),
         usedforsecurity=False,
     ).hexdigest()[:12]
     return f"{base}?v={version}"
@@ -55,7 +55,7 @@ def drawboard_rect_to_pdf(
     ]
 
 
-def _is_number(value: object) -> bool:
+def _is_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
@@ -117,7 +117,7 @@ def _ink_paths(
 ) -> list[list[pymupdf.Point]]:
     return [
         [
-            pymupdf.Point(x, page_height - y)
+            pymupdf.Point(x, page_height - y)  # type: ignore[no-untyped-call]
             for x, y in path
         ]
         for path in _ink_coordinate_paths(ink_vertices)
@@ -130,6 +130,8 @@ def _render_ink(
     ink: DrawboardInk,
     output_path: Path,
     *,
+    captures: Iterable[DrawboardCapture],
+    page_inks: Iterable[DrawboardInk],
     margin: float,
     scale: float,
     stroke_width: float,
@@ -137,45 +139,89 @@ def _render_ink(
     if ink.page < 1 or ink.page > source_document.page_count:
         raise PdfInkImageError(f"Ink page is outside the PDF: {ink.page}")
     source_page = source_document[ink.page - 1]
-    overlay_document = pymupdf.open()
+    overlay_document = pymupdf.open()  # type: ignore[no-untyped-call]
     try:
         overlay_page = overlay_document.new_page(
             width=source_page.rect.width,
             height=source_page.rect.height,
         )
         overlay_page.show_pdf_page(overlay_page.rect, source_document, ink.page - 1)
-        for ink_vertices in ink.ink_vertex_sets:
-            for points in _ink_paths(ink_vertices, source_page.rect.height):
-                overlay_page.draw_polyline(
-                    points,
-                    color=tuple(ink.rgb),
-                    width=stroke_width,
-                    lineCap=1,
-                    lineJoin=1,
-                    overlay=True,
-                )
         pdf_rect = drawboard_rect_to_pdf(ink.rect, source_page.rect.height)
         y0 = max(0.0, (pdf_rect[1] if pdf_rect else 0.0) - margin)
         y1 = min(
             source_page.rect.height,
             (pdf_rect[3] if pdf_rect else source_page.rect.height) + margin,
         )
-        clip = pymupdf.Rect(
-            0,
-            y0,
-            source_page.rect.width,
-            y1,
+        clip = pymupdf.Rect(  # type: ignore[no-untyped-call]
+            0, y0, source_page.rect.width, y1
         )
+
+        for capture in captures:
+            if capture.page != ink.page or len(capture.rect) != 4:
+                continue
+            capture_rect = pymupdf.Rect(  # type: ignore[no-untyped-call]
+                drawboard_rect_to_pdf(capture.rect, source_page.rect.height)
+            )
+            if (
+                not capture_rect.intersects(clip)  # type: ignore[no-untyped-call]
+                or len(capture.rgb) < 3
+            ):
+                continue
+            color = tuple(capture.rgb[:3])
+            if capture.annotation_kind == "TextUnderline":
+                overlay_page.draw_line(
+                    capture_rect.bottom_left,
+                    capture_rect.bottom_right,
+                    color=color,
+                    width=1.1,
+                    overlay=True,
+                )
+            elif capture.annotation_kind == "TextHighlight":
+                overlay_page.draw_rect(
+                    capture_rect,
+                    color=None,
+                    fill=color,
+                    fill_opacity=0.26,
+                    overlay=True,
+                )
+            else:
+                overlay_page.draw_rect(
+                    capture_rect,
+                    color=color,
+                    width=0.8,
+                    overlay=True,
+                )
+
+        visible_inks = [
+            item
+            for item in page_inks
+            if item.page == ink.page
+            and len(item.rect) == 4
+            and pymupdf.Rect(  # type: ignore[no-untyped-call]
+                drawboard_rect_to_pdf(item.rect, source_page.rect.height)
+            ).intersects(clip)
+        ]
+        for visible_ink in visible_inks or [ink]:
+            for ink_vertices in visible_ink.ink_vertex_sets:
+                for points in _ink_paths(ink_vertices, source_page.rect.height):
+                    overlay_page.draw_polyline(
+                        points,
+                        color=tuple(visible_ink.rgb),
+                        width=stroke_width,
+                        lineCap=1,
+                        lineJoin=1,
+                        overlay=True,
+                    )
         pixmap = overlay_page.get_pixmap(
-            matrix=pymupdf.Matrix(scale, scale),
+            matrix=pymupdf.Matrix(scale, scale),  # type: ignore[no-untyped-call]
             clip=clip,
             alpha=False,
             colorspace=pymupdf.csRGB,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        pixmap.save(output_path)
+        pixmap.save(output_path)  # type: ignore[no-untyped-call]
     finally:
-        overlay_document.close()
+        overlay_document.close()  # type: ignore[no-untyped-call]
 
 
 def render_ink_context_images(
@@ -183,17 +229,23 @@ def render_ink_context_images(
     resource_id: str,
     inks: Iterable[DrawboardInk],
     *,
+    captures: Iterable[DrawboardCapture] = (),
+    page_inks: Iterable[DrawboardInk] = (),
     margin: float = 54.0,
-    scale: float = 4.0,
+    scale: float = 5.0,
     stroke_width: float = 0.65,
 ) -> dict[str, str]:
     try:
-        source_document: Any = pymupdf.open(source_path)
+        source_document: Any = pymupdf.open(  # type: ignore[no-untyped-call]
+            source_path
+        )
     except Exception as error:
         raise PdfInkImageError(
             f"Could not open PDF for handwriting images: {source_path}"
         ) from error
     urls: dict[str, str] = {}
+    capture_list = list(captures)
+    page_ink_list = list(page_inks)
     try:
         for ink in inks:
             image_id = ink.fingerprint
@@ -202,6 +254,8 @@ def render_ink_context_images(
                 source_document,
                 ink,
                 output_path,
+                captures=capture_list,
+                page_inks=page_ink_list,
                 margin=margin,
                 scale=scale,
                 stroke_width=stroke_width,
@@ -209,7 +263,24 @@ def render_ink_context_images(
             urls[ink.fingerprint] = annotation_image_url(
                 resource_id,
                 image_id,
-                source_revision=ink.source_revision,
+                source_revision=hashlib.sha1(
+                    ":".join(
+                        [
+                            ink.source_revision,
+                            *sorted(
+                                item.source_revision
+                                for item in capture_list
+                                if item.page == ink.page
+                            ),
+                            *sorted(
+                                item.source_revision
+                                for item in page_ink_list
+                                if item.page == ink.page
+                            ),
+                        ]
+                    ).encode(),
+                    usedforsecurity=False,
+                ).hexdigest(),
             )
     finally:
         source_document.close()

@@ -4,6 +4,7 @@ import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
+import pymupdf
 import pytest
 from sqlalchemy import text
 
@@ -36,6 +37,11 @@ from tracker_api.schemas.workspace import (
     PromptBatchCreateCommand,
     ResourceProgressCommand,
 )
+from tracker_api.services.pdf_annotation_service import collect_resource_pdf_annotations
+from tracker_api.services.pdf_ink_image_service import annotation_image_path
+from tracker_api.services.prompt_batch_service import (
+    create_prompt_batch as create_prompt_batch_with_attachments,
+)
 from tracker_api.services.resource_content_service import read_resource_content
 from tracker_api.services.resource_open_service import ResourceOpenError, open_resource
 from tracker_api.services.study_plan_service import sync_study_plan
@@ -52,6 +58,14 @@ def isolated_database(
         encoding="utf-8",
     )
     monkeypatch.setenv("TRACKER_DATABASE_PATH", str(tmp_path / "tracker.db"))
+    monkeypatch.setenv(
+        "TRACKER_ANNOTATION_IMAGE_DIR",
+        str(tmp_path / "annotation-images"),
+    )
+    monkeypatch.setenv(
+        "TRACKER_CHATGPT_ATTACHMENT_DIR",
+        str(tmp_path / "chatgpt-attachments"),
+    )
     monkeypatch.setenv("TRACKER_HELPER_CONFIG_PATH", str(helper_config))
     monkeypatch.setenv(
         "TRACKER_HELPER_STATE_PATH",
@@ -502,3 +516,280 @@ def test_question_body_can_be_edited_with_document_revision(tmp_path: Path) -> N
     assert updated.priority == "high"
     assert updated.body is not None
     assert updated.body.markdown == r"Updated question with $\rho(s, a)$"
+
+
+
+def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_question(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    fingerprint = "red-ink-question-1"
+    image_path = annotation_image_path(resource_id, fingerprint)
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\nquestion-image")
+
+    attachment_dir = get_settings().chatgpt_attachment_dir
+    attachment_dir.mkdir(parents=True, exist_ok=True)
+    stale_file = attachment_dir / "stale-from-previous-prompt.txt"
+    stale_file.write_text("remove me", encoding="utf-8")
+
+    with transaction() as connection:
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                origin="drawboard_cloud_ink",
+                source_fingerprint=fingerprint,
+                markdown="Why is this assumption needed?",
+                plain_text="Why is this assumption needed?",
+                anchor=AnnotationAnchorCreate(
+                    anchor_type="pdf_rect",
+                    page_number=7,
+                    color="red",
+                    annotation_kind="Ink",
+                    metadata={
+                        "contextImageUrl": (
+                            f"/api/resources/{resource_id}/annotation-images/"
+                            f"{fingerprint}?v=test"
+                        )
+                    },
+                ),
+            ),
+        )
+        result = create_prompt_batch_with_attachments(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Question with handwriting",
+                source_scope="resource_questions",
+                source_resource_id=resource_id,
+                markdown=(
+                    "# Questions\n\n"
+                    "### Q-001\n\nWhy is this assumption needed?"
+                ),
+                annotation_ids=[question.id],
+            ),
+        )
+
+        saved_markdown = connection.execute(
+            text(
+                """
+                SELECT d.markdown
+                FROM prompt_batches pb
+                JOIN documents d ON d.id = pb.prompt_document_id
+                WHERE pb.id = :prompt_batch_id
+                """
+            ),
+            {"prompt_batch_id": result.id},
+        ).scalar_one()
+
+    non_manifest = [
+        attachment for attachment in result.attachments
+        if attachment.kind != "manifest"
+    ]
+    resource_attachment = next(
+        attachment for attachment in non_manifest
+        if attachment.kind == "resource"
+    )
+    image_attachment = next(
+        attachment for attachment in non_manifest
+        if attachment.kind == "question_image"
+    )
+
+    assert stale_file.exists() is False
+    assert (attachment_dir / resource_attachment.name).read_text(
+        encoding="utf-8"
+    ).startswith("Coverage assumption")
+    assert image_attachment.name.startswith("Q-001__Paper__p-7__handwriting")
+    assert (attachment_dir / image_attachment.name).read_bytes().startswith(b"\x89PNG")
+    assert resource_attachment.name in result.markdown
+    assert image_attachment.name in result.markdown
+    assert saved_markdown == result.markdown
+    assert (attachment_dir / "README.md").is_file()
+
+    sentinel = attachment_dir / "remove-on-next-copy.txt"
+    sentinel.write_text("old", encoding="utf-8")
+    with transaction() as connection:
+        second = create_prompt_batch_with_attachments(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Resource only",
+                source_scope="resource",
+                source_resource_id=resource_id,
+                markdown="# Resource",
+            ),
+        )
+
+    assert sentinel.exists() is False
+    assert not any(
+        attachment.kind == "question_image"
+        for attachment in second.attachments
+    )
+
+
+def test_book_question_counts_follow_task_chapter_scope_without_hiding_annotations(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "book.pdf").write_bytes(b"%PDF-1.4")
+    plan_path = tmp_path / "book-plan.md"
+    plan_path.write_text(
+        """
++++
+format = "study-plan/v1"
+id = "book_scope_course"
+title = "Book Scope Course"
+mode = "full"
+
+[resources.book]
+title = "RL Book"
+path = "book.pdf"
+kind = "book"
++++
+
+# Book Scope Course
+
+### Day 1: Read chapters {#day-01}
+
+#### Reading
+
+- [ ] Read Sections 4.1-4.3. {#read-chapter-4 resources=book}
+- [ ] Read Sections 5.1-5.4. {#read-chapter-5 resources=book}
+
+Stop when: both chapter scopes are reviewed. {#day01-stop}
+""".lstrip(),
+        encoding="utf-8",
+    )
+    result = sync_study_plan(plan_path)
+    with transaction() as connection:
+        resource_id = str(
+            connection.execute(
+                text(
+                    """
+                    SELECT entity_id
+                    FROM source_bindings
+                    WHERE entity_type = 'resource'
+                      AND source_key = 'book_scope_course:book'
+                    """
+                )
+            ).scalar_one()
+        )
+        for chapter in (4, 5):
+            create_annotation(
+                connection,
+                AnnotationCreateCommand(
+                    resource_id=resource_id,
+                    kind="question",
+                    markdown=f"Question from chapter {chapter}",
+                    plain_text=f"Question from chapter {chapter}",
+                    anchor=AnnotationAnchorCreate(
+                        anchor_type="pdf_rect",
+                        page_number=chapter * 10,
+                        metadata={
+                            "chapterNumber": chapter,
+                            "chapterTitle": f"Chapter {chapter}",
+                        },
+                    ),
+                ),
+            )
+        workspace = get_workspace(connection, result.course_id)
+
+    tasks = {
+        task.title: task
+        for day in workspace.days
+        for section in day.sections
+        for task in section.tasks
+    }
+    chapter_four = next(task for title, task in tasks.items() if "4.1-4.3" in title)
+    chapter_five = next(task for title, task in tasks.items() if "5.1-5.4" in title)
+    assert chapter_four.chapter_numbers == [4]
+    assert chapter_four.open_question_count == 1
+    assert chapter_five.chapter_numbers == [5]
+    assert chapter_five.open_question_count == 1
+    assert workspace.days[0].open_question_count == 2
+    book = next(resource for resource in workspace.resources if resource.id == resource_id)
+    assert len(book.annotations) == 2
+
+
+
+def test_local_pdf_annotations_share_paragraph_context_outside_book_resources(
+    tmp_path: Path,
+) -> None:
+    pdf_path = tmp_path / "paper.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    paragraph = (
+        "Reliable evaluation requires overlap between the logging policy and "
+        "the target policy. Small logging probabilities can create unstable "
+        "importance weights. Clipping those weights trades variance for bias."
+    )
+    page.insert_textbox(pymupdf.Rect(72, 100, 520, 220), paragraph, fontsize=11)
+    first_rect = page.search_for("overlap between the logging policy")[0]
+    second_rect = page.search_for("Clipping those weights trades variance for bias")[0]
+    page.add_highlight_annot(first_rect)
+    page.add_highlight_annot(second_rect)
+    document.save(pdf_path)
+    document.close()
+
+    plan_path = tmp_path / "paper-plan.md"
+    plan_path.write_text(
+        """
++++
+format = "study-plan/v1"
+id = "paper_context_course"
+title = "Paper Context Course"
+mode = "full"
+
+[resources.paper]
+title = "Evaluation Paper"
+path = "paper.pdf"
+kind = "paper"
++++
+
+# Paper Context Course
+
+### Day 1: Read {#day-01}
+
+#### Reading
+
+- [ ] Read the paper. {#read-paper resources=paper}
+
+Stop when: the paper is annotated. {#day01-stop}
+""".lstrip(),
+        encoding="utf-8",
+    )
+    result = sync_study_plan(plan_path)
+    with transaction() as connection:
+        resource_id = str(
+            connection.execute(
+                text(
+                    """
+                    SELECT entity_id
+                    FROM source_bindings
+                    WHERE entity_type = 'resource'
+                      AND source_key = 'paper_context_course:paper'
+                    """
+                )
+            ).scalar_one()
+        )
+        first_import = collect_resource_pdf_annotations(connection, resource_id)
+        second_import = collect_resource_pdf_annotations(connection, resource_id)
+        workspace = get_workspace(connection, result.course_id)
+
+    assert first_import.created_count == 2
+    assert second_import.existing_count == 2
+    paper = next(resource for resource in workspace.resources if resource.id == resource_id)
+    assert len(paper.annotations) == 2
+    group_ids = {
+        annotation.anchor.metadata.get("contextGroupId")
+        for annotation in paper.annotations
+        if annotation.anchor is not None
+    }
+    assert len(group_ids) == 1
+    assert None not in group_ids
+    assert all(
+        annotation.anchor is not None
+        and annotation.anchor.metadata.get("contextParagraph") == paragraph
+        for annotation in paper.annotations
+    )

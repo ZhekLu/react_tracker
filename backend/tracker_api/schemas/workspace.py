@@ -96,6 +96,7 @@ class Task(StrictModel):
     resource_ids: list[str] = Field(default_factory=list)
     exam_question_ids: list[str] = Field(default_factory=list)
     skill_ids: list[str] = Field(default_factory=list)
+    chapter_numbers: list[int] = Field(default_factory=list)
     rationale: DocumentContent | None = None
     notes: list[Note] = Field(default_factory=list)
     open_question_count: int = 0
@@ -511,3 +512,19 @@ class MutationResponse(StrictModel):
     id: str
     revision: int
     updated_at: str
+
+
+class PromptAttachmentItem(StrictModel):
+    name: str
+    kind: Literal["resource", "question_image", "manifest"]
+    path: str
+    resource_id: str | None = None
+    annotation_id: str | None = None
+    question_label: str | None = None
+
+
+class PromptBatchCreateResponse(MutationResponse):
+    markdown: str
+    attachment_directory: str
+    attachments: list[PromptAttachmentItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

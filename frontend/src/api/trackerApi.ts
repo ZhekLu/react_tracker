@@ -130,6 +130,7 @@ type ApiTask = {
   resource_ids: string[];
   exam_question_ids: string[];
   skill_ids: string[];
+  chapter_numbers: number[];
   rationale?: ApiDocumentContent | null;
   notes: ApiNote[];
   open_question_count: number;
@@ -422,6 +423,22 @@ export type PromptBatchInput = {
   annotationIds?: string[];
 };
 
+export type PromptAttachment = {
+  name: string;
+  kind: "resource" | "question_image" | "manifest";
+  path: string;
+  resourceId?: string | null;
+  annotationId?: string | null;
+  questionLabel?: string | null;
+};
+
+export type PromptBatchResult = MutationResponse & {
+  markdown: string;
+  attachmentDirectory: string;
+  attachments: PromptAttachment[];
+  warnings: string[];
+};
+
 export type ResourceContentResult = {
   resourceId: string;
   versionId?: string | null;
@@ -591,6 +608,7 @@ function task(api: ApiTask): Task {
     resourceIds: api.resource_ids,
     examQuestionIds: api.exam_question_ids,
     skillIds: api.skill_ids,
+    chapterNumbers: api.chapter_numbers,
     rationale: api.rationale ? documentContent(api.rationale) : null,
     notes: api.notes.map(note),
     openQuestionCount: api.open_question_count,
@@ -993,8 +1011,23 @@ export async function createAnnotation(
 
 export async function createPromptBatch(
   input: PromptBatchInput,
-): Promise<MutationResponse> {
-  return requestJson<MutationResponse>("/prompt-batches", {
+): Promise<PromptBatchResult> {
+  const result = await requestJson<{
+    id: string;
+    revision: number;
+    updated_at: string;
+    markdown: string;
+    attachment_directory: string;
+    attachments: {
+      name: string;
+      kind: "resource" | "question_image" | "manifest";
+      path: string;
+      resource_id?: string | null;
+      annotation_id?: string | null;
+      question_label?: string | null;
+    }[];
+    warnings: string[];
+  }>("/prompt-batches", {
     body: JSON.stringify({
       course_id: input.courseId,
       title: input.title,
@@ -1008,6 +1041,22 @@ export async function createPromptBatch(
     }),
     method: "POST",
   });
+  return {
+    id: result.id,
+    revision: result.revision,
+    updated_at: result.updated_at,
+    markdown: result.markdown,
+    attachmentDirectory: result.attachment_directory,
+    attachments: result.attachments.map((attachment) => ({
+      name: attachment.name,
+      kind: attachment.kind,
+      path: attachment.path,
+      resourceId: attachment.resource_id,
+      annotationId: attachment.annotation_id,
+      questionLabel: attachment.question_label,
+    })),
+    warnings: result.warnings,
+  };
 }
 
 export async function openResource(resourceId: string): Promise<ResourceOpenResult> {
