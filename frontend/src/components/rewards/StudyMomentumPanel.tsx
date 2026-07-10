@@ -4,6 +4,8 @@ import type { Course } from "../../types/tracker";
 import {
   dayEstimatedMinutes,
   formatTrackedTime,
+  isDayFullyComplete,
+  localDateKey,
 } from "../../features/roadmap/dayPresentation";
 
 type StudyMomentumPanelProps = {
@@ -61,6 +63,10 @@ export function StudyMomentumPanel({
     streak += 1;
   }
   const focusedDays = activity.filter((item) => item.level > 0).length;
+  const today = localDateKey();
+  const firstCatchUpDayId = activity.find(
+    ({ day }) => Boolean(day.date && day.date < today) && !isDayFullyComplete(day),
+  )?.day.id;
 
   return (
     <section className="studyMomentumPanel" aria-label="Study activity">
@@ -72,17 +78,21 @@ export function StudyMomentumPanel({
         <small>{focusedDays} active</small>
       </header>
       <div className="studyActivityGrid">
-        {activity.map(({ day, level, trackedSeconds }) => (
+        {activity.map(({ day, level, trackedSeconds }) => {
+          const plannedByNow = Boolean(day.date && day.date <= today);
+          const catchUpTarget = day.id === firstCatchUpDayId;
+          return (
           <span
-            aria-label={`Day ${day.number}: activity level ${level} of 4`}
-            className={`activityLevel-${level}`}
+            aria-label={`Day ${day.number}: activity level ${level} of 4${catchUpTarget ? ", current catch-up target" : ""}`}
+            className={`activityLevel-${level} ${plannedByNow ? "plannedByNow" : ""} ${catchUpTarget ? "catchUpTarget" : ""}`}
             key={day.id}
             style={{ "--activity-level": level } as CSSProperties}
             title={`Day ${day.number} · ${Math.round(
               day.progress.ratio * 100,
             )}% · ${formatTrackedTime(trackedSeconds) || "no tracked time"}`}
           />
-        ))}
+          );
+        })}
       </div>
     </section>
   );

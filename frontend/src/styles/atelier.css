@@ -565,6 +565,12 @@ button:disabled {
   border-left: 1px solid var(--line-strong);
 }
 
+.headerDayContext .catchUpProgress {
+  border-left-color: color-mix(in srgb, var(--course-accent) 44%, var(--line));
+  color: color-mix(in srgb, var(--course-accent) 74%, var(--ink-soft));
+  font-weight: 730;
+}
+
 .headerProgress {
   flex: 0 0 auto;
   display: flex;
@@ -1289,6 +1295,29 @@ button:disabled {
   color: var(--amber-deep);
 }
 
+button.taskMetaBadge {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button.taskMetaBadge:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.taskTimerBadge.active {
+  border-color: color-mix(in srgb, var(--green) 42%, var(--line));
+  background: var(--green-soft);
+  color: var(--green-deep);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 10%, transparent);
+}
+
+.taskRationaleToggle.active {
+  border-color: color-mix(in srgb, var(--course-accent) 34%, var(--line));
+  background: color-mix(in srgb, var(--course-accent) 8%, #fff);
+  color: var(--course-accent);
+}
+
 .statusBadge {
   min-height: 20px;
   padding: 3px 6px;
@@ -1336,7 +1365,11 @@ button:disabled {
 }
 
 .taskRationale {
-  margin-top: 5px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--course-accent) 32%, var(--line));
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--course-accent) 4%, #fff);
   color: var(--muted);
   font-size: 9px;
 }
@@ -1357,7 +1390,7 @@ button:disabled {
 }
 
 .taskRationale p {
-  margin: 5px 0 0;
+  margin: 0;
   line-height: 1.42;
 }
 

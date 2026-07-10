@@ -309,6 +309,7 @@ class TogglCurrent(StrictModel):
     description: str
     plan_id: str
     day_id: str
+    task_id: str | None = None
     start: str
 
 
@@ -320,6 +321,7 @@ class TogglStatusResponse(StrictModel):
     current: TogglCurrent | None = None
     totals: dict[str, int]
     days: dict[str, dict[str, int]]
+    tasks: dict[str, int]
 
 
 class CourseStats(StrictModel):
@@ -506,6 +508,9 @@ class PromptBatchCreateCommand(StrictModel):
 
 class TogglStartCommand(StrictModel):
     description: str = Field(min_length=1, max_length=500)
+    course_id: str | None = None
+    day_id: str | None = None
+    task_id: str | None = None
 
 
 class MutationResponse(StrictModel):

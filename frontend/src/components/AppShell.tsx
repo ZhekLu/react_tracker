@@ -10,6 +10,7 @@ import type { CSSProperties, ReactNode } from "react";
 import {
   dayEstimatedMinutes,
   dayDisplayTopic,
+  catchUpDayCount,
   formatPlannedTime,
   formatTrackedTime,
 } from "../features/roadmap/dayPresentation";
@@ -83,6 +84,7 @@ export function AppShell({
   const activeDayTasks = activeDay?.sections.flatMap((section) => section.tasks) ?? [];
   const activeDayPlannedMinutes = activeDay ? dayEstimatedMinutes(activeDay) : 0;
   const activeDayDone = activeDayTasks.filter((task) => task.status === "done").length;
+  const catchUpDays = catchUpDayCount(course.days);
   const headerProgress = view === "roadmap" && activeDay ? activeDay.progress.ratio : courseProgress;
 
   return (
@@ -111,6 +113,11 @@ export function AppShell({
                   <span>{activeDayDone}/{activeDayTasks.length} tasks</span>
                   {activeDay.openQuestionCount ? <span>{activeDay.openQuestionCount} questions</span> : null}
                   {activeDay.progress.later ? <span>{activeDay.progress.later} later</span> : null}
+                  {catchUpDays ? (
+                    <span className="catchUpProgress">
+                      {catchUpDays} day{catchUpDays === 1 ? "" : "s"} to catch up
+                    </span>
+                  ) : null}
                   {activeDayPlannedMinutes ? (
                     <span>
                       {formatTrackedTime(

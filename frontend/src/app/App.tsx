@@ -1294,6 +1294,17 @@ export function App() {
           onOpenDiscussion={handleOpenDiscussion}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
           onTaskStatusChange={handleTaskStatusChange}
+          onToggleTaskTimer={(day, task, resources) =>
+            void toggl.toggleTask(day, task, resources)
+          }
+          taskTimer={{
+            activeTaskId: toggl.status.current?.taskId,
+            busy: toggl.busy,
+            configured: toggl.status.configured,
+            error: toggl.error,
+            online: toggl.status.online,
+            trackedSecondsByTask: toggl.trackedSecondsByTask,
+          }}
         />
       ) : null}
       {view === "resources" ? (

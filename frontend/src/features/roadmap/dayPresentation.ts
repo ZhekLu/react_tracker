@@ -27,6 +27,20 @@ export function isDayFullyComplete(day: StudyDay): boolean {
   return requiredTasks.length > 0 && requiredTasks.every((task) => task.status === "done");
 }
 
+export function localDateKey(date = new Date()): string {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+export function catchUpDayCount(
+  days: StudyDay[],
+  today = localDateKey(),
+): number {
+  return days.filter(
+    (day) => Boolean(day.date && day.date < today) && !isDayFullyComplete(day),
+  ).length;
+}
+
 export function dayTone(day: StudyDay): DayTone {
   if (day.openQuestionCount > 0) return "question";
   if (

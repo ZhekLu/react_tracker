@@ -90,6 +90,15 @@ type RoadmapViewProps = {
   onOpenDiscussion: (resourceId: string, taskId?: string) => void;
   onOpenResource: (resourceId: string) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
+  onToggleTaskTimer: (day: StudyDay, task: Task, resources: Resource[]) => void;
+  taskTimer: {
+    activeTaskId?: string | null;
+    busy: boolean;
+    configured: boolean;
+    error: string;
+    online: boolean;
+    trackedSecondsByTask: Record<string, number>;
+  };
 };
 
 const RichNoteEditor = lazy(() =>
@@ -111,7 +120,27 @@ type TaskRowProps = {
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
   onStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
+  onToggleTimer: () => void;
+  timer: {
+    active: boolean;
+    busy: boolean;
+    configured: boolean;
+    error: string;
+    online: boolean;
+    trackedSeconds: number;
+  };
 };
+
+function taskTimerText(task: Task, trackedSeconds: number): string {
+  const actualMinutes = Math.max(0, Math.round(trackedSeconds / 60));
+  if (task.status === "done") return `${actualMinutes}m`;
+  if (task.estimatedMinutes) {
+    return trackedSeconds > 0
+      ? `${actualMinutes}/${task.estimatedMinutes}m`
+      : `${task.estimatedMinutes}m`;
+  }
+  return trackedSeconds > 0 ? `${actualMinutes}m` : "Time";
+}
 
 function TaskRow({
   dayId,
@@ -126,8 +155,11 @@ function TaskRow({
   onOpenDiscussion,
   onOpenResource,
   onStatusChange,
+  onToggleTimer,
+  timer,
 }: TaskRowProps) {
   const reward = useCompletionReward();
+  const [rationaleOpen, setRationaleOpen] = useState(false);
   const completed = task.status === "done";
   const linkedResources = task.resourceIds
     .map((resourceId) => resourceById.get(resourceId))
@@ -156,6 +188,7 @@ function TaskRow({
     const nextStatus = task.status === "done" ? "todo" : "done";
     if (nextStatus === "done") {
       reward.celebrate(petCelebrationDuration("task"));
+      if (timer.active) onToggleTimer();
     }
     onStatusChange(dayId, task.id, nextStatus);
   }
@@ -191,9 +224,25 @@ function TaskRow({
           <div className="taskBadges">
             {task.isOptional ? <span className="taskMetaBadge">Optional</span> : null}
             {task.taskType ? <span className="taskMetaBadge">{task.taskType}</span> : null}
-            {task.estimatedMinutes ? (
-              <span className="taskMetaBadge"><Timer size={11} /> {task.estimatedMinutes}m</span>
-            ) : null}
+            <button
+              aria-label={timer.active ? "Stop task timer" : "Start task timer"}
+              className={`taskMetaBadge taskTimerBadge ${timer.active ? "active" : ""}`}
+              disabled={timer.busy || !timer.online || !timer.configured}
+              onClick={onToggleTimer}
+              title={
+                timer.error ||
+                (!timer.online
+                  ? "Start the tracker API to enable timing"
+                  : !timer.configured
+                    ? "Configure Toggl to enable timing"
+                    : timer.active
+                      ? "Stop timing this task"
+                      : "Start timing this task")
+              }
+              type="button"
+            >
+              <Timer size={11} /> {taskTimerText(task, timer.trackedSeconds)}
+            </button>
             {taskOpenQuestionCount ? (
               <span
                 className="taskMetaBadge question"
@@ -208,15 +257,24 @@ function TaskRow({
             {task.status === "skipped" ? (
               <span className="taskStateLabel skipped"><X size={11} /> Skipped</span>
             ) : null}
+            {task.rationale?.plainText ? (
+              <button
+                aria-expanded={rationaleOpen}
+                className={`taskMetaBadge taskRationaleToggle ${rationaleOpen ? "active" : ""}`}
+                onClick={() => setRationaleOpen((current) => !current)}
+                type="button"
+              >
+                <Info size={11} /> Why this
+              </button>
+            ) : null}
           </div>
         </div>
-        {task.rationale?.plainText ? (
-          <details className="taskRationale">
-            <summary><Info size={12} /> Why this</summary>
+        {task.rationale?.plainText && rationaleOpen ? (
+          <div className="taskRationale">
             <MarkdownMath>
               {task.rationale.markdown ?? task.rationale.plainText}
             </MarkdownMath>
-          </details>
+          </div>
         ) : null}
         {linkedResources.length || linkedQuestions.length ? (
           <div className="taskLinks">
@@ -413,6 +471,19 @@ function TaskCapturePanel({
         annotation.origin,
       ),
   );
+  const manualQuestionGroups = [
+    ...manualQuestions
+      .reduce((groups, capture) => {
+        const current = groups.get(capture.resource.id) ?? {
+          annotations: [] as Annotation[],
+          resource: capture.resource,
+        };
+        current.annotations.push(capture.annotation);
+        groups.set(capture.resource.id, current);
+        return groups;
+      }, new Map<string, { annotations: Annotation[]; resource: Resource }>())
+      .values(),
+  ];
   const groupedCaptures = visibleCaptures.filter(
     ({ annotation }) =>
       !manualQuestions.some(
@@ -486,33 +557,20 @@ function TaskCapturePanel({
       </div>
       {open ? (
         <div className="taskCaptureGroupedList">
-          {manualQuestions.length ? (
-            <section className="taskQuestionShelf">
-              <header>
-                <span>
-                  <CircleHelp size={12} />
-                  Questions added for this task
-                </span>
-                <strong>{manualQuestions.length}</strong>
-              </header>
-              <AnnotationChapterGroups
-                annotations={manualQuestions.map(
-                  ({ annotation }) => annotation,
-                )}
-                flat
-                initiallyExpandCaptures={showingQuestionsOnly}
-                onAnnotationChange={onAnnotationChange}
-                onDiscuss={(annotation) => {
-                  const resource = manualQuestions.find(
-                    ({ annotation: candidate }) =>
-                      candidate.id === annotation.id,
-                  )?.resource;
-                  if (resource) onOpenDiscussion(resource.id);
-                }}
-                onNoteSave={onNoteSave}
-              />
-            </section>
-          ) : null}
+          {manualQuestionGroups.map(({ annotations, resource }) => (
+            <ResourceQuestionShelf
+              annotations={annotations}
+              initiallyOpen={showingQuestionsOnly || annotations.some(
+                (annotation) => annotation.status === "open",
+              )}
+              key={`${resource.id}:${showingQuestionsOnly}`}
+              onAnnotationChange={onAnnotationChange}
+              onDiscuss={() => onOpenDiscussion(resource.id)}
+              onNoteSave={onNoteSave}
+              onOpenResource={() => onOpenResource(resource.id)}
+              resource={resource}
+            />
+          ))}
           {captureGroups.map(({ annotations, resource }) => {
             const relevantQuestions = annotations.filter(
               (annotation) =>
@@ -555,6 +613,57 @@ function TaskCapturePanel({
   );
 }
 
+function ResourceQuestionShelf({
+  annotations,
+  initiallyOpen,
+  onAnnotationChange,
+  onDiscuss,
+  onNoteSave,
+  onOpenResource,
+  resource,
+}: {
+  annotations: Annotation[];
+  initiallyOpen: boolean;
+  onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
+  onDiscuss: () => void;
+  onNoteSave: RoadmapViewProps["onNoteSave"];
+  onOpenResource: () => void;
+  resource: Resource;
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
+
+  return (
+    <section className="taskQuestionShelf">
+      <header>
+        <button onClick={onOpenResource} type="button">
+          <BookOpen size={12} />
+          <span>{resource.title}</span>
+        </button>
+        <button
+          aria-expanded={open}
+          aria-label={open ? "Collapse resource questions" : "Expand resource questions"}
+          className="taskQuestionShelfToggle"
+          onClick={() => setOpen((current) => !current)}
+          type="button"
+        >
+          <strong>{annotations.length}</strong>
+          <ChevronDown className={open ? "expanded" : ""} size={13} />
+        </button>
+      </header>
+      {open ? (
+        <AnnotationChapterGroups
+          annotations={annotations}
+          flat
+          initiallyExpandCaptures={initiallyOpen}
+          onAnnotationChange={onAnnotationChange}
+          onDiscuss={onDiscuss}
+          onNoteSave={onNoteSave}
+        />
+      ) : null}
+    </section>
+  );
+}
+
 type DayCardProps = {
   accent: string;
   day: StudyDay;
@@ -571,6 +680,8 @@ type DayCardProps = {
   onOpenResource: (resourceId: string) => void;
   onClosedChange: (day: StudyDay, closed: boolean) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
+  onToggleTaskTimer: RoadmapViewProps["onToggleTaskTimer"];
+  taskTimer: RoadmapViewProps["taskTimer"];
 };
 
 function DayCard({
@@ -589,6 +700,8 @@ function DayCard({
   onOpenResource,
   onClosedChange,
   onTaskStatusChange,
+  onToggleTaskTimer,
+  taskTimer,
 }: DayCardProps) {
   const reward = useCompletionReward();
   const tasks = dayTasks(day);
@@ -695,8 +808,19 @@ function DayCard({
                 onNoteAttentionChange={onNoteAttentionChange}
                 onOpenDiscussion={onOpenDiscussion}
                 onOpenResource={onOpenResource}
+                onToggleTimer={() => onToggleTaskTimer(day, task, task.resourceIds
+                  .map((resourceId) => resourceById.get(resourceId))
+                  .filter((resource): resource is Resource => Boolean(resource)))}
                 resourceById={resourceById}
                 task={task}
+                timer={{
+                  active: taskTimer.activeTaskId === task.id,
+                  busy: taskTimer.busy,
+                  configured: taskTimer.configured,
+                  error: taskTimer.error,
+                  online: taskTimer.online,
+                  trackedSeconds: taskTimer.trackedSecondsByTask[task.id] ?? 0,
+                }}
               />
             ));
             if (section.defaultCollapsed || section.title === "Imported legacy tasks") {
@@ -804,6 +928,8 @@ export function RoadmapView({
   onOpenDiscussion,
   onOpenResource,
   onTaskStatusChange,
+  onToggleTaskTimer,
+  taskTimer,
 }: RoadmapViewProps) {
   const initialCourseAnchorRef = useRef("");
   const resourceById = useMemo(
@@ -886,10 +1012,12 @@ export function RoadmapView({
           onFlagQuestion={onFlagQuestion}
           onOpenDiscussion={onOpenDiscussion}
           onOpenResource={onOpenResource}
-          onTaskStatusChange={onTaskStatusChange}
-          resourceById={resourceById}
-          skillById={skillById}
-        />
+        onTaskStatusChange={onTaskStatusChange}
+        onToggleTaskTimer={onToggleTaskTimer}
+        resourceById={resourceById}
+        skillById={skillById}
+        taskTimer={taskTimer}
+      />
       ))}
     </section>
   );

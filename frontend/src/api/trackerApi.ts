@@ -364,10 +364,12 @@ export type TogglStatus = {
     description: string;
     planId: string;
     dayId: string;
+    taskId?: string | null;
     start: string;
   } | null;
   totals: Record<string, number>;
   days: Record<string, Record<string, number>>;
+  tasks: Record<string, number>;
 };
 
 type ApiTogglStatus = {
@@ -380,10 +382,12 @@ type ApiTogglStatus = {
     description: string;
     plan_id: string;
     day_id: string;
+    task_id?: string | null;
     start: string;
   } | null;
   totals: Record<string, number>;
   days: Record<string, Record<string, number>>;
+  tasks: Record<string, number>;
 };
 
 export type AnnotationCreateInput = {
@@ -792,6 +796,7 @@ function togglStatus(api: ApiTogglStatus): TogglStatus {
           id: api.current.id,
           planId: api.current.plan_id,
           start: api.current.start,
+          taskId: api.current.task_id,
         }
       : null,
     days: api.days,
@@ -799,6 +804,7 @@ function togglStatus(api: ApiTogglStatus): TogglStatus {
     online: true,
     projectName: api.project_name,
     running: api.running,
+    tasks: api.tasks ?? {},
     totals: api.totals,
   };
 }
@@ -1140,17 +1146,28 @@ export async function fetchTogglStatus(): Promise<TogglStatus> {
       online: false,
       projectName: "",
       running: false,
+      tasks: {},
       totals: {},
     };
   }
 }
 
 export async function startToggl(
-  description: string,
+  input: {
+    courseId: string;
+    dayId: string;
+    description: string;
+    taskId?: string;
+  },
 ): Promise<TogglStatus> {
   return togglStatus(
     await requestJson<ApiTogglStatus>("/integrations/toggl/start", {
-      body: JSON.stringify({ description }),
+      body: JSON.stringify({
+        course_id: input.courseId,
+        day_id: input.dayId,
+        description: input.description,
+        task_id: input.taskId,
+      }),
       method: "POST",
     }),
   );

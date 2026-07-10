@@ -18,7 +18,10 @@ from tracker_api.repositories.workspace_repository import (
     delete_discussion,
     get_workspace,
     link_discussion_question,
+    record_toggl_start,
     resource_content_target,
+    toggl_task_id,
+    toggl_task_totals,
     update_annotation,
     update_discussion_message,
     update_resource_progress,
@@ -186,6 +189,47 @@ def test_day_prompt_discussion_links_every_day_resource(tmp_path: Path) -> None:
         if resource.id in workspace.discussions[0].source_resource_ids
     }
     assert source_titles == {"Paper", "Slides"}
+
+
+def test_toggl_task_binding_tracks_time_by_stable_task_id(tmp_path: Path) -> None:
+    course_id, _resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        task = connection.execute(
+            text(
+                """
+                SELECT t.id AS task_id, t.day_id
+                FROM tasks t
+                JOIN study_days d ON d.id = t.day_id
+                WHERE d.course_id = :course_id AND t.deleted_at IS NULL
+                ORDER BY t.order_index
+                LIMIT 1
+                """
+            ),
+            {"course_id": course_id},
+        ).mappings().one()
+        task_id = str(task["task_id"])
+        day_id = str(task["day_id"])
+        record_toggl_start(
+            connection,
+            course_id=course_id,
+            day_id=day_id,
+            task_id=task_id,
+            external_id="toggl-42",
+            description="[Mutation] Day 1. Read paper",
+            started_at="2026-07-01T10:00:00Z",
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE time_entries
+                SET stopped_at = '2026-07-01T10:30:00Z'
+                WHERE provider = 'toggl' AND external_id = 'toggl-42'
+                """
+            )
+        )
+
+        assert toggl_task_id(connection, "toggl-42") == task_id
+        assert toggl_task_totals(connection)[task_id] == 1800
 
 
 def test_configured_pdf_application_is_used_without_system_fallback(

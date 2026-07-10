@@ -5,7 +5,8 @@ import {
   stopToggl,
   type TogglStatus,
 } from "../api/trackerApi";
-import type { Course, StudyDay } from "../types/tracker";
+import { taskTimerShortName } from "../features/roadmap/taskTimer";
+import type { Course, Resource, StudyDay, Task } from "../types/tracker";
 
 const offlineStatus: TogglStatus = {
   configured: false,
@@ -15,6 +16,7 @@ const offlineStatus: TogglStatus = {
   online: false,
   projectName: "",
   running: false,
+  tasks: {},
   totals: {},
 };
 
@@ -74,11 +76,44 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
     try {
       const nextStatus = status.running
         ? await stopToggl()
-        : await startToggl(
-            `[${course.shortCode}] Day ${activeDay.number}. ${
+        : await startToggl({
+            courseId: course.id,
+            dayId: activeDay.id,
+            description: `[${course.shortCode}] Day ${activeDay.number}. ${
               activeDay.topic || activeDay.title
             }`,
-          );
+          });
+      setStatus(nextStatus);
+    } catch (caught) {
+      setCommandError(
+        caught instanceof Error ? caught.message : "Toggl command failed.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleTask(
+    day: StudyDay,
+    task: Task,
+    resources: Resource[],
+  ) {
+    if (!course) return;
+    setBusy(true);
+    setCommandError("");
+    try {
+      const nextStatus =
+        status.running && status.current?.taskId === task.id
+          ? await stopToggl()
+          : await startToggl({
+              courseId: course.id,
+              dayId: day.id,
+              description: `[${course.shortCode}] Day ${day.number}. ${taskTimerShortName(
+                task,
+                resources,
+              )}`,
+              taskId: task.id,
+            });
       setStatus(nextStatus);
     } catch (caught) {
       setCommandError(
@@ -97,7 +132,9 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
     refresh,
     status,
     toggle,
+    toggleTask,
     trackedSeconds,
     trackedSecondsByDay,
+    trackedSecondsByTask: status.tasks,
   };
 }

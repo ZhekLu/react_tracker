@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, Response
@@ -418,9 +418,23 @@ def get_annotation_image(resource_id: str, image_id: str) -> FileResponse:
     )
 
 
+def _toggl_status_response(
+    connection: Connection,
+    payload: dict[str, Any],
+) -> TogglStatusResponse:
+    current = payload.get("current")
+    if isinstance(current, dict):
+        current["task_id"] = workspace_repository.toggl_task_id(
+            connection,
+            str(current.get("id") or ""),
+        )
+    payload["tasks"] = workspace_repository.toggl_task_totals(connection)
+    return TogglStatusResponse.model_validate(payload)
+
+
 @router.get("/integrations/toggl", response_model=TogglStatusResponse)
-def get_toggl_status() -> TogglStatusResponse:
-    return TogglStatusResponse.model_validate(public_status())
+def get_toggl_status(connection: Database) -> TogglStatusResponse:
+    return _toggl_status_response(connection, public_status())
 
 
 def _toggl_error(error: TogglServiceError) -> HTTPException:
@@ -433,17 +447,42 @@ def _toggl_error(error: TogglServiceError) -> HTTPException:
 
 
 @router.post("/integrations/toggl/start", response_model=TogglStatusResponse)
-def start_toggl(command: TogglStartCommand) -> TogglStatusResponse:
+def start_toggl(
+    command: TogglStartCommand,
+    connection: Database,
+) -> TogglStatusResponse:
     try:
-        return TogglStatusResponse.model_validate(start(command.description))
+        workspace_repository.validate_toggl_scope(
+            connection,
+            course_id=command.course_id,
+            day_id=command.day_id,
+            task_id=command.task_id,
+        )
+        payload = start(command.description)
+        current = payload.get("current")
+        if isinstance(current, dict):
+            workspace_repository.record_toggl_start(
+                connection,
+                course_id=command.course_id,
+                day_id=command.day_id,
+                task_id=command.task_id,
+                external_id=str(current.get("id") or ""),
+                description=str(current.get("description") or command.description),
+                started_at=str(current.get("start") or ""),
+            )
+        return _toggl_status_response(connection, payload)
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
     except TogglServiceError as error:
         raise _toggl_error(error) from error
 
 
 @router.post("/integrations/toggl/stop", response_model=TogglStatusResponse)
-def stop_toggl() -> TogglStatusResponse:
+def stop_toggl(connection: Database) -> TogglStatusResponse:
     try:
-        return TogglStatusResponse.model_validate(stop())
+        payload = stop()
+        workspace_repository.record_toggl_stop(connection)
+        return _toggl_status_response(connection, payload)
     except TogglServiceError as error:
         raise _toggl_error(error) from error
 

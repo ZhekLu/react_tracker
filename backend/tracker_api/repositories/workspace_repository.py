@@ -2576,6 +2576,182 @@ def resource_content_target(
     )
 
 
+def validate_toggl_scope(
+    connection: Connection,
+    *,
+    course_id: str | None,
+    day_id: str | None,
+    task_id: str | None,
+) -> None:
+    if course_id is None:
+        if day_id is not None or task_id is not None:
+            raise WorkspaceRepositoryError(
+                "A Toggl day or task requires a course."
+            )
+        return
+    course = _one_or_none(
+        connection,
+        "SELECT id FROM courses WHERE id = :id AND deleted_at IS NULL",
+        {"id": course_id},
+    )
+    if course is None:
+        raise EntityNotFoundError(f"Course does not exist: {course_id}")
+    if day_id is None:
+        if task_id is not None:
+            raise WorkspaceRepositoryError("A Toggl task requires a day.")
+        return
+    day = _one_or_none(
+        connection,
+        """
+        SELECT id
+        FROM study_days
+        WHERE id = :day_id AND course_id = :course_id AND deleted_at IS NULL
+        """,
+        {"course_id": course_id, "day_id": day_id},
+    )
+    if day is None:
+        raise EntityNotFoundError(f"Day does not exist in course: {day_id}")
+    if task_id is None:
+        return
+    task = _one_or_none(
+        connection,
+        """
+        SELECT id
+        FROM tasks
+        WHERE id = :task_id AND day_id = :day_id AND deleted_at IS NULL
+        """,
+        {"day_id": day_id, "task_id": task_id},
+    )
+    if task is None:
+        raise EntityNotFoundError(f"Task does not exist in day: {task_id}")
+
+
+def record_toggl_start(
+    connection: Connection,
+    *,
+    course_id: str | None,
+    day_id: str | None,
+    task_id: str | None,
+    external_id: str,
+    description: str,
+    started_at: str,
+) -> None:
+    if course_id is None:
+        return
+    connection.execute(
+        text(
+            """
+            UPDATE time_entries
+            SET stopped_at = :started_at, updated_at = :started_at
+            WHERE provider = 'toggl' AND stopped_at IS NULL
+            """
+        ),
+        {"started_at": started_at},
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO time_entries (
+              id, course_id, day_id, task_id, resource_id,
+              discussion_thread_id, provider, external_id, description,
+              started_at, stopped_at, duration_override_seconds,
+              external_workspace_id, external_project_id, last_synced_at,
+              sync_payload_json, created_at, updated_at
+            )
+            VALUES (
+              :id, :course_id, :day_id, :task_id, NULL,
+              NULL, 'toggl', :external_id, :description,
+              :started_at, NULL, NULL,
+              NULL, NULL, :started_at,
+              NULL, :started_at, :started_at
+            )
+            ON CONFLICT(provider, external_id) DO UPDATE SET
+              course_id = excluded.course_id,
+              day_id = excluded.day_id,
+              task_id = excluded.task_id,
+              description = excluded.description,
+              started_at = excluded.started_at,
+              stopped_at = NULL,
+              duration_override_seconds = NULL,
+              last_synced_at = excluded.last_synced_at,
+              updated_at = excluded.updated_at
+            """
+        ),
+        {
+            "id": _new_id(),
+            "course_id": course_id,
+            "day_id": day_id,
+            "task_id": task_id,
+            "external_id": external_id,
+            "description": description,
+            "started_at": started_at,
+        },
+    )
+
+
+def record_toggl_stop(connection: Connection) -> None:
+    now = _now()
+    connection.execute(
+        text(
+            """
+            UPDATE time_entries
+            SET stopped_at = :now, last_synced_at = :now, updated_at = :now
+            WHERE provider = 'toggl' AND stopped_at IS NULL
+            """
+        ),
+        {"now": now},
+    )
+
+
+def toggl_task_id(connection: Connection, external_id: str) -> str | None:
+    return cast(
+        str | None,
+        connection.execute(
+            text(
+                """
+                SELECT task_id
+                FROM time_entries
+                WHERE provider = 'toggl' AND external_id = :external_id
+                LIMIT 1
+                """
+            ),
+            {"external_id": external_id},
+        ).scalar_one_or_none(),
+    )
+
+
+def toggl_task_totals(connection: Connection) -> dict[str, int]:
+    return {
+        str(row["task_id"]): int(row["tracked_seconds"] or 0)
+        for row in _rows(
+            connection,
+            """
+            SELECT
+              task_id,
+              SUM(
+                COALESCE(
+                  duration_override_seconds,
+                  CASE
+                    WHEN stopped_at IS NOT NULL
+                    THEN MAX(0, CAST(
+                      strftime('%s', stopped_at) - strftime('%s', started_at)
+                      AS INTEGER
+                    ))
+                    ELSE MAX(0, CAST(
+                      strftime('%s', 'now') - strftime('%s', started_at)
+                      AS INTEGER
+                    ))
+                  END
+                )
+              ) AS tracked_seconds
+            FROM time_entries
+            WHERE task_id IS NOT NULL
+            GROUP BY task_id
+            """,
+        )
+    }
+
+
 def create_discussion(
     connection: Connection,
     command: DiscussionCreateCommand,

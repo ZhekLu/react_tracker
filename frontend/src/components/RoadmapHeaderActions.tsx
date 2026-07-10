@@ -54,11 +54,8 @@ export function RoadmapHeaderActions({
   onViewChange,
   toggl,
 }: RoadmapHeaderActionsProps) {
-  const currentIndex = course.days.findIndex((day) => day.id === activeDay.id);
   const today = course.days.find((day) => day.date === localDate());
-  const nextOpen =
-    course.days.slice(currentIndex + 1).find(isOpenDay) ??
-    course.days.find(isOpenDay);
+  const nextOpen = course.days.find(isOpenDay);
   const closed = ["closed", "completed", "archived"].includes(
     activeDay.status,
   );
