@@ -31,6 +31,7 @@ type ReviewSelection = {
   left: number;
   quote: string;
   structured: boolean;
+  structuredMarkdown: string;
   toPosition: number;
   top: number;
 };
@@ -39,7 +40,7 @@ function structuredSelectionMarkdown(
   editor: NonNullable<ReturnType<typeof useEditor>>,
   from: number,
   to: number,
-): { markdown: string; structured: boolean } {
+): { markdown: string; structured: boolean; structuredMarkdown: string } {
   const blocks: string[] = [];
   editor.state.doc.nodesBetween(from, to, (node) => {
     if (node.type.name === "inlineMath") {
@@ -57,10 +58,21 @@ function structuredSelectionMarkdown(
     }
     return true;
   });
-  const plainText = editor.state.doc.textBetween(from, to, "\n", " ").trim();
+  const plainText = editor.state.doc
+    .textBetween(from, to, "\n", (node) => {
+      if (node.type.name === "inlineMath") {
+        return `$${String(node.attrs.latex ?? "").trim()}$`;
+      }
+      if (node.type.name === "blockMath") {
+        return `$$\n${String(node.attrs.latex ?? "").trim()}\n$$`;
+      }
+      return " ";
+    })
+    .trim();
   return {
-    markdown: blocks.length ? blocks.join("\n\n") : plainText,
+    markdown: plainText || blocks.join("\n\n"),
     structured: blocks.length > 0,
+    structuredMarkdown: blocks.join("\n\n"),
   };
 }
 
@@ -162,28 +174,24 @@ export function DiscussionMarkdownSurfaceImpl({
       left,
       quote: selected.markdown,
       structured: selected.structured,
+      structuredMarkdown: selected.structuredMarkdown,
       toPosition: to,
       top,
     };
   }
 
-  function captureReviewSelection() {
-    if (!reviewMode) return;
-    if (
-      document.activeElement?.closest(
-        ".discussionSelectionReview, .discussionFormulaComposer",
-      )
-    ) {
-      return;
-    }
-    window.requestAnimationFrame(() => {
-      const nextSelection = selectionDetails();
-      if (nextSelection) setReviewSelection(nextSelection);
-    });
-  }
-
   function queueReviewItem(item: DiscussionReviewItem) {
-    setPendingReviewItems((current) => [...current, item]);
+    setPendingReviewItems((current) =>
+      current.some(
+        (queued) =>
+          queued.kind === item.kind &&
+          queued.fromPosition === item.fromPosition &&
+          queued.toPosition === item.toPosition &&
+          queued.markdown === item.markdown,
+      )
+        ? current
+        : [...current, item],
+    );
     setFollowupDraft("");
     setReviewSelection(null);
   }
@@ -211,10 +219,30 @@ export function DiscussionMarkdownSurfaceImpl({
       contextBefore: selection.contextBefore,
       fromPosition: selection.fromPosition,
       kind: "highlight",
-      markdown: selection.quote,
-      quote: selection.quote,
+      markdown: selection.structuredMarkdown,
+      quote: selection.structuredMarkdown,
       toPosition: selection.toPosition,
     });
+  }
+
+  function highlightTextInsideSelection(
+    selection: ReviewSelection,
+    color: string,
+  ) {
+    const mark = activeEditor.schema.marks.highlight.create({ color });
+    const transaction = activeEditor.state.tr;
+    activeEditor.state.doc.nodesBetween(
+      selection.fromPosition,
+      selection.toPosition,
+      (node, position) => {
+        if (!node.isText) return true;
+        const from = Math.max(selection.fromPosition, position);
+        const to = Math.min(selection.toPosition, position + node.nodeSize);
+        if (from < to) transaction.addMark(from, to, mark);
+        return false;
+      },
+    );
+    activeEditor.view.dispatch(transaction);
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
@@ -227,12 +255,32 @@ export function DiscussionMarkdownSurfaceImpl({
     }
     const key = event.key.toLowerCase();
     const command = event.metaKey || event.ctrlKey;
+
+    if (reviewMode && command && key === "d") {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const selection = selectionDetails();
+
+      if (!selection) {
+        return;
+      }
+
+      setFollowupDraft("");
+      setReviewSelection(selection);
+
+      return;
+    }
     if (command && key === "h") {
       event.preventDefault();
       event.stopPropagation();
       const secondary = event.shiftKey;
       const selection = selectionDetails();
       if (reviewMode && selection?.structured) {
+        const color = secondary
+          ? SECONDARY_DISCUSSION_HIGHLIGHT
+          : PRIMARY_DISCUSSION_HIGHLIGHT;
+        highlightTextInsideSelection(selection, color);
         queueStructuredHighlight(
           selection,
           secondary ? "secondary" : "primary",
@@ -314,8 +362,6 @@ export function DiscussionMarkdownSurfaceImpl({
       ref={surfaceRef}
       className={`discussionMarkdownSurface ${editable ? "isEditing" : "isReadOnly"} ${className}`.trim()}
       onKeyDownCapture={editable ? handleKeyDown : undefined}
-      onKeyUpCapture={editable && reviewMode ? captureReviewSelection : undefined}
-      onMouseUpCapture={editable && reviewMode ? captureReviewSelection : undefined}
       onPasteCapture={editable ? handlePaste : undefined}
     >
       {editable ? (
@@ -334,7 +380,7 @@ export function DiscussionMarkdownSurfaceImpl({
             ⌘⇧H highlight
           </span>
           <span>⌘S save</span>
-          {reviewMode ? <span>select → ask follow-up</span> : null}
+          {reviewMode ? <span>select → Ctrl/⌘ + D to ask follow-up</span> : null}
         </header>
       ) : null}
       {pendingReviewItems.length ? (

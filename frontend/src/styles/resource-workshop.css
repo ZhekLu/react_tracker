@@ -1240,8 +1240,8 @@
 
 .discussionIndex {
   min-width: 0;
-  max-height: calc(100vh - 125px);
-  overflow-y: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .discussionMain {
@@ -1278,6 +1278,39 @@
   max-width: none;
   min-width: 0;
   overflow: hidden;
+}
+
+.discussionMessage > summary {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 8px;
+}
+
+.discussionMessage > summary::-webkit-details-marker {
+  display: none;
+}
+
+.discussionMessage > summary::after {
+  content: "▾";
+  margin-left: 2px;
+  color: var(--faint);
+  font-size: 7px;
+}
+
+.discussionMessage:not([open]) > summary::after {
+  content: "▸";
+}
+
+.discussionMessage > summary > span {
+  margin-left: auto;
+}
+
+.discussionMessage > summary .messageEditButton {
+  margin-left: 4px;
 }
 
 .discussionMessageBody {
@@ -1868,6 +1901,61 @@
   margin: 0;
 }
 
+.discussionHighlightExcerptList {
+  display: grid;
+  gap: 8px;
+}
+
+.discussionHighlightExcerpt {
+  padding: 8px 10px;
+  border-left: 3px solid #e2bd3b;
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, #fff6bf 34%, #fff);
+  display: grid;
+  gap: 4px;
+}
+
+.discussionHighlightExcerpt.color-secondary {
+  border-left-color: #6caed8;
+  background: color-mix(in srgb, #d9efff 38%, #fff);
+}
+
+.discussionHighlightHeading {
+  width: max-content;
+  max-width: 100%;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--surface-soft);
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 6px;
+  font-weight: 760;
+}
+
+.discussionHighlightContext {
+  color: var(--faint);
+  font-size: 8px;
+  line-height: 1.38;
+}
+
+.discussionHighlightSelection {
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.42;
+}
+
+.discussionHighlightContext .markdownMath > :first-child,
+.discussionHighlightSelection .markdownMath > :first-child {
+  margin-top: 0;
+}
+
+.discussionHighlightContext .markdownMath > :last-child,
+.discussionHighlightSelection .markdownMath > :last-child {
+  margin-bottom: 0;
+}
+
 .discussionHighlightEmpty {
   min-height: 90px;
   display: grid;
@@ -2222,20 +2310,59 @@
 
 .discussionCoverageList {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .discussionCoverageList .discussionQuestion {
-  padding: 8px;
+  padding: 6px 7px;
   margin: 0;
-  border-radius: 8px;
+  border-left-width: 2px;
+  border-radius: 6px;
 }
 
 .discussionCoverageList .discussionQuestion > p,
 .discussionCoverageList .discussionQuestion > .markdownMath {
-  margin: 6px 0;
-  font-size: 9px;
-  line-height: 1.4;
+  margin: 4px 0;
+  font-size: 7px;
+  line-height: 1.34;
+}
+
+.discussionCoverageList .discussionQuestion > header strong {
+  width: max-content;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--surface-soft);
+  color: var(--faint);
+  font-size: 6px;
+  text-transform: uppercase;
+}
+
+.discussionCoverageList .discussionQuestion button {
+  min-height: 21px;
+  padding: 2px 4px;
+  border-radius: 5px;
+  font-size: 6px;
+}
+
+.discussionCoverageFilter {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.discussionCoverageFilter button {
+  padding: 3px 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 6px;
+  font-weight: 760;
+}
+
+.discussionCoverageFilter button.active {
+  border-color: color-mix(in srgb, var(--amber) 35%, var(--line));
+  background: var(--amber-soft);
+  color: var(--amber-deep);
 }
 
 .discussionStructuredAnswer {
@@ -2248,6 +2375,67 @@
   border-top: 1px solid color-mix(in srgb, var(--green) 16%, var(--line));
   display: grid;
   gap: 8px;
+}
+
+.discussionAnswerSection > summary {
+  min-height: 30px;
+  padding: 4px 6px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.discussionAnswerSection > summary::-webkit-details-marker {
+  display: none;
+}
+
+.discussionAnswerSection > summary strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.discussionAnswerSection > summary span {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: 6px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.discussionSectionEdit {
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 3px 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 6px;
+  font-weight: 760;
+}
+
+.discussionSectionEditor {
+  margin-top: 0;
+}
+
+.discussionStructuredAnswer.isEditing .discussionAnswerSection > summary {
+  border: 1px solid color-mix(in srgb, var(--course-accent) 14%, var(--line));
+}
+
+.discussionAnswerSection:not([open]) {
+  padding-bottom: 0;
 }
 
 .inlineAnsweredQuestion {

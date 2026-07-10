@@ -36,6 +36,33 @@ describe("discussion answer mapping", () => {
     ]);
   });
 
+  it("uses top-level answer headings when the tutor omits question labels", () => {
+    const parsed = discussionAnswerSections([
+      "Intro.",
+      "",
+      "# Policy improvement proof",
+      "",
+      "Answer one.",
+      "",
+      "## Why does the action disappear?",
+      "",
+      "Detail.",
+      "",
+      "# Gridworld implementation",
+      "",
+      "Answer two.",
+    ].join("\n"));
+
+    expect(parsed.preamble).toBe("Intro.");
+    expect(parsed.sections.map((section) => section.label)).toEqual([
+      "Policy improvement proof",
+      "Gridworld implementation",
+    ]);
+    expect(parsed.sections[0].markdown).toContain(
+      "Why does the action disappear?",
+    );
+  });
+
   it("copies anchored review questions with their selected context", () => {
     const discussion = {
       id: "discussion",

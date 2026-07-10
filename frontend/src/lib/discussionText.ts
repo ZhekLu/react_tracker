@@ -127,14 +127,19 @@ export function discussionAnswerSections(markdown: string): {
   preamble: string;
   sections: DiscussionAnswerSection[];
 } {
-  const matches = [...markdown.matchAll(MARKDOWN_HEADING)]
-    .map((match) => ({
-      ...match,
-      labels: [...match[1].matchAll(QUESTION_LABEL)].map(
-        (labelMatch) => `Q-${labelMatch[1].padStart(3, "0")}`,
-      ),
-    }))
-    .filter((match) => match.labels.length > 0);
+  const headings = [...markdown.matchAll(MARKDOWN_HEADING)].map((match) => ({
+    ...match,
+    level: match[0].match(/^#+/)?.[0].length ?? 1,
+    title: match[1].trim(),
+    labels: [...match[1].matchAll(QUESTION_LABEL)].map(
+      (labelMatch) => `Q-${labelMatch[1].padStart(3, "0")}`,
+    ),
+  }));
+  let matches = headings.filter((match) => match.labels.length > 0);
+  if (!matches.length && headings.length) {
+    const primaryLevel = Math.min(...headings.map((heading) => heading.level));
+    matches = headings.filter((heading) => heading.level === primaryLevel);
+  }
   if (!matches.length) return { preamble: markdown, sections: [] };
   return {
     preamble: markdown.slice(0, matches[0].index).trim(),
@@ -142,7 +147,7 @@ export function discussionAnswerSections(markdown: string): {
       const start = match.index ?? 0;
       const end = matches[index + 1]?.index ?? markdown.length;
       return {
-        label: match.labels.join(", "),
+        label: match.labels.length ? match.labels.join(", ") : match.title,
         labels: match.labels,
         markdown: markdown.slice(start, end).trim(),
       };
@@ -244,7 +249,12 @@ export function matchAnswerSectionsToQuestions(
         (left, right) =>
           right.score - left.score || right.overlap - left.overlap,
       )
-      .slice(0, labelOrderIsStable ? 1 : Math.max(1, section.labels.length));
+      .slice(
+        0,
+        labelOrderIsStable
+          ? 1
+          : Math.max(1, section.labels.length || 4),
+      );
     if (semanticMatches.length) {
       semanticMatches.forEach((match) => remaining.delete(match.id));
       matches.push({

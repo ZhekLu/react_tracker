@@ -54,7 +54,8 @@ import {
 import { importPastedMarkdown } from "../../lib/discussionImport";
 import {
   discussionHighlights,
-  discussionHighlightsMarkdown,
+  discussionHeadingAt,
+  type DiscussionHighlightExcerpt,
 } from "../../lib/discussionHighlights";
 import { discussionExportSegments } from "../../lib/discussionExports";
 
@@ -126,17 +127,31 @@ function questionText(annotation: Annotation): string {
   );
 }
 
-function quotedContext(value: unknown): string {
-  if (typeof value !== "string" || !value.trim()) return "";
-  return value
-    .trim()
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n");
+function compactResourceLabel(resource?: Resource): string {
+  if (!resource) return "Source";
+  if (resource.kind === "book") return "Book";
+  if (resource.kind === "slides") {
+    const lecture = resource.title.match(/(?:lecture|lc)\s*(\d+)/i)?.[1];
+    return lecture ? `LC${lecture}` : "Slides";
+  }
+  if (resource.kind === "paper") return "Paper";
+  return resource.kind.replaceAll("_", " ");
 }
 
-function reviewHighlightsMarkdown(annotations: Annotation[]): string {
-  return annotations
+function contextSentence(value: unknown, edge: "first" | "last"): string {
+  if (typeof value !== "string" || !value.trim()) return "";
+  const sentences = value
+    .trim()
+    .match(/\S(?:.*?)(?:[.!?]+(?=\s|$)|$)/g);
+  if (!sentences?.length) return value.trim();
+  return (edge === "first" ? sentences[0] : sentences.at(-1))?.trim() ?? "";
+}
+
+function reviewHighlightExcerpts(
+  annotations: Annotation[],
+  markdown: string,
+): DiscussionHighlightExcerpt[] {
+  const excerpts = annotations
     .filter(
       (annotation) =>
         annotation.kind === "highlight" &&
@@ -144,90 +159,114 @@ function reviewHighlightsMarkdown(annotations: Annotation[]): string {
     )
     .map((annotation) => {
       const metadata = annotation.anchor?.metadata ?? {};
-      const selection =
+      const selectedMarkdown =
         annotation.body?.markdown ||
         annotation.anchor?.quote ||
         "Saved structured highlight";
-      return [
-        quotedContext(metadata.context_before),
-        selection,
-        quotedContext(metadata.context_after),
-      ]
-        .filter(Boolean)
-        .join("\n\n");
+      const position =
+        typeof metadata.from_position === "number"
+          ? metadata.from_position
+          : 0;
+      return {
+        color:
+          annotation.anchor?.color === "secondary"
+            ? ("secondary" as const)
+            : ("primary" as const),
+        contextMarkdown: selectedMarkdown,
+        heading: discussionHeadingAt(markdown, position),
+        markdown: selectedMarkdown,
+        nextMarkdown: contextSentence(metadata.context_after, "first"),
+        previousMarkdown: contextSentence(metadata.context_before, "last"),
+        position,
+      };
     })
-    .join("\n\n---\n\n");
+    .sort((left, right) => left.position - right.position);
+  return excerpts.filter(
+    (excerpt, index) =>
+      !excerpts.slice(0, index).some(
+        (candidate) =>
+          candidate.markdown === excerpt.markdown &&
+          Math.abs(candidate.position - excerpt.position) < 96,
+      ),
+  );
 }
 
-function MessageLinkedQuestionShelf({
-  annotations,
-  editing,
-  onAnnotationChange,
-  onNoteSave,
+function HighlightOnlyExcerptList({
+  excerpts,
 }: {
-  annotations: Annotation[];
-  editing: boolean;
-  onAnnotationChange: DiscussionsViewProps["onAnnotationChange"];
-  onNoteSave: DiscussionsViewProps["onNoteSave"];
+  excerpts: DiscussionHighlightExcerpt[];
 }) {
-  if (!annotations.length) return null;
-  const openCount = annotations.filter(
-    (annotation) => annotation.status === "open",
-  ).length;
+  if (!excerpts.length) return null;
   return (
-    <details className="messageLinkedQuestionShelf" open={editing || undefined}>
-      <summary>
-        <span>
-          <CircleHelp size={12} />
-          {annotations.length} linked question
-          {annotations.length === 1 ? "" : "s"}
-        </span>
-        <strong>{openCount ? `${openCount} open` : "reviewed"}</strong>
-      </summary>
-      <AnnotationChapterGroups
-        annotations={annotations}
-        flat
-        initiallyExpandCaptures={editing}
-        onAnnotationChange={onAnnotationChange}
-        onNoteSave={onNoteSave}
-      />
-    </details>
+    <div className="discussionHighlightExcerptList">
+      {excerpts.map((excerpt, index) => (
+        <section
+          className={`discussionHighlightExcerpt color-${excerpt.color}`}
+          key={`${excerpt.heading}-${excerpt.markdown}-${index}`}
+        >
+          <span className="discussionHighlightHeading">{excerpt.heading}</span>
+          {excerpt.previousMarkdown ? (
+            <div className="discussionHighlightContext">
+              <MarkdownMath>{excerpt.previousMarkdown}</MarkdownMath>
+            </div>
+          ) : null}
+          <div className="discussionHighlightSelection">
+            <MarkdownMath>{excerpt.contextMarkdown}</MarkdownMath>
+          </div>
+          {excerpt.nextMarkdown ? (
+            <div className="discussionHighlightContext">
+              <MarkdownMath>{excerpt.nextMarkdown}</MarkdownMath>
+            </div>
+          ) : null}
+        </section>
+      ))}
+    </div>
   );
 }
 
 function DiscussionMessageContent({
   annotationById,
   message,
+  editing,
   highlightsOnly,
+  onCancelEditing,
   onQuestionLink,
+  onAnnotationChange,
+  onNoteSave,
   questionLabelsAreOrdered,
   questionOrderIds,
   resourceById,
   reviewHighlights,
+  onSaveEditing,
 }: {
   annotationById: Map<string, Annotation>;
   message: DiscussionMessage;
+  editing: boolean;
   highlightsOnly: boolean;
+  onCancelEditing: () => void;
   onQuestionLink: DiscussionsViewProps["onQuestionLink"];
+  onAnnotationChange: DiscussionsViewProps["onAnnotationChange"];
+  onNoteSave: DiscussionsViewProps["onNoteSave"];
   questionLabelsAreOrdered: boolean;
   questionOrderIds: string[];
   resourceById: Map<string, Resource>;
   reviewHighlights: Annotation[];
+  onSaveEditing: (
+    markdown: string,
+    reviewItems: DiscussionReviewItem[],
+  ) => void;
 }) {
+  const [editingSectionKey, setEditingSectionKey] = useState("");
   const markdown = normalizeDiscussionMarkdown(
     message.body.markdown || message.body.plainText,
   );
-  if (highlightsOnly) {
-    const highlightMarkdown = [
-      discussionHighlightsMarkdown(markdown),
-      reviewHighlightsMarkdown(reviewHighlights),
-    ]
-      .filter(Boolean)
-      .join("\n\n---\n\n");
+  if (highlightsOnly && !editing) {
     return (
-      <DiscussionMarkdownSurface
-        className="discussionMessageBody discussionHighlightsOnly"
-        markdown={highlightMarkdown}
+      <HighlightOnlyExcerptList
+        excerpts={[
+          ...discussionHighlights(markdown),
+          ...reviewHighlightExcerpts(reviewHighlights, markdown),
+        ]}
       />
     );
   }
@@ -258,6 +297,18 @@ function DiscussionMessageContent({
       );
   const parsed = discussionAnswerSections(markdown);
   if (message.role !== "assistant" || !parsed.sections.length) {
+    if (editing) {
+      return (
+        <DiscussionMarkdownSurface
+          className="discussionMessageEditor"
+          editable
+          markdown={markdown}
+          onCancel={onCancelEditing}
+          onSave={onSaveEditing}
+          reviewMode
+        />
+      );
+    }
     return <ExportAwareDiscussionMarkdown markdown={markdown} />;
   }
   const sectionMatches = new Map(
@@ -267,20 +318,145 @@ function DiscussionMessageContent({
         id: question.id,
         text: questionText(question),
       })),
-      questionLabelsAreOrdered,
+      questionLabelsAreOrdered && parsed.sections.every(
+        (section) => section.labels.length > 0,
+      ),
     ).map((match) => [match.sectionLabel, match.questionIds]),
   );
   return (
-    <div className="discussionStructuredAnswer">
+    <div className={`discussionStructuredAnswer ${editing ? "isEditing" : ""}`}>
       {parsed.preamble ? (
-        <ExportAwareDiscussionMarkdown markdown={parsed.preamble} />
+        <details
+          className="discussionAnswerSection discussionAnswerPreamble"
+          open={editingSectionKey === "preamble" || undefined}
+        >
+          <summary>
+            <strong>Introduction</strong>
+            {editing ? (
+              <button
+                className="discussionSectionEdit"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setEditingSectionKey((current) =>
+                    current === "preamble" ? "" : "preamble",
+                  );
+                }}
+                type="button"
+              >
+                <Pencil size={10} />
+                {editingSectionKey === "preamble" ? "Close editor" : "Edit"}
+              </button>
+            ) : (
+              <span>context</span>
+            )}
+          </summary>
+          {editing && editingSectionKey === "preamble" ? (
+            <DiscussionMarkdownSurface
+              className="discussionMessageEditor discussionSectionEditor"
+              editable
+              markdown={parsed.preamble}
+              onCancel={() => setEditingSectionKey("")}
+              onSave={(updatedMarkdown, reviewItems) => {
+                onSaveEditing(
+                  `${updatedMarkdown.trim()}\n\n${markdown.slice(parsed.preamble.length).trimStart()}`,
+                  reviewItems,
+                );
+                setEditingSectionKey("");
+              }}
+              reviewMode
+            />
+          ) : (
+            <ExportAwareDiscussionMarkdown markdown={parsed.preamble} />
+          )}
+        </details>
       ) : null}
       {parsed.sections.map((section) => {
         const questions = (sectionMatches.get(section.label) ?? [])
           .map((questionId) => annotationById.get(questionId))
           .filter((item): item is Annotation => Boolean(item));
+        const headingLine = section.markdown.match(/^#{1,6}\s+.+$/m)?.[0] ?? "";
+        const sectionBody = section.markdown.replace(/^#{1,6}\s+.+(?:\n+|$)/, "");
+        const sectionKey = section.label;
+        const sectionEditing = editing && editingSectionKey === sectionKey;
+        const sectionEditor = sectionEditing ? (
+          <DiscussionMarkdownSurface
+            className="discussionMessageEditor discussionSectionEditor"
+            editable
+            markdown={sectionBody}
+            onCancel={() => setEditingSectionKey("")}
+            onSave={(updatedMarkdown, reviewItems) => {
+              const sectionStart = markdown.indexOf(section.markdown);
+              const reconstructed = [headingLine, updatedMarkdown.trim()]
+                .filter(Boolean)
+                .join("\n\n");
+              const updatedDiscussion =
+                sectionStart < 0
+                  ? markdown
+                  : `${markdown.slice(0, sectionStart)}${reconstructed}${markdown.slice(sectionStart + section.markdown.length)}`;
+              const editorOffset = Math.max(
+                0,
+                sectionStart + headingLine.length + 2,
+              );
+              onSaveEditing(
+                updatedDiscussion,
+                reviewItems.map((item) => ({
+                  ...item,
+                  fromPosition:
+                    item.fromPosition === undefined
+                      ? undefined
+                      : item.fromPosition + editorOffset,
+                  toPosition:
+                    item.toPosition === undefined
+                      ? undefined
+                      : item.toPosition + editorOffset,
+                })),
+              );
+              setEditingSectionKey("");
+            }}
+            reviewMode
+          />
+        ) : null;
         return (
-          <section className="discussionAnswerSection" key={section.label}>
+          <details
+            className="discussionAnswerSection"
+            key={section.label}
+            open={
+              sectionEditing ||
+              questions.some((question) => question.status === "open") ||
+              undefined
+            }
+          >
+            <summary>
+              <strong>
+                {section.markdown.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? section.label}
+              </strong>
+              {editing ? (
+                <button
+                  className="discussionSectionEdit"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setEditingSectionKey((current) =>
+                      current === sectionKey ? "" : sectionKey,
+                    );
+                  }}
+                  type="button"
+                >
+                  <Pencil size={10} />
+                  {sectionEditing ? "Close editor" : "Edit"}
+                </button>
+              ) : (
+                <span>
+                  {questions.filter((question) => question.status === "open").length
+                    ? `${questions.filter((question) => question.status === "open").length} open`
+                    : questions.length
+                      ? "answered"
+                      : "section"}
+                </span>
+              )}
+            </summary>
+            {sectionEditor}
             {questions.map((question, questionIndex) => {
               const relation = message.annotationLinks.find(
                 (link) => link.annotationId === question.id,
@@ -289,6 +465,7 @@ function DiscussionMessageContent({
               return (
                 <aside
                   className={`inlineAnsweredQuestion status-${question.status}`}
+                  id={`discussion-answer-${message.id}-${question.id}`}
                   key={question.id}
                 >
                   <header>
@@ -298,7 +475,12 @@ function DiscussionMessageContent({
                     </span>
                     <strong>{relation ?? question.status}</strong>
                   </header>
-                  <MarkdownMath>{questionText(question)}</MarkdownMath>
+                  <AnnotationChapterGroups
+                    annotations={[question]}
+                    flat
+                    onAnnotationChange={onAnnotationChange}
+                    onNoteSave={onNoteSave}
+                  />
                   <footer>
                     <span>
                       {source?.title ?? "Source"}
@@ -350,8 +532,10 @@ function DiscussionMessageContent({
                 </aside>
               );
             })}
-            <ExportAwareDiscussionMarkdown markdown={section.markdown} />
-          </section>
+            {!sectionEditing ? (
+              <ExportAwareDiscussionMarkdown markdown={sectionBody} />
+            ) : null}
+          </details>
         );
       })}
     </div>
@@ -425,6 +609,10 @@ function DiscussionWorkshopPanel({
   studyCaptureCount,
   onShowHighlightsChange,
 }: DiscussionWorkshopPanelProps) {
+  const [openQuestionsOnly, setOpenQuestionsOnly] = useState(true);
+  const visibleCoverageQuestions = openQuestionsOnly
+    ? coverageQuestions.filter((question) => question.status === "open")
+    : coverageQuestions;
   return (
     <aside className="discussionQuestionPanel discussionWorkshopPanel">
       <header>
@@ -503,11 +691,26 @@ function DiscussionWorkshopPanel({
             </strong>
           </summary>
           <div className="discussionCoverageList">
-            {coverageQuestions.map((question) => {
-              const linkedRelation = [...discussion.messages]
+            <div className="discussionCoverageFilter">
+              <button
+                className={openQuestionsOnly ? "active" : ""}
+                onClick={() => setOpenQuestionsOnly(!openQuestionsOnly)}
+                type="button"
+              >
+                {openQuestionsOnly ? "Open only" : "All questions"}
+              </button>
+            </div>
+            {visibleCoverageQuestions.map((question) => {
+              const linkedMessage = [...discussion.messages]
                 .reverse()
-                .flatMap((message) => message.annotationLinks)
-                .find((link) => link.annotationId === question.id)?.relation;
+                .find((message) =>
+                  message.annotationLinks.some(
+                    (link) => link.annotationId === question.id,
+                  ),
+                );
+              const linkedRelation = linkedMessage?.annotationLinks.find(
+                (link) => link.annotationId === question.id,
+              )?.relation;
               const source = resourceById.get(question.resourceId);
               return (
                 <article
@@ -515,11 +718,25 @@ function DiscussionWorkshopPanel({
                   key={question.id}
                 >
                   <header>
-                    <strong>{source?.title ?? "Source question"}</strong>
+                    <strong>{compactResourceLabel(source)}</strong>
                     <span>{linkedRelation ?? question.status}</span>
                   </header>
                   <MarkdownMath>{questionText(question)}</MarkdownMath>
                   <div>
+                    {linkedMessage ? (
+                      <button
+                        onClick={() =>
+                          document
+                            .getElementById(
+                              `discussion-answer-${linkedMessage.id}-${question.id}`,
+                            )
+                            ?.scrollIntoView({ behavior: "smooth", block: "center" })
+                        }
+                        type="button"
+                      >
+                        Go to answer
+                      </button>
+                    ) : null}
                     <button
                       disabled={!latestAssistantMessage}
                       onClick={() =>
@@ -987,12 +1204,19 @@ export function DiscussionsView({
             <div className="discussionContentGrid">
               <div>
                 <div className="messageStream">
-                  {visibleMessages.map((message) => (
-                    <article
+                  {visibleMessages.map((message, messageIndex) => (
+                    <details
                       className={`discussionMessage role-${message.role}`}
                       key={message.id}
+                      open={
+                        highlightsOnly ||
+                        editingMessageId === message.id ||
+                        messageIndex === visibleMessages.length - 1
+                          ? true
+                          : undefined
+                      }
                     >
-                      <header>
+                      <summary>
                         {message.role === "assistant" ? (
                           <Bot size={15} />
                         ) : (
@@ -1010,7 +1234,9 @@ export function DiscussionsView({
                               : "Edit message"
                           }
                           className="messageEditButton"
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
                             if (editingMessageId === message.id) {
                               setEditingMessageId("");
                               return;
@@ -1033,36 +1259,15 @@ export function DiscussionsView({
                             {editingMessageId === message.id ? "Cancel" : "Edit"}
                           </span>
                         </button>
-                      </header>
-                      <MessageLinkedQuestionShelf
-                        annotations={message.annotationLinks
-                          .map((link) => annotationById.get(link.annotationId))
-                          .filter((item): item is Annotation =>
-                            Boolean(item && ["question", "todo"].includes(item.kind)),
-                          )}
-                        editing={editingMessageId === message.id}
-                        onAnnotationChange={onAnnotationChange}
-                        onNoteSave={onNoteSave}
-                      />
-                      {editingMessageId === message.id ? (
-                        <DiscussionMarkdownSurface
-                          className="discussionMessageEditor"
-                          editable
-                          markdown={
-                            message.body.markdown || message.body.plainText
-                          }
-                          onCancel={() => setEditingMessageId("")}
-                          onSave={(updatedMarkdown, reviewItems) => {
-                            onUpdateMessage(message, updatedMarkdown, reviewItems);
-                            setEditingMessageId("");
-                          }}
-                          reviewMode
-                        />
-                      ) : (
-                        <DiscussionMessageContent
+                      </summary>
+                      <DiscussionMessageContent
                           annotationById={annotationById}
+                          editing={editingMessageId === message.id}
                           highlightsOnly={highlightsOnly}
                           message={message}
+                          onCancelEditing={() => setEditingMessageId("")}
+                          onAnnotationChange={onAnnotationChange}
+                          onNoteSave={onNoteSave}
                           onQuestionLink={onQuestionLink}
                           questionLabelsAreOrdered={Boolean(
                             discussion.initialPromptBatchId,
@@ -1072,8 +1277,11 @@ export function DiscussionsView({
                           reviewHighlights={
                             reviewAnnotationsByMessage.get(message.id) ?? []
                           }
+                          onSaveEditing={(updatedMarkdown, reviewItems) => {
+                            onUpdateMessage(message, updatedMarkdown, reviewItems);
+                            setEditingMessageId("");
+                          }}
                         />
-                      )}
                       {message.annotationLinks.length ||
                       message.role === "assistant" ? (
                         <footer>
@@ -1112,7 +1320,7 @@ export function DiscussionsView({
                           ) : null}
                         </footer>
                       ) : null}
-                    </article>
+                    </details>
                   ))}
                   {!discussion.messages.length ? (
                     <div className="emptyInline">

@@ -28,4 +28,24 @@ describe("discussion highlight excerpts", () => {
       discussionHighlights("```text\n==not a review highlight==\n```")
     ).toEqual([]);
   });
+
+  it("adds the nearest heading and adjacent sentence context", () => {
+    const [highlight] = discussionHighlights(
+      "## Policy improvement\n\nBefore context. The action is ==already selected==. After context.",
+    );
+    expect(highlight.heading).toBe("Policy improvement");
+    expect(highlight.previousMarkdown).toBe("Before context.");
+    expect(highlight.contextMarkdown).toBe(
+      "The action is ==already selected==.",
+    );
+    expect(highlight.nextMarkdown).toBe("After context.");
+  });
+
+  it("does not repeat a sentence containing multiple highlights", () => {
+    expect(
+      discussionHighlights(
+        "## One place\n\nCompare ==evaluation== with ==improvement== here.",
+      ),
+    ).toHaveLength(1);
+  });
 });

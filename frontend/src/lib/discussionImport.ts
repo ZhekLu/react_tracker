@@ -123,6 +123,27 @@ function protectInlineCode(value: string): ProtectedMarkdown {
   };
 }
 
+function protectDiscussionExportTags(value: string): ProtectedMarkdown {
+  const tags: string[] = [];
+  const markdown = value.replace(
+    /<\/?[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+>/g,
+    (tag) => {
+      const token = `TRACKERDISCUSSIONEXPORTTAG${tags.length}`;
+      tags.push(tag);
+      return token;
+    },
+  );
+  return {
+    markdown,
+    restore: (current) =>
+      tags.reduce(
+        (restored, tag, index) =>
+          restored.replace(`TRACKERDISCUSSIONEXPORTTAG${index}`, () => tag),
+        current,
+      ),
+  };
+}
+
 function looksLikeLatex(value: string): boolean {
   return (
     /\\[A-Za-z]+/.test(value) ||
@@ -272,7 +293,12 @@ function restoreDegradedInlineMath(value: string): string {
 }
 
 function canonicalizeExternalMarkdown(value: string): string {
-  const protectedCode = protectFencedCode(value);
+  const normalizedExportTags = value.replace(
+    /&lt;(\/?)((?:[A-Za-z0-9]+)(?:\\?_[A-Za-z0-9]+)+)&gt;/gi,
+    (_match, closing: string, tag: string) =>
+      `<${closing}${tag.replaceAll("\\_", "_")}>`,
+  );
+  const protectedCode = protectFencedCode(normalizedExportTags);
   const protectedInline = protectInlineCode(protectedCode.markdown);
   const normalized = protectedInline.markdown
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
@@ -347,6 +373,8 @@ function compactTextCode(node: Code): Paragraph | Code {
 }
 
 function paragraphJoin(left: Paragraph, right: Paragraph): Paragraph {
+  const leftText = normalizedInlineText(nodeText(left));
+  const rightText = normalizedInlineText(nodeText(right));
   const rightOnlyMath = right.children.every(
     (child) =>
       child.type === "inlineMath" ||
@@ -357,11 +385,15 @@ function paragraphJoin(left: Paragraph, right: Paragraph): Paragraph {
     .find((child) => child.type !== "text" || child.value.trim());
   const consecutiveMath =
     lastMeaningfulLeftChild?.type === "inlineMath" && rightOnlyMath;
+  const splitWord = /^Y$/i.test(leftText) && /^es\b/.test(rightText);
   return {
     type: "paragraph",
     children: [
       ...normalizePhrasingWhitespace(left.children),
-      { type: "text", value: consecutiveMath ? "; " : " " },
+      {
+        type: "text",
+        value: consecutiveMath ? "; " : splitWord ? "" : " ",
+      },
       ...normalizePhrasingWhitespace(right.children),
     ],
   };
@@ -416,7 +448,10 @@ function compactChildren(children: BlockContent[]): BlockContent[] {
       const previousText = normalizedInlineText(nodeText(previous));
       const nextText = normalizedInlineText(nodeText(child));
       if (previousText && previousText === nextText) continue;
-      if (sentenceCount(nextText) < 2) {
+      if (
+        (/^Y$/i.test(previousText) && /^es\b/.test(nextText)) ||
+        sentenceCount(nextText) < 2
+      ) {
         compacted[compacted.length - 1] = paragraphJoin(previous, child);
         continue;
       }
@@ -429,9 +464,10 @@ function compactChildren(children: BlockContent[]): BlockContent[] {
 export function importPastedMarkdown(value: string): string {
   const canonical = canonicalizeExternalMarkdown(value);
   if (!canonical) return "";
-  const tree = parser.parse(canonical) as Root;
+  const protectedExports = protectDiscussionExportTags(canonical);
+  const tree = parser.parse(protectedExports.markdown) as Root;
   tree.children = compactChildren(tree.children as BlockContent[]);
-  return String(serializer.stringify(tree)).trim();
+  return protectedExports.restore(String(serializer.stringify(tree))).trim();
 }
 
 export function canonicalizePastedMarkdown(value: string): string {
