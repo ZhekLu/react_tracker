@@ -450,8 +450,13 @@ def prepare_prompt_attachments(
     with _ATTACHMENT_LOCK:
         try:
             if destination.exists():
-                shutil.rmtree(destination)
-            destination.mkdir(parents=True, exist_ok=True)
+                for child in destination.iterdir():
+                    if child.is_dir() and not child.is_symlink():
+                        shutil.rmtree(child)
+                    else:
+                        child.unlink()
+            else:
+                destination.mkdir(parents=True, exist_ok=True)
         except OSError as error:
             raise PromptAttachmentError(
                 f"Could not reset ChatGPT attachment folder: {destination}"

@@ -85,6 +85,29 @@ def _roots(short_code: str) -> list[Path]:
     return roots
 
 
+def discussion_export_root(short_code: str) -> Path | None:
+    """Return the configured Markdown export directory for a course."""
+
+    config_path, config = _config()
+    configured = config.get("discussion_export_roots")
+    if not isinstance(configured, dict):
+        return None
+    value = configured.get(short_code) or configured.get(short_code.casefold())
+    if not isinstance(value, str) or not value.strip():
+        return None
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = config_path.parent / candidate
+    try:
+        resolved = candidate.resolve()
+        resolved.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise CourseFileError(
+            f"Cannot prepare discussion export directory: {candidate}"
+        ) from error
+    return resolved
+
+
 def _course_files(short_code: str) -> tuple[list[Path], list[CourseFile]]:
     roots = _roots(short_code)
     records: list[CourseFile] = []

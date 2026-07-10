@@ -15,6 +15,7 @@ import type { Course, StudyDay, TrackerView } from "../types/tracker";
 type RoadmapHeaderActionsProps = {
   activeDay: StudyDay;
   course: Course;
+  currentView: TrackerView;
   onBack: () => void;
   onCopyDayPrompt: (day: StudyDay) => void;
   onCopyDayQuestions: (day: StudyDay) => void;
@@ -45,6 +46,7 @@ function isOpenDay(day: StudyDay): boolean {
 export function RoadmapHeaderActions({
   activeDay,
   course,
+  currentView,
   onBack,
   onCopyDayPrompt,
   onCopyDayQuestions,
@@ -70,7 +72,7 @@ export function RoadmapHeaderActions({
           : "Start timing the current day");
 
   return (
-    <nav className="roadmapHeaderActionGrid" aria-label="Roadmap shortcuts">
+    <nav className="roadmapHeaderActionGrid" aria-label="Workspace shortcuts">
       <button aria-label="Go back" onClick={onBack} title="Back" type="button">
         <ArrowLeft size={15} />
       </button>
@@ -114,6 +116,7 @@ export function RoadmapHeaderActions({
       </button>
       <button
         aria-label="Open resources"
+        className={currentView === "resources" ? "active" : ""}
         onClick={() => onViewChange("resources")}
         title="Resources"
         type="button"
@@ -122,6 +125,7 @@ export function RoadmapHeaderActions({
       </button>
       <button
         aria-label="Open notes"
+        className={currentView === "notes" ? "active" : ""}
         onClick={() => onViewChange("notes")}
         title="Notes and questions"
         type="button"
@@ -130,6 +134,7 @@ export function RoadmapHeaderActions({
       </button>
       <button
         aria-label="Open discussions"
+        className={currentView === "discussions" ? "active" : ""}
         onClick={() => onViewChange("discussions")}
         title="Discussions"
         type="button"

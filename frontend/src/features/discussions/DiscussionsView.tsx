@@ -22,6 +22,7 @@ import {
   Trash2,
   UserRound,
   X,
+  FileOutput,
 } from "lucide-react";
 import type { DiscussionMessageInput } from "../../api/trackerApi";
 import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
@@ -55,6 +56,7 @@ import {
   discussionHighlights,
   discussionHighlightsMarkdown,
 } from "../../lib/discussionHighlights";
+import { discussionExportSegments } from "../../lib/discussionExports";
 
 type DiscussionsViewProps = {
   course: Course;
@@ -256,12 +258,7 @@ function DiscussionMessageContent({
       );
   const parsed = discussionAnswerSections(markdown);
   if (message.role !== "assistant" || !parsed.sections.length) {
-    return (
-      <DiscussionMarkdownSurface
-        className="discussionMessageBody"
-        markdown={markdown}
-      />
-    );
+    return <ExportAwareDiscussionMarkdown markdown={markdown} />;
   }
   const sectionMatches = new Map(
     matchAnswerSectionsToQuestions(
@@ -276,10 +273,7 @@ function DiscussionMessageContent({
   return (
     <div className="discussionStructuredAnswer">
       {parsed.preamble ? (
-        <DiscussionMarkdownSurface
-          className="discussionMessageBody"
-          markdown={parsed.preamble}
-        />
+        <ExportAwareDiscussionMarkdown markdown={parsed.preamble} />
       ) : null}
       {parsed.sections.map((section) => {
         const questions = (sectionMatches.get(section.label) ?? [])
@@ -356,14 +350,39 @@ function DiscussionMessageContent({
                 </aside>
               );
             })}
-            <DiscussionMarkdownSurface
-              className="discussionMessageBody"
-              markdown={section.markdown}
-            />
+            <ExportAwareDiscussionMarkdown markdown={section.markdown} />
           </section>
         );
       })}
     </div>
+  );
+}
+
+function ExportAwareDiscussionMarkdown({ markdown }: { markdown: string }) {
+  return (
+    <>
+      {discussionExportSegments(markdown).map((segment, index) =>
+        segment.kind === "markdown" ? (
+          <DiscussionMarkdownSurface
+            className="discussionMessageBody"
+            key={`markdown-${index}`}
+            markdown={segment.markdown}
+          />
+        ) : (
+          <details className="discussionExportBlock" key={`${segment.tag}-${index}`}>
+            <summary>
+              <FileOutput size={13} />
+              <strong>{segment.tag}.md</strong>
+              <span>coding instructions · exported on save</span>
+            </summary>
+            <DiscussionMarkdownSurface
+              className="discussionMessageBody"
+              markdown={segment.markdown}
+            />
+          </details>
+        ),
+      )}
+    </>
   );
 }
 

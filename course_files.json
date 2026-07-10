@@ -3,5 +3,8 @@
     "TORL": [
       "../../special_course/exercises"
     ]
+  },
+  "discussion_export_roots": {
+    "TORL": "../../special_course/exercises/discussions"
   }
 }

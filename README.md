@@ -311,6 +311,44 @@ programming-language fences always remain blocks. See the
 [Tiptap Markdown guide](https://tiptap.dev/docs/editor/markdown/getting-started/basic-usage),
 and [Tiptap mathematics extension](https://tiptap.dev/docs/editor/extensions/nodes/mathematics).
 
+### Discussion review and coding-instruction exports
+
+Edit any tutor message and select prose, a formula, or a code block. The compact
+selection card creates a follow-up attached to that exact excerpt; `Cmd+Enter`
+queues it and **Save** stores the edited message and its follow-ups together.
+**Copy follow-ups** includes the selected excerpt and question under stable
+`Q-###` headings so a later pasted response maps back to the correct place.
+`Cmd+H` and `Cmd+Shift+H` also work on formula/code selections: those structured
+highlights are stored as review annotations and appear in **Highlights** with
+surrounding context even though no colour overlay is drawn on the formula/code.
+
+To send tutor instructions to the course coding workspace, wrap them in a
+snake-case export tag:
+
+```markdown
+<day4_code_task>
+## Implementation order
+
+1. Add the Bellman backup.
+2. Run the seeded experiment.
+</day4_code_task>
+```
+
+On save, the content is synchronized to `day4_code_task.md`. Re-saving replaces
+that message's previous exported block instead of duplicating it; another tag
+with the same name appends another tracker-owned block. Any hand-written content
+already in the file stays untouched. In reading mode the exported instructions
+are collapsed so theory remains easy to scan. Configure each course destination
+beside the file roots in `course_files.json`:
+
+```json
+{
+  "discussion_export_roots": {
+    "TORL": "../../special_course/exercises/discussions"
+  }
+}
+```
+
 ### Course file mentions
 
 Machine-local code roots are configured in `course_files.json`. Each key is a
@@ -330,6 +368,10 @@ Write `@day2_simulate_bandits.py` or a relative path such as
 file chip; clicking it opens the current filesystem file in its macOS default
 application. The tracker indexes only the configured folders—it does not copy
 file contents into SQLite or track file versions.
+
+The ChatGPT attachment directory is cleaned in place on each structured copy.
+The directory itself is no longer deleted, so Finder tags (including your red
+tag) and folder-level metadata survive while stale attachment files are removed.
 
 ### Keyboard-first lecture reader
 

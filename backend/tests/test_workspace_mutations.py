@@ -632,6 +632,55 @@ def test_discussion_message_body_can_be_edited_with_document_history(
     }
 
 
+def test_saving_discussion_message_exports_configured_instruction_tag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        short_code = connection.execute(
+            text("SELECT short_code FROM courses WHERE id = :id"),
+            {"id": course_id},
+        ).scalar_one()
+    export_root = tmp_path / "instructions"
+    config_path = tmp_path / "course_files.json"
+    config_path.write_text(
+        (
+            '{"discussion_export_roots": {'
+            f'"{short_code}": "{export_root}"'
+            "}}"
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TRACKER_COURSE_FILES_CONFIG_PATH", str(config_path))
+    get_settings.cache_clear()
+
+    with transaction() as connection:
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+            ),
+        )
+        create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown=(
+                    "Theory.\n\n<day4_code_task>\n"
+                    "## Implement\n\nRun the experiment.\n"
+                    "</day4_code_task>"
+                ),
+            ),
+        )
+
+    exported = (export_root / "day4_code_task.md").read_text(encoding="utf-8")
+    assert "## Implement" in exported
+    assert "Run the experiment." in exported
+
+
 def test_annotation_can_have_a_separate_linked_note(tmp_path: Path) -> None:
     course_id, resource_id = _seed_course(tmp_path)
     with transaction() as connection:
@@ -710,6 +759,7 @@ def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_questi
 
     attachment_dir = get_settings().chatgpt_attachment_dir
     attachment_dir.mkdir(parents=True, exist_ok=True)
+    attachment_dir_inode = attachment_dir.stat().st_ino
     stale_file = attachment_dir / "stale-from-previous-prompt.txt"
     stale_file.write_text("remove me", encoding="utf-8")
 
@@ -778,6 +828,7 @@ def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_questi
     )
 
     assert stale_file.exists() is False
+    assert attachment_dir.stat().st_ino == attachment_dir_inode
     assert (attachment_dir / resource_attachment.name).read_text(
         encoding="utf-8"
     ).startswith("Coverage assumption")

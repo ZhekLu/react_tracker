@@ -1429,6 +1429,43 @@
   background: #fff;
 }
 
+.discussionExportBlock {
+  margin: 8px 0;
+  border: 1px solid color-mix(in srgb, var(--blue) 20%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--blue-soft) 38%, #fff);
+}
+
+.discussionExportBlock > summary {
+  min-height: 32px;
+  padding: 6px 9px;
+  cursor: pointer;
+  color: var(--blue-deep);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  list-style: none;
+}
+
+.discussionExportBlock > summary::-webkit-details-marker {
+  display: none;
+}
+
+.discussionExportBlock > summary span {
+  margin-left: auto;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.discussionExportBlock[open] > .discussionMarkdownSurface {
+  margin: 0 8px 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+}
+
 .discussionPendingReview {
   min-height: 27px;
   padding: 5px 8px;

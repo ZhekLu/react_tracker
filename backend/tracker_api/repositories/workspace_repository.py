@@ -59,6 +59,8 @@ from ..services.chapter_scope_service import (
     annotation_chapter_number,
     referenced_chapter_numbers,
 )
+from ..services.course_file_service import CourseFileError
+from ..services.discussion_export_service import sync_discussion_exports
 
 
 class WorkspaceRepositoryError(RuntimeError):
@@ -3179,6 +3181,14 @@ def create_discussion_message(
             ),
             {"prompt_batch_id": thread["initial_prompt_batch_id"], "now": now},
         )
+    try:
+        sync_discussion_exports(
+            short_code=course_short_code(connection, str(thread["course_id"])),
+            message_id=message_id,
+            markdown=markdown,
+        )
+    except CourseFileError as error:
+        raise WorkspaceRepositoryError(str(error)) from error
     return _mutation_result(row)
 
 
@@ -3190,9 +3200,13 @@ def update_discussion_message(
     message = _one_or_none(
         connection,
         """
-        SELECT id, thread_id, body_document_id
-        FROM discussion_messages
-        WHERE id = :id AND revision = :revision AND deleted_at IS NULL
+        SELECT dm.id, dm.thread_id, dm.body_document_id, dt.course_id
+        FROM discussion_messages dm
+        JOIN discussion_threads dt ON dt.id = dm.thread_id
+        WHERE dm.id = :id
+          AND dm.revision = :revision
+          AND dm.deleted_at IS NULL
+          AND dt.deleted_at IS NULL
         """,
         {"id": message_id, "revision": command.revision},
     )
@@ -3291,6 +3305,14 @@ def update_discussion_message(
         ),
         {"thread_id": str(message["thread_id"]), "updated_at": now},
     )
+    try:
+        sync_discussion_exports(
+            short_code=course_short_code(connection, str(message["course_id"])),
+            message_id=message_id,
+            markdown=markdown,
+        )
+    except CourseFileError as error:
+        raise WorkspaceRepositoryError(str(error)) from error
     return _mutation_result(row)
 
 

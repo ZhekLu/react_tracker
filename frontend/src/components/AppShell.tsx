@@ -138,10 +138,11 @@ export function AppShell({
               ) : null}
             </div>
           </div>
-          {view === "roadmap" && activeDay ? (
+          {activeDay ? (
             <RoadmapHeaderActions
               activeDay={activeDay}
               course={course}
+              currentView={view}
               onBack={onBack}
               onCopyDayPrompt={onCopyDayPrompt}
               onCopyDayQuestions={onCopyDayQuestions}
