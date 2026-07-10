@@ -1,5 +1,6 @@
 import type {
   BlockContent,
+  Blockquote,
   Code,
   Content,
   Paragraph,
@@ -346,12 +347,39 @@ function compactTextCode(node: Code): Paragraph | Code {
 }
 
 function paragraphJoin(left: Paragraph, right: Paragraph): Paragraph {
+  const rightOnlyMath = right.children.every(
+    (child) =>
+      child.type === "inlineMath" ||
+      (child.type === "text" && !child.value.trim()),
+  );
+  const lastMeaningfulLeftChild = [...left.children]
+    .reverse()
+    .find((child) => child.type !== "text" || child.value.trim());
+  const consecutiveMath =
+    lastMeaningfulLeftChild?.type === "inlineMath" && rightOnlyMath;
   return {
     type: "paragraph",
     children: [
       ...normalizePhrasingWhitespace(left.children),
-      { type: "text", value: " " },
+      { type: "text", value: consecutiveMath ? "; " : " " },
       ...normalizePhrasingWhitespace(right.children),
+    ],
+  };
+}
+
+function compactShortBlockquote(node: Blockquote): Blockquote | Paragraph {
+  if (node.children.length !== 1 || node.children[0].type !== "paragraph") {
+    return node;
+  }
+  const paragraph = node.children[0];
+  const text = normalizedInlineText(nodeText(paragraph));
+  if (!text || text.length > 220 || sentenceCount(text) > 1) return node;
+  return {
+    type: "paragraph",
+    children: [
+      { type: "text", value: "“" },
+      ...paragraph.children,
+      { type: "text", value: "”" },
     ],
   };
 }
@@ -367,10 +395,13 @@ function compactChildren(children: BlockContent[]): BlockContent[] {
     if (child.type === "code") return compactTextCode(child);
     if ("children" in child && Array.isArray(child.children)) {
       const parent = child as Parent;
-      return {
+      const nested = {
         ...child,
         children: compactChildren(parent.children as BlockContent[]),
       } as BlockContent;
+      return nested.type === "blockquote"
+        ? compactShortBlockquote(nested)
+        : nested;
     }
     return child;
   });

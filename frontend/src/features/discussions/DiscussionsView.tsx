@@ -31,6 +31,7 @@ import {
 } from "../../components/annotations/InlineCaptureEditor";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { DiscussionMarkdownSurface } from "../../components/editor/DiscussionMarkdownSurface";
+import type { DiscussionReviewItem } from "../../components/editor/DiscussionMarkdownSurface";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import type {
   Annotation,
@@ -60,7 +61,11 @@ type DiscussionsViewProps = {
   focusedResourceId: string;
   focusedTaskId: string;
   onAddMessage: (discussionId: string, input: DiscussionMessageInput) => void;
-  onUpdateMessage: (message: DiscussionMessage, markdown: string) => void;
+  onUpdateMessage: (
+    message: DiscussionMessage,
+    markdown: string,
+    reviewItems?: DiscussionReviewItem[],
+  ) => void;
   onAnnotationChange: (
     annotation: Annotation,
     changes: {
@@ -119,6 +124,75 @@ function questionText(annotation: Annotation): string {
   );
 }
 
+function quotedContext(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) return "";
+  return value
+    .trim()
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
+function reviewHighlightsMarkdown(annotations: Annotation[]): string {
+  return annotations
+    .filter(
+      (annotation) =>
+        annotation.kind === "highlight" &&
+        annotation.origin === "discussion_review_highlight",
+    )
+    .map((annotation) => {
+      const metadata = annotation.anchor?.metadata ?? {};
+      const selection =
+        annotation.body?.markdown ||
+        annotation.anchor?.quote ||
+        "Saved structured highlight";
+      return [
+        quotedContext(metadata.context_before),
+        selection,
+        quotedContext(metadata.context_after),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    })
+    .join("\n\n---\n\n");
+}
+
+function MessageLinkedQuestionShelf({
+  annotations,
+  editing,
+  onAnnotationChange,
+  onNoteSave,
+}: {
+  annotations: Annotation[];
+  editing: boolean;
+  onAnnotationChange: DiscussionsViewProps["onAnnotationChange"];
+  onNoteSave: DiscussionsViewProps["onNoteSave"];
+}) {
+  if (!annotations.length) return null;
+  const openCount = annotations.filter(
+    (annotation) => annotation.status === "open",
+  ).length;
+  return (
+    <details className="messageLinkedQuestionShelf" open={editing || undefined}>
+      <summary>
+        <span>
+          <CircleHelp size={12} />
+          {annotations.length} linked question
+          {annotations.length === 1 ? "" : "s"}
+        </span>
+        <strong>{openCount ? `${openCount} open` : "reviewed"}</strong>
+      </summary>
+      <AnnotationChapterGroups
+        annotations={annotations}
+        flat
+        initiallyExpandCaptures={editing}
+        onAnnotationChange={onAnnotationChange}
+        onNoteSave={onNoteSave}
+      />
+    </details>
+  );
+}
+
 function DiscussionMessageContent({
   annotationById,
   message,
@@ -127,6 +201,7 @@ function DiscussionMessageContent({
   questionLabelsAreOrdered,
   questionOrderIds,
   resourceById,
+  reviewHighlights,
 }: {
   annotationById: Map<string, Annotation>;
   message: DiscussionMessage;
@@ -135,15 +210,22 @@ function DiscussionMessageContent({
   questionLabelsAreOrdered: boolean;
   questionOrderIds: string[];
   resourceById: Map<string, Resource>;
+  reviewHighlights: Annotation[];
 }) {
   const markdown = normalizeDiscussionMarkdown(
     message.body.markdown || message.body.plainText,
   );
   if (highlightsOnly) {
+    const highlightMarkdown = [
+      discussionHighlightsMarkdown(markdown),
+      reviewHighlightsMarkdown(reviewHighlights),
+    ]
+      .filter(Boolean)
+      .join("\n\n---\n\n");
     return (
       <DiscussionMarkdownSurface
         className="discussionMessageBody discussionHighlightsOnly"
-        markdown={discussionHighlightsMarkdown(markdown)}
+        markdown={highlightMarkdown}
       />
     );
   }
@@ -527,7 +609,9 @@ export function DiscussionsView({
     (resource) => resource.id === selectedSourceId,
   );
   const captureEditorOpen = captureEditorResourceId === selectedSourceId;
-  const followups = discussion ? discussionFollowups(discussion) : "";
+  const followups = discussion
+    ? discussionFollowups(discussion, course.annotations)
+    : "";
   const annotationById = useMemo(
     () => new Map(course.annotations.map((annotation) => [annotation.id, annotation])),
     [course.annotations],
@@ -594,18 +678,40 @@ export function DiscussionsView({
     (question) => question.status === "answered",
   ).length;
   const highlightsOnly = highlightOnlyDiscussionId === discussion?.id;
+  const reviewAnnotationsByMessage = useMemo(
+    () =>
+      course.annotations.reduce((items, annotation) => {
+        const messageId = annotation.anchor?.discussionMessageId;
+        if (!messageId) return items;
+        const current = items.get(messageId) ?? [];
+        current.push(annotation);
+        items.set(messageId, current);
+        return items;
+      }, new Map<string, Annotation[]>()),
+    [course.annotations],
+  );
   const visibleMessages = (discussion?.messages ?? []).filter(
     (message) =>
       !highlightsOnly ||
       discussionHighlights(
         message.body.markdown || message.body.plainText,
-      ).length > 0,
+      ).length > 0 ||
+      (reviewAnnotationsByMessage.get(message.id) ?? []).some(
+        (annotation) =>
+          annotation.kind === "highlight" &&
+          annotation.origin === "discussion_review_highlight",
+      ),
   );
   const highlightCount = (discussion?.messages ?? []).reduce(
     (count, message) =>
       count +
       discussionHighlights(
         message.body.markdown || message.body.plainText,
+      ).length +
+      (reviewAnnotationsByMessage.get(message.id) ?? []).filter(
+        (annotation) =>
+          annotation.kind === "highlight" &&
+          annotation.origin === "discussion_review_highlight",
       ).length,
     0,
   );
@@ -726,7 +832,7 @@ export function DiscussionsView({
                     type="button"
                   >
                     <Copy size={14} />
-                    <span>Follow-ups</span>
+                    <span>Copy follow-ups</span>
                   </button>
                 ) : null}
                 {discussion ? (
@@ -909,6 +1015,16 @@ export function DiscussionsView({
                           </span>
                         </button>
                       </header>
+                      <MessageLinkedQuestionShelf
+                        annotations={message.annotationLinks
+                          .map((link) => annotationById.get(link.annotationId))
+                          .filter((item): item is Annotation =>
+                            Boolean(item && ["question", "todo"].includes(item.kind)),
+                          )}
+                        editing={editingMessageId === message.id}
+                        onAnnotationChange={onAnnotationChange}
+                        onNoteSave={onNoteSave}
+                      />
                       {editingMessageId === message.id ? (
                         <DiscussionMarkdownSurface
                           className="discussionMessageEditor"
@@ -917,10 +1033,11 @@ export function DiscussionsView({
                             message.body.markdown || message.body.plainText
                           }
                           onCancel={() => setEditingMessageId("")}
-                          onSave={(updatedMarkdown) => {
-                            onUpdateMessage(message, updatedMarkdown);
+                          onSave={(updatedMarkdown, reviewItems) => {
+                            onUpdateMessage(message, updatedMarkdown, reviewItems);
                             setEditingMessageId("");
                           }}
+                          reviewMode
                         />
                       ) : (
                         <DiscussionMessageContent
@@ -933,6 +1050,9 @@ export function DiscussionsView({
                           )}
                           questionOrderIds={discussion.questionIds}
                           resourceById={resourceById}
+                          reviewHighlights={
+                            reviewAnnotationsByMessage.get(message.id) ?? []
+                          }
                         />
                       )}
                       {message.annotationLinks.length ||

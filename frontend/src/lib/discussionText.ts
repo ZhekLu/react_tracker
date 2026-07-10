@@ -1,4 +1,4 @@
-import type { Discussion } from "../types/tracker";
+import type { Annotation, Discussion } from "../types/tracker";
 import { normalizeMathMarkdown } from "./mathMarkdown";
 
 type ProtectedMarkdown = {
@@ -256,8 +256,23 @@ export function matchAnswerSectionsToQuestions(
   return matches;
 }
 
-export function discussionFollowups(discussion: Discussion): string {
-  const items = discussion.messages.flatMap((message) =>
+export function discussionFollowups(
+  discussion: Discussion,
+  annotations: Annotation[] = [],
+): string {
+  const messageById = new Map(
+    discussion.messages.map((message) => [message.id, message]),
+  );
+  const reviewQuestions = annotations
+    .filter(
+      (annotation) =>
+        ["question", "todo"].includes(annotation.kind) &&
+        annotation.status === "open" &&
+        annotation.anchor?.discussionMessageId &&
+        messageById.has(annotation.anchor.discussionMessageId),
+    )
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const markerItems = discussion.messages.flatMap((message) =>
     message.body.plainText
       .replace(/\r\n?/g, "\n")
       .split("\n")
@@ -272,13 +287,50 @@ export function discussionFollowups(discussion: Discussion): string {
         sequence: message.sequenceNumber,
       })),
   );
-  if (!items.length) return "";
+  if (!reviewQuestions.length && !markerItems.length) return "";
+  const reviewSections = reviewQuestions.flatMap((annotation, index) => {
+    const message = messageById.get(
+      annotation.anchor?.discussionMessageId ?? "",
+    );
+    if (!message) return [];
+    const orderedIndex = discussion.questionIds.indexOf(annotation.id);
+    const labelNumber = orderedIndex >= 0 ? orderedIndex + 1 : index + 1;
+    const label = `Q-${String(labelNumber).padStart(3, "0")}`;
+    const selected = annotation.anchor?.quote?.trim() || "No excerpt saved.";
+    const question =
+      annotation.body?.markdown ||
+      annotation.body?.plainText ||
+      "Clarify this selection.";
+    return [
+      `## ${label} — Follow-up to message #${message.sequenceNumber}`,
+      "",
+      "Selected context:",
+      "",
+      "````markdown",
+      selected,
+      "````",
+      "",
+      "Question:",
+      "",
+      question,
+      "",
+    ];
+  });
   return [
     `# ${discussion.title} · Follow-ups`,
     "",
-    ...items.map(
-      (item) =>
-        `- Message #${item.sequence} (${item.role}): ${item.line}`,
-    ),
+    "Answer under the same Q-### headings so the tracker can map each response back to its selection.",
+    "",
+    ...reviewSections,
+    ...(markerItems.length
+      ? [
+          "## Other inline follow-up markers",
+          "",
+          ...markerItems.map(
+            (item) =>
+              `- Message #${item.sequence} (${item.role}): ${item.line}`,
+          ),
+        ]
+      : []),
   ].join("\n");
 }

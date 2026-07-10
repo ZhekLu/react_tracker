@@ -478,6 +478,21 @@ class DiscussionMessageUpdateCommand(RevisionCommand):
     plain_text: str = ""
 
 
+class DiscussionReviewItem(StrictModel):
+    kind: Literal["question", "highlight"]
+    quote: str = Field(min_length=1, max_length=20_000)
+    markdown: str = Field(default="", max_length=20_000)
+    color: Literal["primary", "secondary"] | None = None
+    context_before: str = Field(default="", max_length=2_000)
+    context_after: str = Field(default="", max_length=2_000)
+    from_position: int | None = Field(default=None, ge=0)
+    to_position: int | None = Field(default=None, ge=0)
+
+
+class DiscussionMessageReviewCommand(DiscussionMessageUpdateCommand):
+    review_items: list[DiscussionReviewItem] = Field(default_factory=list)
+
+
 class DiscussionQuestionLinkCommand(StrictModel):
     relation: DiscussionQuestionRelation
 

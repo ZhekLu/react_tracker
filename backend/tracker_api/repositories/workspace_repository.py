@@ -32,6 +32,7 @@ from ..schemas.workspace import (
     DiscussionMessageAnnotation,
     DiscussionMessageAnnotationInput,
     DiscussionMessageCreateCommand,
+    DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
@@ -3291,6 +3292,70 @@ def update_discussion_message(
         {"thread_id": str(message["thread_id"]), "updated_at": now},
     )
     return _mutation_result(row)
+
+
+def review_discussion_message(
+    connection: Connection,
+    message_id: str,
+    command: DiscussionMessageReviewCommand,
+) -> MutationResponse:
+    scope = _one_or_none(
+        connection,
+        """
+        SELECT dt.resource_id, dt.course_id
+        FROM discussion_messages dm
+        JOIN discussion_threads dt ON dt.id = dm.thread_id
+        WHERE dm.id = :message_id
+          AND dm.deleted_at IS NULL
+          AND dt.deleted_at IS NULL
+        """,
+        {"message_id": message_id},
+    )
+    if scope is None:
+        raise EntityNotFoundError(f"Discussion message does not exist: {message_id}")
+    result = update_discussion_message(connection, message_id, command)
+    now = _now()
+    for item in command.review_items:
+        annotation = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=str(scope["resource_id"]),
+                kind=item.kind,
+                priority="normal",
+                origin=(
+                    "discussion_review_followup"
+                    if item.kind == "question"
+                    else "discussion_review_highlight"
+                ),
+                markdown=item.markdown or item.quote,
+                plain_text=item.markdown or item.quote,
+                anchor=AnnotationAnchorCreate(
+                    anchor_type="discussion_message",
+                    quote=item.quote,
+                    discussion_message_id=message_id,
+                    color=item.color,
+                    annotation_kind=item.kind,
+                    metadata={
+                        "context_before": item.context_before,
+                        "context_after": item.context_after,
+                        "from_position": item.from_position,
+                        "to_position": item.to_position,
+                        "review_kind": item.kind,
+                    },
+                ),
+            ),
+        )
+        if item.kind == "question":
+            _set_discussion_message_annotation(
+                connection,
+                message_id=message_id,
+                annotation_id=annotation.id,
+                relation="followup_to",
+                course_id=str(scope["course_id"]),
+                timestamp=now,
+                update_question_status=False,
+            )
+    return result
 
 
 def _set_discussion_message_annotation(

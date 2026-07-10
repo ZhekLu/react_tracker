@@ -127,4 +127,30 @@ v_*(l) = \max \left{q_*(l,\text{wait}), q_*(l,\text{recharge})\right}
       ).not.toThrow();
     }
   });
+
+  it("densifies short quote blocks and separates adjacent inline formulas", () => {
+    const imported = importPastedMarkdown(String.raw`
+A sweep means:
+
+> update every state once.
+
+For action values:
+
+> update every state-action pair once.
+
+[
+a=b
+]
+
+[
+c=d
+]
+`);
+
+    expect(imported).toContain(
+      "A sweep means: “update every state once.” For action values: “update every state-action pair once.”",
+    );
+    expect(imported).toContain("$a=b$; $c=d$");
+    expect(imported).not.toContain("> update every state once");
+  });
 });

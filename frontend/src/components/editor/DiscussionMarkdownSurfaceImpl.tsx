@@ -1,6 +1,13 @@
 import { EditorContent, useEditor } from "@tiptap/react";
-import { Save, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  CornerDownLeft,
+  Highlighter,
+  MessageCircleQuestion,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PRIMARY_DISCUSSION_HIGHLIGHT,
   SECONDARY_DISCUSSION_HIGHLIGHT,
@@ -9,12 +16,53 @@ import {
 import { normalizeDiscussionMarkdown } from "../../lib/discussionText";
 import { importPastedMarkdown } from "../../lib/discussionImport";
 import type { DiscussionMarkdownSurfaceProps } from "./DiscussionMarkdownSurface";
+import type { DiscussionReviewItem } from "./DiscussionMarkdownSurface";
 
 type FormulaDraft = {
   kind: "inline" | "block";
   latex: string;
   position: number;
 };
+
+type ReviewSelection = {
+  contextAfter: string;
+  contextBefore: string;
+  fromPosition: number;
+  left: number;
+  quote: string;
+  structured: boolean;
+  toPosition: number;
+  top: number;
+};
+
+function structuredSelectionMarkdown(
+  editor: NonNullable<ReturnType<typeof useEditor>>,
+  from: number,
+  to: number,
+): { markdown: string; structured: boolean } {
+  const blocks: string[] = [];
+  editor.state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === "inlineMath") {
+      blocks.push(`$${String(node.attrs.latex ?? "").trim()}$`);
+      return false;
+    }
+    if (node.type.name === "blockMath") {
+      blocks.push(`$$\n${String(node.attrs.latex ?? "").trim()}\n$$`);
+      return false;
+    }
+    if (node.type.name === "codeBlock") {
+      const language = String(node.attrs.language ?? "").trim();
+      blocks.push(`\`\`\`${language}\n${node.textContent}\n\`\`\``);
+      return false;
+    }
+    return true;
+  });
+  const plainText = editor.state.doc.textBetween(from, to, "\n", " ").trim();
+  return {
+    markdown: blocks.length ? blocks.join("\n\n") : plainText,
+    structured: blocks.length > 0,
+  };
+}
 
 export function DiscussionMarkdownSurfaceImpl({
   className = "",
@@ -24,8 +72,16 @@ export function DiscussionMarkdownSurfaceImpl({
   onCancel,
   onSave,
   placeholder,
+  reviewMode = false,
 }: DiscussionMarkdownSurfaceProps) {
+  const surfaceRef = useRef<HTMLElement | null>(null);
   const [formulaDraft, setFormulaDraft] = useState<FormulaDraft | null>(null);
+  const [followupDraft, setFollowupDraft] = useState("");
+  const [pendingReviewItems, setPendingReviewItems] = useState<
+    DiscussionReviewItem[]
+  >([]);
+  const [reviewSelection, setReviewSelection] =
+    useState<ReviewSelection | null>(null);
   const [lastShortcut, setLastShortcut] = useState<
     "primary" | "secondary" | null
   >(null);
@@ -66,11 +122,107 @@ export function DiscussionMarkdownSurfaceImpl({
   const activeEditor = editor;
 
   function save() {
-    onSave?.(normalizeDiscussionMarkdown(activeEditor.getMarkdown()));
+    onSave?.(
+      normalizeDiscussionMarkdown(activeEditor.getMarkdown()),
+      pendingReviewItems,
+    );
+  }
+
+  function selectionDetails(): ReviewSelection | null {
+    const { from, to } = activeEditor.state.selection;
+    if (from === to) return null;
+    const selected = structuredSelectionMarkdown(activeEditor, from, to);
+    if (!selected.markdown.trim()) return null;
+    const contextRadius = 240;
+    const documentSize = activeEditor.state.doc.content.size;
+    const contextBefore = activeEditor.state.doc
+      .textBetween(Math.max(0, from - contextRadius), from, "\n", " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const contextAfter = activeEditor.state.doc
+      .textBetween(to, Math.min(documentSize, to + contextRadius), "\n", " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const surfaceRect = surfaceRef.current?.getBoundingClientRect();
+    const selection = window.getSelection();
+    const selectionRect =
+      selection?.rangeCount
+        ? selection.getRangeAt(0).getBoundingClientRect()
+        : activeEditor.view.coordsAtPos(to);
+    const left = surfaceRect
+      ? Math.max(8, Math.min(selectionRect.left - surfaceRect.left, surfaceRect.width - 310))
+      : 8;
+    const top = surfaceRect
+      ? Math.max(42, selectionRect.bottom - surfaceRect.top + 8)
+      : 42;
+    return {
+      contextAfter: contextAfter.slice(0, contextRadius),
+      contextBefore: contextBefore.slice(-contextRadius),
+      fromPosition: from,
+      left,
+      quote: selected.markdown,
+      structured: selected.structured,
+      toPosition: to,
+      top,
+    };
+  }
+
+  function captureReviewSelection() {
+    if (!reviewMode) return;
+    if (
+      document.activeElement?.closest(
+        ".discussionSelectionReview, .discussionFormulaComposer",
+      )
+    ) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      const nextSelection = selectionDetails();
+      if (nextSelection) setReviewSelection(nextSelection);
+    });
+  }
+
+  function queueReviewItem(item: DiscussionReviewItem) {
+    setPendingReviewItems((current) => [...current, item]);
+    setFollowupDraft("");
+    setReviewSelection(null);
+  }
+
+  function queueFollowup() {
+    if (!reviewSelection || !followupDraft.trim()) return;
+    queueReviewItem({
+      contextAfter: reviewSelection.contextAfter,
+      contextBefore: reviewSelection.contextBefore,
+      fromPosition: reviewSelection.fromPosition,
+      kind: "question",
+      markdown: followupDraft.trim(),
+      quote: reviewSelection.quote,
+      toPosition: reviewSelection.toPosition,
+    });
+  }
+
+  function queueStructuredHighlight(
+    selection: ReviewSelection,
+    color: "primary" | "secondary",
+  ) {
+    queueReviewItem({
+      color,
+      contextAfter: selection.contextAfter,
+      contextBefore: selection.contextBefore,
+      fromPosition: selection.fromPosition,
+      kind: "highlight",
+      markdown: selection.quote,
+      quote: selection.quote,
+      toPosition: selection.toPosition,
+    });
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
-    if ((event.target as HTMLElement).closest(".discussionFormulaComposer")) {
+    if (
+      (event.target as HTMLElement).closest(
+        ".discussionFormulaComposer, .discussionSelectionReview",
+      )
+    ) {
       return;
     }
     const key = event.key.toLowerCase();
@@ -79,6 +231,15 @@ export function DiscussionMarkdownSurfaceImpl({
       event.preventDefault();
       event.stopPropagation();
       const secondary = event.shiftKey;
+      const selection = selectionDetails();
+      if (reviewMode && selection?.structured) {
+        queueStructuredHighlight(
+          selection,
+          secondary ? "secondary" : "primary",
+        );
+        setLastShortcut(secondary ? "secondary" : "primary");
+        return;
+      }
       activeEditor.commands.toggleHighlight({
         color: secondary
           ? SECONDARY_DISCUSSION_HIGHLIGHT
@@ -150,8 +311,11 @@ export function DiscussionMarkdownSurfaceImpl({
 
   return (
     <section
+      ref={surfaceRef}
       className={`discussionMarkdownSurface ${editable ? "isEditing" : "isReadOnly"} ${className}`.trim()}
       onKeyDownCapture={editable ? handleKeyDown : undefined}
+      onKeyUpCapture={editable && reviewMode ? captureReviewSelection : undefined}
+      onMouseUpCapture={editable && reviewMode ? captureReviewSelection : undefined}
       onPasteCapture={editable ? handlePaste : undefined}
     >
       {editable ? (
@@ -170,7 +334,30 @@ export function DiscussionMarkdownSurfaceImpl({
             ⌘⇧H highlight
           </span>
           <span>⌘S save</span>
+          {reviewMode ? <span>select → ask follow-up</span> : null}
         </header>
+      ) : null}
+      {pendingReviewItems.length ? (
+        <div className="discussionPendingReview" role="status">
+          <span>
+            {pendingReviewItems.filter((item) => item.kind === "question").length}
+            {" "}follow-up
+            {pendingReviewItems.filter((item) => item.kind === "question").length === 1 ? "" : "s"}
+            {" · "}
+            {pendingReviewItems.filter((item) => item.kind === "highlight").length}
+            {" "}structured highlight
+            {pendingReviewItems.filter((item) => item.kind === "highlight").length === 1 ? "" : "s"}
+            {" "}queued until save
+          </span>
+          <button
+            aria-label="Clear queued review items"
+            onClick={() => setPendingReviewItems([])}
+            title="Clear queued review items"
+            type="button"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
       ) : null}
       <EditorContent editor={activeEditor} />
       {editable ? (
@@ -216,6 +403,55 @@ export function DiscussionMarkdownSurfaceImpl({
           <button onClick={() => setFormulaDraft(null)} type="button">
             Cancel
           </button>
+        </div>
+      ) : null}
+      {reviewSelection ? (
+        <div
+          className="discussionSelectionReview"
+          style={{ left: reviewSelection.left, top: reviewSelection.top }}
+        >
+          <header>
+            <MessageCircleQuestion size={13} />
+            <strong>Ask about selection</strong>
+            {reviewSelection.structured ? (
+              <span><Highlighter size={11} /> structured</span>
+            ) : null}
+            <button
+              aria-label="Close selection review"
+              onClick={() => {
+                setReviewSelection(null);
+                setFollowupDraft("");
+              }}
+              type="button"
+            >
+              <X size={12} />
+            </button>
+          </header>
+          <blockquote>{reviewSelection.quote.slice(0, 240)}</blockquote>
+          <textarea
+            autoFocus
+            onChange={(event) => setFollowupDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                queueFollowup();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setReviewSelection(null);
+                setFollowupDraft("");
+              }
+            }}
+            placeholder="What should the tutor clarify?"
+            rows={2}
+            value={followupDraft}
+          />
+          <footer>
+            <span><CornerDownLeft size={11} /> ⌘Enter</span>
+            <button disabled={!followupDraft.trim()} onClick={queueFollowup} type="button">
+              Queue follow-up
+            </button>
+          </footer>
         </div>
       ) : null}
     </section>

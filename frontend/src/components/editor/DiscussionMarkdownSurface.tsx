@@ -1,5 +1,8 @@
 import { lazy, Suspense } from "react";
 import { MarkdownMath } from "../content/MarkdownMath";
+import type { DiscussionReviewItemInput } from "../../api/trackerApi";
+
+export type DiscussionReviewItem = DiscussionReviewItemInput;
 
 export type DiscussionMarkdownSurfaceProps = {
   className?: string;
@@ -7,8 +10,9 @@ export type DiscussionMarkdownSurfaceProps = {
   editable?: boolean;
   markdown: string;
   onCancel?: () => void;
-  onSave?: (markdown: string) => void;
+  onSave?: (markdown: string, reviewItems: DiscussionReviewItem[]) => void;
   placeholder?: string;
+  reviewMode?: boolean;
 };
 
 const DiscussionMarkdownSurfaceImpl = lazy(() =>

@@ -20,6 +20,7 @@ from tracker_api.repositories.workspace_repository import (
     link_discussion_question,
     record_toggl_start,
     resource_content_target,
+    review_discussion_message,
     toggl_task_id,
     toggl_task_totals,
     update_annotation,
@@ -34,8 +35,10 @@ from tracker_api.schemas.workspace import (
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
+    DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
+    DiscussionReviewItem,
     NoteUpsertCommand,
     PromptBatchCreateCommand,
     ResourceProgressCommand,
@@ -447,6 +450,79 @@ def test_prompt_discussion_tracks_question_coverage_and_answer_state(
     answered_message = after.discussions[0].messages[0]
     assert answered_message.annotation_links[0].relation == "answers"
     assert followup.id in after.discussions[0].question_ids
+
+
+def test_reviewing_message_saves_selection_followups_and_math_highlights(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+            ),
+        )
+        created = create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown=r"The update is $V(s) \leftarrow r + \gamma V(s')$.",
+            ),
+        )
+        before = get_workspace(connection, course_id)
+        message = before.discussions[0].messages[0]
+        reviewed = review_discussion_message(
+            connection,
+            created.id,
+            DiscussionMessageReviewCommand(
+                revision=message.revision,
+                document_revision=message.body.revision,
+                markdown=message.body.markdown or "",
+                plain_text=message.body.plain_text,
+                review_items=[
+                    DiscussionReviewItem(
+                        kind="question",
+                        quote="The update",
+                        markdown="Why is this a bootstrap update?",
+                        context_after="uses the next-state estimate",
+                        from_position=1,
+                        to_position=11,
+                    ),
+                    DiscussionReviewItem(
+                        kind="highlight",
+                        quote=r"$V(s) \leftarrow r + \gamma V(s')$",
+                        color="secondary",
+                        context_before="The update is",
+                    ),
+                ],
+            ),
+        )
+        after = get_workspace(connection, course_id)
+
+    assert reviewed.revision == message.revision + 1
+    review_annotations = [
+        annotation
+        for annotation in after.annotations
+        if annotation.origin.startswith("discussion_review_")
+    ]
+    assert {annotation.kind for annotation in review_annotations} == {
+        "highlight",
+        "question",
+    }
+    question = next(
+        annotation for annotation in review_annotations if annotation.kind == "question"
+    )
+    highlight = next(
+        annotation for annotation in review_annotations if annotation.kind == "highlight"
+    )
+    assert question.anchor and question.anchor.discussion_message_id == message.id
+    assert highlight.anchor and highlight.anchor.color == "secondary"
+    assert after.discussions[0].messages[0].annotation_links[0].relation == "followup_to"
+    assert question.id in after.discussions[0].question_ids
+    assert highlight.id not in after.discussions[0].question_ids
 
 
 def test_deleting_discussion_soft_deletes_thread_resource_and_messages(

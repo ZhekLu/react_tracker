@@ -1422,10 +1422,171 @@
 }
 
 .discussionMarkdownSurface.isEditing {
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
+}
+
+.discussionPendingReview {
+  min-height: 27px;
+  padding: 5px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--course-accent) 20%, var(--line));
+  background: color-mix(in srgb, var(--course-accent) 5%, #fff);
+  color: var(--course-accent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 7px;
+  font-weight: 740;
+}
+
+.discussionPendingReview button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  place-items: center;
+}
+
+.discussionSelectionReview {
+  position: absolute;
+  z-index: 165;
+  width: min(300px, calc(100% - 16px));
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--course-accent) 38%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, #fff 94%, transparent);
+  box-shadow: 0 14px 36px rgba(18, 43, 37, 0.2);
+  backdrop-filter: blur(12px);
+}
+
+.discussionSelectionReview > header,
+.discussionSelectionReview > footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.discussionSelectionReview > header strong {
+  color: var(--ink-soft);
+  font-size: 8px;
+}
+
+.discussionSelectionReview > header span {
+  margin-left: auto;
+  color: var(--faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 6px;
+}
+
+.discussionSelectionReview > header button {
+  width: 21px;
+  height: 21px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--faint);
+  display: grid;
+  place-items: center;
+}
+
+.discussionSelectionReview > header span + button {
+  margin-left: 0;
+}
+
+.discussionSelectionReview blockquote {
+  max-height: 76px;
+  margin: 7px 0;
+  padding: 5px 7px;
+  overflow: auto;
+  border-left: 2px solid var(--course-accent);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font: 500 7px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+}
+
+.discussionSelectionReview textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 9px;
+}
+
+.discussionSelectionReview > footer {
+  margin-top: 6px;
+  justify-content: space-between;
+}
+
+.discussionSelectionReview > footer span {
+  color: var(--faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 6px;
+}
+
+.discussionSelectionReview > footer button {
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--course-accent) 30%, var(--line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--course-accent) 8%, #fff);
+  color: var(--course-accent);
+  font-size: 7px;
+  font-weight: 760;
+}
+
+.messageLinkedQuestionShelf {
+  margin: 7px 0;
+  padding: 0 8px 7px;
+  border: 1px solid color-mix(in srgb, var(--amber) 22%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--amber-soft) 28%, #fff);
+}
+
+.messageLinkedQuestionShelf > summary {
+  min-height: 28px;
+  color: var(--amber-deep);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 7px;
+  font-weight: 780;
+  list-style: none;
+}
+
+.messageLinkedQuestionShelf > summary::-webkit-details-marker {
+  display: none;
+}
+
+.messageLinkedQuestionShelf > summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.messageLinkedQuestionShelf > summary strong {
+  color: var(--faint);
+  font-size: 6px;
 }
 
 .discussionMarkdownSurface.isEditing .discussionRichSurface {

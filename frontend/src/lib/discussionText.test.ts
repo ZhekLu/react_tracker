@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  discussionFollowups,
   discussionAnswerSections,
   matchAnswerSectionsToQuestions,
   type DiscussionQuestionCandidate,
 } from "./discussionText";
+import type { Annotation, Discussion } from "../types/tracker";
 
 const questions: DiscussionQuestionCandidate[] = Array.from(
   { length: 17 },
@@ -32,6 +34,38 @@ describe("discussion answer mapping", () => {
       ["Q-002", "Q-003"],
       ["Q-011", "Q-017"],
     ]);
+  });
+
+  it("copies anchored review questions with their selected context", () => {
+    const discussion = {
+      id: "discussion",
+      messages: [
+        {
+          body: { plainText: "Tutor answer" },
+          id: "message-1",
+          role: "assistant",
+          sequenceNumber: 2,
+        },
+      ],
+      questionIds: ["initial", "followup"],
+      title: "Bellman review",
+    } as Discussion;
+    const followup = {
+      anchor: {
+        discussionMessageId: "message-1",
+        quote: "$V(s) \\leftarrow r + \\gamma V(s')$",
+      },
+      body: { markdown: "Why is this bootstrapping?" },
+      createdAt: "2026-07-10T10:00:00Z",
+      id: "followup",
+      kind: "question",
+      status: "open",
+    } as Annotation;
+
+    const prompt = discussionFollowups(discussion, [followup]);
+    expect(prompt).toContain("## Q-002 — Follow-up to message #2");
+    expect(prompt).toContain("$V(s) \\leftarrow r + \\gamma V(s')$");
+    expect(prompt).toContain("Why is this bootstrapping?");
   });
 
   it("maps each label to the prompt-batch question order", () => {

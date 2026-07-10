@@ -17,6 +17,7 @@ import {
   linkDiscussionQuestion,
   openResource,
   openResourceFile,
+  reviewDiscussionMessage,
   updateAnnotation,
   updateDayStatus,
   updateDiscussionAttention,
@@ -30,6 +31,7 @@ import {
 } from "../api/trackerApi";
 import { AppShell } from "../components/AppShell";
 import type { ResourceCaptureInput } from "../components/annotations/InlineCaptureEditor";
+import type { DiscussionReviewItem } from "../components/editor/DiscussionMarkdownSurface";
 import { useToggl } from "../hooks/useToggl";
 import { DiscussionsView } from "../features/discussions/DiscussionsView";
 import { ExamsView } from "../features/exams/ExamsView";
@@ -999,7 +1001,8 @@ export function App() {
     return workspace.annotations
       .filter(
         (annotation) =>
-          sourceIds.has(annotation.resourceId) &&
+          (sourceIds.has(annotation.resourceId) ||
+            Boolean(discussion?.questionIds.includes(annotation.id))) &&
           ["question", "todo"].includes(annotation.kind) &&
           annotation.status !== "archived",
       )
@@ -1046,15 +1049,26 @@ export function App() {
   function handleUpdateDiscussionMessage(
     message: DiscussionMessage,
     markdownInput: string,
+    reviewItems: DiscussionReviewItem[] = [],
   ) {
     const markdown = normalizeDiscussionMarkdown(markdownInput);
     void runMutation(async () => {
-      await updateDiscussionMessage(message.id, {
-        revision: message.revision,
-        documentRevision: message.body.revision,
-        markdown,
-        plainText: markdown,
-      });
+      if (reviewItems.length) {
+        await reviewDiscussionMessage(message.id, {
+          revision: message.revision,
+          documentRevision: message.body.revision,
+          markdown,
+          plainText: markdown,
+          reviewItems,
+        });
+      } else {
+        await updateDiscussionMessage(message.id, {
+          revision: message.revision,
+          documentRevision: message.body.revision,
+          markdown,
+          plainText: markdown,
+        });
+      }
     });
   }
 

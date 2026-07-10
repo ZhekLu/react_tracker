@@ -326,6 +326,21 @@ export type DiscussionMessageUpdateInput = {
   plainText?: string;
 };
 
+export type DiscussionReviewItemInput = {
+  kind: "question" | "highlight";
+  quote: string;
+  markdown: string;
+  color?: "primary" | "secondary";
+  contextBefore?: string;
+  contextAfter?: string;
+  fromPosition?: number;
+  toPosition?: number;
+};
+
+export type DiscussionMessageReviewInput = DiscussionMessageUpdateInput & {
+  reviewItems: DiscussionReviewItemInput[];
+};
+
 export type DiscussionCreateInput = {
   courseId: string;
   sourceResourceId?: string;
@@ -1261,6 +1276,35 @@ export async function updateDiscussionMessage(
     }),
     method: "PATCH",
   });
+}
+
+export async function reviewDiscussionMessage(
+  messageId: string,
+  input: DiscussionMessageReviewInput,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(
+    `/discussion-messages/${messageId}/review`,
+    {
+      body: JSON.stringify({
+        revision: input.revision,
+        document_revision: input.documentRevision,
+        markdown: input.markdown,
+        editor_json: input.editorJson,
+        plain_text: input.plainText ?? input.markdown,
+        review_items: input.reviewItems.map((item) => ({
+          kind: item.kind,
+          quote: item.quote,
+          markdown: item.markdown,
+          color: item.color,
+          context_before: item.contextBefore ?? "",
+          context_after: item.contextAfter ?? "",
+          from_position: item.fromPosition,
+          to_position: item.toPosition,
+        })),
+      }),
+      method: "POST",
+    },
+  );
 }
 
 export async function linkDiscussionQuestion(

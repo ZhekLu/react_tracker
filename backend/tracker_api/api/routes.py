@@ -24,6 +24,7 @@ from ..schemas.workspace import (
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
+    DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
@@ -597,6 +598,25 @@ def update_discussion_message(
 ) -> MutationResponse:
     try:
         return workspace_repository.update_discussion_message(
+            connection,
+            message_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.post(
+    "/discussion-messages/{message_id}/review",
+    response_model=MutationResponse,
+)
+def review_discussion_message(
+    message_id: str,
+    command: DiscussionMessageReviewCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.review_discussion_message(
             connection,
             message_id,
             command,
