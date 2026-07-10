@@ -6,7 +6,7 @@ export type DiscussionHighlightExcerpt = {
 
 const FENCED_CODE =
   /(^|\n)(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\2(?=\n|$)/g;
-const HIGHLIGHT = /(==|\^\^)([\s\S]*?)\1/g;
+const HIGHLIGHT = /(==|\^\^|!!|%%)([\s\S]*?)\1/g;
 
 export function discussionHighlights(
   markdown: string,

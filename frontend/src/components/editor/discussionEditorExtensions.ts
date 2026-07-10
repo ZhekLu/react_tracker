@@ -17,10 +17,12 @@ import type {
 
 export const PRIMARY_DISCUSSION_HIGHLIGHT = "#fff0a8";
 export const SECONDARY_DISCUSSION_HIGHLIGHT = "#cfe8ff";
+export const QUESTION_MARKER_HIGHLIGHT = "#ffd7e1";
+export const TODO_MARKER_HIGHLIGHT = "#dcebc5";
 const lowlight = createLowlight(common);
 
 function highlightStart(source: string): number {
-  const starts = [source.indexOf("=="), source.indexOf("^^")].filter(
+  const starts = ["==", "^^", "!!", "%%"].map((delimiter) => source.indexOf(delimiter)).filter(
     (position) => position >= 0,
   );
   return starts.length ? Math.min(...starts) : -1;
@@ -32,7 +34,13 @@ const DiscussionHighlight = Highlight.extend({
     helpers: MarkdownRendererHelpers,
   ): string {
     const delimiter =
-      node.attrs?.color === SECONDARY_DISCUSSION_HIGHLIGHT ? "^^" : "==";
+      node.attrs?.color === SECONDARY_DISCUSSION_HIGHLIGHT
+        ? "^^"
+        : node.attrs?.color === QUESTION_MARKER_HIGHLIGHT
+          ? "!!"
+          : node.attrs?.color === TODO_MARKER_HIGHLIGHT
+            ? "%%"
+            : "==";
     return `${delimiter}${helpers.renderChildren(node.content ?? [])}${delimiter}`;
   },
 
@@ -44,7 +52,11 @@ const DiscussionHighlight = Highlight.extend({
         color:
           token.color === "secondary"
             ? SECONDARY_DISCUSSION_HIGHLIGHT
-            : PRIMARY_DISCUSSION_HIGHLIGHT,
+            : token.color === "question"
+              ? QUESTION_MARKER_HIGHLIGHT
+              : token.color === "todo"
+                ? TODO_MARKER_HIGHLIGHT
+                : PRIMARY_DISCUSSION_HIGHLIGHT,
       },
     );
   },
@@ -54,11 +66,10 @@ const DiscussionHighlight = Highlight.extend({
     level: "inline",
     start: highlightStart,
     tokenize(source, _tokens, lexer) {
-      const delimiter = source.startsWith("==")
-        ? "=="
-        : source.startsWith("^^")
-          ? "^^"
-          : "";
+      const delimiter =
+        ["==", "^^", "!!", "%%"].find((candidate) =>
+          source.startsWith(candidate),
+        ) ?? "";
       if (!delimiter) return undefined;
       const end = source.indexOf(delimiter, delimiter.length);
       if (end <= delimiter.length) return undefined;
@@ -66,7 +77,14 @@ const DiscussionHighlight = Highlight.extend({
       if (!text) return undefined;
       const raw = source.slice(0, end + delimiter.length);
       return {
-        color: delimiter === "^^" ? "secondary" : "primary",
+        color:
+          delimiter === "^^"
+            ? "secondary"
+            : delimiter === "!!"
+              ? "question"
+              : delimiter === "%%"
+                ? "todo"
+                : "primary",
         raw,
         text,
         tokens: lexer.inlineTokens(text),

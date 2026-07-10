@@ -12,6 +12,7 @@ import {
 } from "../../lib/discussionHighlights";
 import type { Attention, Note } from "../../types/tracker";
 import { FileMentionChips } from "./FileMentionChips";
+import { highlightNoteMarkers } from "../../lib/noteMarkers";
 
 type EntityNoteEditorProps = {
   label?: string;
@@ -47,9 +48,10 @@ export function EntityNoteEditor({
   const contentType = noteContentType(savedContent);
 
   function save(markdown: string) {
-    onSave(markdown);
-    setDraft(markdown);
-    setSavedContent(markdown);
+    const highlighted = highlightNoteMarkers(markdown);
+    onSave(highlighted);
+    setDraft(highlighted);
+    setSavedContent(highlighted);
     setEditing(false);
   }
 

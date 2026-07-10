@@ -993,6 +993,87 @@ def test_book_chapter_progress_combines_plan_scope_and_persistent_state(
     ).status == "read_fully"
 
 
+def test_note_markers_become_stable_counted_resource_captures(
+    tmp_path: Path,
+) -> None:
+    course_id, _resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        workspace = get_workspace(connection, course_id)
+        task = workspace.days[0].sections[0].tasks[0]
+        created = upsert_note(
+            connection,
+            NoteUpsertCommand(
+                course_id=course_id,
+                kind="task",
+                entity_type="task",
+                entity_id=task.id,
+                markdown=(
+                    "!!Why is this estimator unbiased??!!\n\n"
+                    "%%todo! rerun all seeds%%"
+                ),
+            ),
+        )
+        first = get_workspace(connection, course_id)
+        first_task = first.days[0].sections[0].tasks[0]
+        first_ids = {
+            annotation.id
+            for annotation in first.annotations
+            if annotation.origin == "note_marker"
+        }
+        note = first_task.notes[0]
+        upsert_note(
+            connection,
+            NoteUpsertCommand(
+                course_id=course_id,
+                note_id=created.id,
+                note_revision=note.revision,
+                document_revision=note.document.revision,
+                kind="task",
+                entity_type="task",
+                entity_id=task.id,
+                markdown=(
+                    "Intro paragraph.\n\n"
+                    "!!Why is this estimator unbiased??!!\n\n"
+                    "%%todo! rerun all seeds%%"
+                ),
+            ),
+        )
+        stable = get_workspace(connection, course_id)
+        stable_note = stable.days[0].sections[0].tasks[0].notes[0]
+        stable_ids = {
+            annotation.id
+            for annotation in stable.annotations
+            if annotation.origin == "note_marker"
+        }
+        upsert_note(
+            connection,
+            NoteUpsertCommand(
+                course_id=course_id,
+                note_id=created.id,
+                note_revision=stable_note.revision,
+                document_revision=stable_note.document.revision,
+                kind="task",
+                entity_type="task",
+                entity_id=task.id,
+                markdown="%%todo! rerun all seeds%%",
+            ),
+        )
+        reduced = get_workspace(connection, course_id)
+
+    assert first_task.open_question_count == 2
+    assert first_ids == stable_ids
+    marker_colors = {
+        annotation.kind: annotation.anchor.color
+        for annotation in first.annotations
+        if annotation.origin == "note_marker" and annotation.anchor
+    }
+    assert marker_colors == {
+        "question": "rgb(226, 82, 117)",
+        "todo": "rgb(147, 178, 80)",
+    }
+    assert reduced.days[0].sections[0].tasks[0].open_question_count == 1
+
+
 def test_book_question_counts_follow_task_chapter_scope_without_hiding_annotations(
     tmp_path: Path,
 ) -> None:

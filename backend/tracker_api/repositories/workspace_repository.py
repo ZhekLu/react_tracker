@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
@@ -2497,6 +2498,133 @@ def _create_document(
     return document_id
 
 
+def _note_marker_resource_id(
+    connection: Connection,
+    command: NoteUpsertCommand,
+) -> str | None:
+    if command.entity_type == "resource":
+        value = connection.execute(
+            text(
+                """
+                SELECT id
+                FROM resources
+                WHERE id = :entity_id
+                  AND course_id = :course_id
+                  AND deleted_at IS NULL
+                """
+            ),
+            {"course_id": command.course_id, "entity_id": command.entity_id},
+        ).scalar_one_or_none()
+        return str(value) if value else None
+    if command.entity_type == "task":
+        value = connection.execute(
+            text(
+                """
+                SELECT tr.resource_id
+                FROM tasks t
+                JOIN study_days d ON d.id = t.day_id
+                JOIN task_resources tr ON tr.task_id = t.id
+                JOIN resources r ON r.id = tr.resource_id
+                WHERE t.id = :entity_id
+                  AND d.course_id = :course_id
+                  AND t.deleted_at IS NULL
+                  AND r.deleted_at IS NULL
+                ORDER BY tr.order_index
+                LIMIT 1
+                """
+            ),
+            {"course_id": command.course_id, "entity_id": command.entity_id},
+        ).scalar_one_or_none()
+        return str(value) if value else None
+    return None
+
+
+def _sync_note_marker_annotations(
+    connection: Connection,
+    *,
+    note_id: str,
+    command: NoteUpsertCommand,
+    markdown: str,
+    timestamp: str,
+) -> None:
+    resource_id = _note_marker_resource_id(connection, command)
+    if resource_id is None:
+        return
+    paragraphs = [
+        re.sub(r"\s+", " ", paragraph).strip()
+        for paragraph in re.split(r"\n\s*\n", markdown)
+        if paragraph.strip()
+    ]
+    markers: list[tuple[str, str, str]] = []
+    for paragraph in paragraphs:
+        kind = "todo" if re.search(r"\btodo!", paragraph, flags=re.I) else (
+            "question" if "??" in paragraph else ""
+        )
+        if not kind:
+            continue
+        normalized = paragraph.strip("=!^% ")
+        digest = hashlib.sha256(f"{kind}\n{normalized}".encode()).hexdigest()[:24]
+        markers.append((kind, normalized, f"note-marker:{note_id}:{digest}"))
+
+    existing = {
+        str(row["source_fingerprint"]): str(row["id"])
+        for row in _rows(
+            connection,
+            """
+            SELECT id, source_fingerprint
+            FROM annotations
+            WHERE resource_id = :resource_id
+              AND origin = 'note_marker'
+              AND source_fingerprint LIKE :prefix
+              AND deleted_at IS NULL
+            """,
+            {"prefix": f"note-marker:{note_id}:%", "resource_id": resource_id},
+        )
+    }
+    active_fingerprints = {fingerprint for _kind, _text, fingerprint in markers}
+    for fingerprint, annotation_id in existing.items():
+        if fingerprint not in active_fingerprints:
+            connection.execute(
+                text(
+                    """
+                    UPDATE annotations
+                    SET deleted_at = :deleted_at,
+                        updated_at = :deleted_at,
+                        revision = revision + 1
+                    WHERE id = :id
+                    """
+                ),
+                {"deleted_at": timestamp, "id": annotation_id},
+            )
+    for kind, marker_text, fingerprint in markers:
+        if fingerprint in existing:
+            continue
+        create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind=cast(Any, kind),
+                origin="note_marker",
+                source_fingerprint=fingerprint,
+                markdown=marker_text,
+                plain_text=marker_text,
+                anchor=AnnotationAnchorCreate(
+                    anchor_type="resource",
+                    color=(
+                        "rgb(147, 178, 80)"
+                        if kind == "todo"
+                        else "rgb(226, 82, 117)"
+                    ),
+                    annotation_kind=kind,
+                    metadata={
+                        "captureSource": "note_marker",
+                        "sourceNoteId": note_id,
+                    },
+                ),
+            ),
+        )
+
+
 def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationResponse:
     now = _now()
     markdown = command.markdown
@@ -2555,6 +2683,13 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
                 "entity_id": command.entity_id,
                 "created_at": now,
             },
+        )
+        _sync_note_marker_annotations(
+            connection,
+            note_id=note_id,
+            command=command,
+            markdown=markdown,
+            timestamp=now,
         )
         return MutationResponse(id=note_id, revision=1, updated_at=now)
 
@@ -2643,6 +2778,13 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
     )
     if row is None:
         raise RevisionConflictError(f"Stale revision for note: {command.note_id}")
+    _sync_note_marker_annotations(
+        connection,
+        note_id=command.note_id,
+        command=command,
+        markdown=markdown,
+        timestamp=now,
+    )
     return _mutation_result(row)
 
 
