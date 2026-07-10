@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AnnotationKind } from "../../types/tracker";
+import { normalizedCaptureInput } from "../../lib/captureMarkers";
 
 export type ResourceCaptureInput = {
   color?: string;
@@ -17,6 +18,8 @@ export type ResourceCaptureInput = {
 };
 
 type InlineCaptureEditorProps = {
+  compact?: boolean;
+  initialKind?: AnnotationKind;
   onCancel: () => void;
   onSubmit: (input: ResourceCaptureInput) => void;
   resourceTitle: string;
@@ -34,11 +37,13 @@ const captureTypes: {
 ];
 
 export function InlineCaptureEditor({
+  compact = false,
+  initialKind = "note",
   onCancel,
   onSubmit,
   resourceTitle,
 }: InlineCaptureEditorProps) {
-  const [kind, setKind] = useState<AnnotationKind>("note");
+  const [kind, setKind] = useState<AnnotationKind>(initialKind);
   const [markdown, setMarkdown] = useState("");
   const [priority, setPriority] =
     useState<ResourceCaptureInput["priority"]>("normal");
@@ -53,16 +58,16 @@ export function InlineCaptureEditor({
   function submit() {
     const value = markdown.trim();
     if (!value) return;
-    onSubmit({
+    onSubmit(normalizedCaptureInput({
       color: color || undefined,
       kind,
       markdown: value,
       priority,
-    });
+    }));
   }
 
   return (
-    <section className="inlineCaptureEditor">
+    <section className={`inlineCaptureEditor ${compact ? "compact" : ""}`}>
       <header>
         <div>
           <span className="eyebrow">Resource capture</span>
@@ -108,7 +113,7 @@ export function InlineCaptureEditor({
               : "Write the idea while it is fresh…"
         }
         ref={textareaRef}
-        rows={4}
+        rows={compact ? 2 : 4}
         value={markdown}
       />
       <footer>

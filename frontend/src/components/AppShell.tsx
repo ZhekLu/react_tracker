@@ -39,6 +39,7 @@ type AppShellProps = {
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
   onToggleToggl: () => void;
   toggl: {
+    activeTaskId?: string | null;
     activeForDay: boolean;
     busy: boolean;
     configured: boolean;
@@ -134,6 +135,13 @@ export function AppShell({
                   {toggl.trackedSeconds > activeDay.trackedSeconds ? (
                     <span>{formatTrackedTime(toggl.trackedSeconds)} live</span>
                   ) : null}
+                </p>
+              ) : catchUpDays ? (
+                <p className="headerDayContext">
+                  <span className="catchUpProgress">
+                    {catchUpDays} day{catchUpDays === 1 ? "" : "s"} to catch up
+                  </span>
+                  {toggl.activeTaskId ? <span>task timer pinned</span> : null}
                 </p>
               ) : null}
             </div>

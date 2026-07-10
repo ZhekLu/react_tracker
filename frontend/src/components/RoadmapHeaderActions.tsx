@@ -4,6 +4,7 @@ import {
   CheckCheck,
   CircleHelp,
   ClipboardCopy,
+  Crosshair,
   LocateFixed,
   MessageSquareText,
   SkipForward,
@@ -24,6 +25,7 @@ type RoadmapHeaderActionsProps = {
   onToggleToggl: () => void;
   onViewChange: (view: TrackerView) => void;
   toggl: {
+    activeTaskId?: string | null;
     activeForDay: boolean;
     busy: boolean;
     configured: boolean;
@@ -58,6 +60,13 @@ export function RoadmapHeaderActions({
 }: RoadmapHeaderActionsProps) {
   const today = course.days.find((day) => day.date === localDate());
   const nextOpen = course.days.find(isOpenDay);
+  const currentTaskDay = toggl.activeTaskId
+    ? course.days.find((day) =>
+        day.sections.some((section) =>
+          section.tasks.some((task) => task.id === toggl.activeTaskId),
+        ),
+      )
+    : undefined;
   const closed = ["closed", "completed", "archived"].includes(
     activeDay.status,
   );
@@ -97,6 +106,20 @@ export function RoadmapHeaderActions({
         type="button"
       >
         <SkipForward size={15} />
+      </button>
+      <button
+        aria-label="Return to current task"
+        className={currentTaskDay ? "currentTaskAction active" : "currentTaskAction"}
+        disabled={!currentTaskDay}
+        onClick={() => currentTaskDay && onOpenDay(currentTaskDay.id)}
+        title={
+          currentTaskDay
+            ? `Current timer · Day ${currentTaskDay.number}`
+            : "Start a task timer to pin your current task"
+        }
+        type="button"
+      >
+        <Crosshair size={15} />
       </button>
       <button
         aria-label="Copy day prompt and start discussion"

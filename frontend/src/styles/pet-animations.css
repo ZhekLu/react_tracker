@@ -19,6 +19,21 @@
   z-index: 1000;
 }
 
+.petCelebration-task:not(.isContained) {
+  inset: auto;
+  top: 50%;
+  left: 24px;
+  width: 0;
+  height: 0;
+  contain: none;
+}
+
+.petCelebration-task.petAnimation-orbit .petActor {
+  filter:
+    drop-shadow(0 7px 10px rgba(7, 24, 18, 0.24))
+    drop-shadow(0 0 9px color-mix(in srgb, var(--course-accent) 25%, transparent));
+}
+
 .petCelebration.isContained {
   position: absolute;
   inset: 0;

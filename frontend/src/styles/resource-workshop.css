@@ -183,15 +183,46 @@
 
 .studyActivityGrid {
   display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 3px;
+  grid-auto-columns: 8px;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 8px);
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.studyActivityGrid::-webkit-scrollbar {
+  display: none;
 }
 
 .studyActivityGrid > span {
-  aspect-ratio: 1;
+  width: 8px;
+  height: 8px;
   min-width: 0;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 900px) {
+  .studyMomentumPanel {
+    padding: 5px 7px;
+  }
+
+  .studyMomentumPanel > header {
+    margin-bottom: 4px;
+  }
+
+  .studyActivityGrid {
+    grid-auto-columns: 6px;
+    grid-template-rows: repeat(7, 6px);
+    gap: 1px;
+  }
+
+  .studyActivityGrid > span {
+    width: 6px;
+    height: 6px;
+    border-radius: 1px;
+  }
 }
 
 .studyActivityGrid > span.plannedByNow.activityLevel-0 {
@@ -653,6 +684,28 @@
 .inlineCaptureEditor textarea:focus {
   border-color: color-mix(in srgb, var(--blue) 58%, var(--line));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 10%, transparent);
+}
+
+.inlineCaptureEditor.compact {
+  margin-top: 7px;
+  padding: 8px;
+  gap: 6px;
+  border-radius: 9px;
+}
+
+.inlineCaptureEditor.compact > header .eyebrow,
+.inlineCaptureEditor.compact > footer label > span {
+  display: none;
+}
+
+.inlineCaptureEditor.compact .captureTypePicker button {
+  min-height: 23px;
+  padding: 3px 6px;
+}
+
+.inlineCaptureEditor.compact textarea {
+  min-height: 50px;
+  padding: 7px 8px;
 }
 
 .inlineCaptureEditor > footer {
@@ -2544,6 +2597,75 @@
   content: "Done · ";
   color: color-mix(in srgb, var(--green) 72%, var(--ink));
   font-weight: 850;
+}
+
+.taskRow.isCompactDone {
+  min-height: 38px;
+  padding-block: 5px;
+  grid-template-columns: 25px minmax(0, 1fr);
+  opacity: 0.78;
+}
+
+.taskRow.isCompactDone .taskStatus {
+  width: 24px;
+  height: 24px;
+}
+
+.taskRow.isCompactDone .taskTitleRow {
+  min-height: 26px;
+  padding-right: 0;
+  align-items: center;
+}
+
+.taskRow.isCompactDone .taskBody h3 {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--green-deep) 72%, var(--muted));
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskRow.isCompactDone .taskBadges {
+  margin-top: 0;
+}
+
+.taskRow.isCompactDone .taskMetaBadge:not(.taskTimerBadge):not(.compactTaskToggle) {
+  display: none;
+}
+
+.compactTaskToggle svg {
+  transition: transform 150ms ease;
+}
+
+.compactTaskToggle svg.expanded {
+  transform: rotate(180deg);
+}
+
+.taskRow.isCurrentTask {
+  border-color: color-mix(in srgb, var(--course-accent) 48%, var(--line));
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--course-accent) 8%, transparent),
+    0 10px 24px color-mix(in srgb, var(--course-accent) 10%, transparent);
+}
+
+.taskRow.isCurrentTask::after {
+  content: "NOW";
+  position: absolute;
+  top: -6px;
+  left: 12px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--course-accent);
+  color: #fff;
+  font-size: 6px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.roadmapHeaderActionGrid .currentTaskAction.active {
+  border-color: color-mix(in srgb, var(--course-accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--course-accent) 13%, #fff);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--course-accent) 8%, transparent);
 }
 
 .taskTitleRow {

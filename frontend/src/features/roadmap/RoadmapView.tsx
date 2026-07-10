@@ -36,6 +36,10 @@ import { DayCompletionParade } from "../../components/rewards/DayCompletionParad
 import { PetCelebration } from "../../components/rewards/PetCelebration";
 import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
 import { annotationChapterNumber } from "../../components/annotations/annotationDisplay";
+import {
+  InlineCaptureEditor,
+  type ResourceCaptureInput,
+} from "../../components/annotations/InlineCaptureEditor";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
@@ -75,13 +79,9 @@ type RoadmapViewProps = {
     changes: { kind?: AnnotationKind; status?: AnnotationStatus },
   ) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
+  onCreateCapture: (resourceId: string, input: ResourceCaptureInput) => void;
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
-  onFlagQuestion: (
-    resourceId: string,
-    label: string,
-    initialText?: string,
-  ) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onNoteAttentionChange: (
     note: NonNullable<Task["notes"][number]>,
@@ -114,7 +114,7 @@ type TaskRowProps = {
   task: Task;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
-  onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
+  onCreateCapture: RoadmapViewProps["onCreateCapture"];
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
@@ -151,7 +151,7 @@ function TaskRow({
   task,
   onAnnotationChange,
   onCollectPdfAnnotations,
-  onFlagQuestion,
+  onCreateCapture,
   onNoteSave,
   onNoteAttentionChange,
   onOpenDiscussion,
@@ -162,6 +162,8 @@ function TaskRow({
 }: TaskRowProps) {
   const reward = useCompletionReward();
   const [rationaleOpen, setRationaleOpen] = useState(false);
+  const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
+  const [quickCaptureResourceId, setQuickCaptureResourceId] = useState("");
   const completed = task.status === "done";
   const linkedResources = task.resourceIds
     .map((resourceId) => resourceById.get(resourceId))
@@ -185,6 +187,8 @@ function TaskRow({
       return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
     });
   const taskOpenQuestionCount = task.openQuestionCount;
+  const shouldCompact = completed && taskOpenQuestionCount === 0;
+  const showTaskDetails = !shouldCompact || compactDetailsOpen;
 
   function toggleDone() {
     const nextStatus = task.status === "done" ? "todo" : "done";
@@ -205,7 +209,7 @@ function TaskRow({
 
   return (
     <article
-      className={`taskRow tone-${statusTone(task.status)} ${taskOpenQuestionCount ? "hasQuestions" : ""} ${reward.active ? "taskCelebrated" : ""}`}
+      className={`taskRow tone-${statusTone(task.status)} ${taskOpenQuestionCount ? "hasQuestions" : ""} ${shouldCompact && !showTaskDetails ? "isCompactDone" : ""} ${timer.active ? "isCurrentTask" : ""} ${reward.active ? "taskCelebrated" : ""}`}
       data-status={task.status}
       data-task-id={task.id}
     >
@@ -273,8 +277,22 @@ function TaskRow({
                 <Info size={11} /> Why this
               </button>
             ) : null}
+            {shouldCompact ? (
+              <button
+                aria-expanded={showTaskDetails}
+                className="taskMetaBadge compactTaskToggle"
+                onClick={() => setCompactDetailsOpen((current) => !current)}
+                title={showTaskDetails ? "Hide completed task details" : "Show completed task details"}
+                type="button"
+              >
+                <ChevronDown className={showTaskDetails ? "expanded" : ""} size={11} />
+                {showTaskDetails ? "Less" : "Details"}
+              </button>
+            ) : null}
           </div>
         </div>
+        {showTaskDetails ? (
+          <>
         {task.rationale?.plainText && rationaleOpen ? (
           <div className="taskRationale">
             <MarkdownMath>
@@ -324,7 +342,11 @@ function TaskRow({
                 </button>
                 <button
                   className="taskLinkIcon"
-                  onClick={() => onFlagQuestion(resource.id, resource.title)}
+                  onClick={() =>
+                    setQuickCaptureResourceId((current) =>
+                      current === resource.id ? "" : resource.id,
+                    )
+                  }
                   title={`Add a question about ${resource.title}`}
                   type="button"
                 >
@@ -371,6 +393,18 @@ function TaskRow({
             })}
           </div>
         ) : null}
+        {quickCaptureResourceId ? (
+          <InlineCaptureEditor
+            compact
+            initialKind="question"
+            onCancel={() => setQuickCaptureResourceId("")}
+            onSubmit={(input) => {
+              onCreateCapture(quickCaptureResourceId, input);
+              setQuickCaptureResourceId("");
+            }}
+            resourceTitle={resourceById.get(quickCaptureResourceId)?.title ?? "resource"}
+          />
+        ) : null}
         {captures.length ? (
           <TaskCapturePanel
             captures={captures}
@@ -399,7 +433,10 @@ function TaskRow({
           }
           placeholder="Question, answer, implementation detail, or reminder..."
         />
+          </>
+        ) : null}
       </div>
+      {showTaskDetails ? (
       <div className="taskActions" aria-label={`Actions for ${task.title}`}>
         <button
           aria-label={task.status === "later" ? "Return task to to-do" : "Do task later"}
@@ -422,6 +459,7 @@ function TaskRow({
           <span className="srOnly">{task.status === "skipped" ? "Skipped" : "Skip"}</span>
         </button>
       </div>
+      ) : null}
     </article>
   );
 }
@@ -678,10 +716,10 @@ type DayCardProps = {
   skillById: Map<string, Skill>;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
+  onCreateCapture: RoadmapViewProps["onCreateCapture"];
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onEntityNoteSave: (input: EntityNoteSaveInput) => void;
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
-  onFlagQuestion: RoadmapViewProps["onFlagQuestion"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
   onClosedChange: (day: StudyDay, closed: boolean) => void;
@@ -698,10 +736,10 @@ function DayCard({
   skillById,
   onAnnotationChange,
   onCollectPdfAnnotations,
+  onCreateCapture,
   onDayNoteSave,
   onEntityNoteSave,
   onNoteAttentionChange,
-  onFlagQuestion,
   onOpenDiscussion,
   onOpenResource,
   onClosedChange,
@@ -718,7 +756,10 @@ function DayCard({
   const isFullyComplete = isDayFullyComplete(day);
   const shouldCompact = isClosed || isFullyComplete;
   const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
-  const showDetails = !shouldCompact || compactDetailsOpen;
+  const containsCurrentTask = tasks.some(
+    (task) => task.id === taskTimer.activeTaskId,
+  );
+  const showDetails = containsCurrentTask || !shouldCompact || compactDetailsOpen;
   const tone = dayTone(day);
   const stopWhen = day.sections
     .filter((section) => section.title.toLowerCase() === "stop when")
@@ -808,7 +849,7 @@ function DayCard({
                 key={task.id}
                 onAnnotationChange={onAnnotationChange}
                 onCollectPdfAnnotations={onCollectPdfAnnotations}
-                onFlagQuestion={onFlagQuestion}
+                onCreateCapture={onCreateCapture}
                 onStatusChange={onTaskStatusChange}
                 onNoteSave={onEntityNoteSave}
                 onNoteAttentionChange={onNoteAttentionChange}
@@ -926,9 +967,9 @@ export function RoadmapView({
   onActiveDayChange,
   onAnnotationChange,
   onCollectPdfAnnotations,
+  onCreateCapture,
   onDayClosedChange,
   onDayNoteSave,
-  onFlagQuestion,
   onNoteSave,
   onNoteAttentionChange,
   onOpenDiscussion,
@@ -963,6 +1004,18 @@ export function RoadmapView({
     initialCourseAnchorRef.current = course.id;
     target.scrollIntoView({ behavior: "auto", block: "start" });
   }, [activeDayId, course.id]);
+
+  useEffect(() => {
+    if (!taskTimer.activeTaskId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          `[data-task-id="${CSS.escape(taskTimer.activeTaskId ?? "")}"]`,
+        )
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [course.id, taskTimer.activeTaskId]);
 
   useEffect(() => {
     const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-day-id]"));
@@ -1011,11 +1064,11 @@ export function RoadmapView({
           key={day.id}
           onAnnotationChange={onAnnotationChange}
           onCollectPdfAnnotations={onCollectPdfAnnotations}
+          onCreateCapture={onCreateCapture}
           onClosedChange={onDayClosedChange}
           onDayNoteSave={onDayNoteSave}
           onEntityNoteSave={onNoteSave}
           onNoteAttentionChange={onNoteAttentionChange}
-          onFlagQuestion={onFlagQuestion}
           onOpenDiscussion={onOpenDiscussion}
           onOpenResource={onOpenResource}
         onTaskStatusChange={onTaskStatusChange}

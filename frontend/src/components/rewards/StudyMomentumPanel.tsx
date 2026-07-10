@@ -2,34 +2,16 @@ import { Flame } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { Course } from "../../types/tracker";
 import {
-  dayEstimatedMinutes,
   formatTrackedTime,
   isDayFullyComplete,
   localDateKey,
 } from "../../features/roadmap/dayPresentation";
+import { studyActivityLevel } from "../../lib/studyActivity";
 
 type StudyMomentumPanelProps = {
   course: Course;
   trackedSecondsByDay: Record<string, number>;
 };
-
-function activityLevel(
-  progress: number,
-  trackedSeconds: number,
-  plannedMinutes: number,
-): number {
-  const timeRatio = plannedMinutes
-    ? trackedSeconds / (plannedMinutes * 60)
-    : trackedSeconds
-      ? 0.35
-      : 0;
-  const value = Math.max(progress, Math.min(1, timeRatio));
-  if (value <= 0) return 0;
-  if (value < 0.25) return 1;
-  if (value < 0.55) return 2;
-  if (value < 0.9) return 3;
-  return 4;
-}
 
 export function StudyMomentumPanel({
   course,
@@ -42,10 +24,9 @@ export function StudyMomentumPanel({
     );
     return {
       day,
-      level: activityLevel(
+      level: studyActivityLevel(
         day.progress.ratio,
         trackedSeconds,
-        dayEstimatedMinutes(day),
       ),
       trackedSeconds,
     };

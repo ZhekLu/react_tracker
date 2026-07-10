@@ -1265,6 +1265,7 @@ export function App() {
       onOpenDay={handleOpenDay}
       onToggleToggl={() => void toggl.toggle()}
       toggl={{
+        activeTaskId: toggl.status.current?.taskId,
         activeForDay: toggl.activeForDay,
         busy: toggl.busy,
         configured: toggl.status.configured,
@@ -1302,7 +1303,7 @@ export function App() {
           onCollectPdfAnnotations={handleCollectPdfAnnotations}
           onDayClosedChange={handleDayClosedChange}
           onDayNoteSave={handleDayNoteSave}
-          onFlagQuestion={handleFlagQuestion}
+          onCreateCapture={handleCreateResourceCapture}
           onNoteSave={handleNoteSave}
           onNoteAttentionChange={handleNoteAttentionChange}
           onOpenDiscussion={handleOpenDiscussion}
