@@ -394,13 +394,13 @@ def test_prompt_discussion_tracks_question_coverage_and_answer_state(
     assert thread.resource_id != resource_id
     assert thread.source_resource_ids == [resource_id]
     assert thread.question_ids == [question.id]
-    assert thread.messages[0].role == "user"
-    assert thread.messages[0].annotation_links[0].relation == "generated_from"
-    assert thread.messages[1].imported_from_clipboard is True
-    assert thread.messages[1].annotation_links[0].relation == "references"
+    assert len(thread.messages) == 1
+    assert thread.messages[0].role == "assistant"
+    assert thread.messages[0].imported_from_clipboard is True
+    assert thread.messages[0].annotation_links[0].relation == "references"
     answered = next(item for item in after.annotations if item.id == question.id)
     assert answered.status == "answered"
-    answered_message = after.discussions[0].messages[1]
+    answered_message = after.discussions[0].messages[0]
     assert answered_message.annotation_links[0].relation == "answers"
     assert followup.id in after.discussions[0].question_ids
 

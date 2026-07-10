@@ -57,6 +57,8 @@ function normalizeLatexBody(value: string): string {
     .replace(/\\\\(?=[A-Za-z])/g, "\\")
     .replace(/\^\\?\*/g, "^{\\ast}")
     .replace(/\\([_*])/g, "$1")
+    .replace(/\\left\{/g, "\\left\\{")
+    .replace(/\\right\}/g, "\\right\\}")
     .replace(/^[ \t]*={3,}[ \t]*$/gm, "=")
     .replace(/^[ \t]*-{3,}[ \t]*$/gm, "-")
     .trim();

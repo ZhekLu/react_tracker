@@ -2692,34 +2692,6 @@ def create_discussion(
     if row is None:
         raise WorkspaceRepositoryError("Could not create discussion.")
     if prompt_batch is not None:
-        prompt_links = [
-            DiscussionMessageAnnotationInput(
-                annotation_id=str(annotation_id),
-                relation="generated_from",
-            )
-            for annotation_id in connection.execute(
-                text(
-                    """
-                    SELECT annotation_id
-                    FROM prompt_batch_items
-                    WHERE prompt_batch_id = :prompt_batch_id
-                    ORDER BY order_index
-                    """
-                ),
-                {"prompt_batch_id": prompt_batch["id"]},
-            ).scalars()
-        ]
-        create_discussion_message(
-            connection,
-            discussion_id,
-            DiscussionMessageCreateCommand(
-                role="user",
-                markdown=str(prompt_batch["markdown"] or ""),
-                editor_json=_json_loads(prompt_batch["editor_json"], None),
-                plain_text=str(prompt_batch["plain_text"] or ""),
-                annotation_links=prompt_links,
-            ),
-        )
         connection.execute(
             text(
                 """
@@ -2941,7 +2913,7 @@ def create_discussion_message(
                 """
                 SELECT COALESCE(MAX(sequence_number), 0) + 1
                 FROM discussion_messages
-                WHERE thread_id = :thread_id AND deleted_at IS NULL
+                WHERE thread_id = :thread_id
                 """
             ),
             {"thread_id": discussion_id},

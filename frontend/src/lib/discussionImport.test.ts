@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { renderToString } from "katex";
 import { describe, expect, it } from "vitest";
 import {
   canonicalizePastedMarkdown,
@@ -73,5 +74,57 @@ describe("discussion paste importer", () => {
     );
     expect(imported).toContain("[\nplain text\n]");
     expect(imported).toContain("$$\nv_\\pi = T_\\pi v_\\pi\n$$");
+  });
+
+  it("repairs heading-corrupted delimiters and operators before KaTeX", () => {
+    const imported = importPastedMarkdown(String.raw`
+Since the outer trajectory follows (\pi'), write:
+
+# [
+
+\mathbb E_{\pi'}
+\left[
+R_{t+1} + \gamma v_\pi(S_{t+1})
+\mid S_t=s
+\right]
+]
+
+Expand:
+
+[
+\boxed{
+q_*(l,\text{search})
+====================
+
+## \beta r_s
+
+3(1-\beta)
++
+\gamma
+\left[
+\beta v_*(l) + (1-\beta)v_*(h)
+\right]
+}
+]
+
+[
+v_*(l) = \max \left{q_*(l,\text{wait}), q_*(l,\text{recharge})\right}
+]
+`);
+
+    expect(imported).not.toContain("# [");
+    expect(imported).not.toContain("## \\beta");
+    expect(imported).toContain("- 3(1-\\beta)");
+
+    const displays = Array.from(
+      imported.matchAll(/\$\$([\s\S]*?)\$\$/g),
+      (match) => match[1].trim(),
+    );
+    expect(displays).toHaveLength(3);
+    for (const latex of displays) {
+      expect(() =>
+        renderToString(latex, { displayMode: true, throwOnError: true }),
+      ).not.toThrow();
+    }
   });
 });

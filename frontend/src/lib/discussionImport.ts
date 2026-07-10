@@ -164,7 +164,12 @@ function normalizeDisplayBody(value: string): string {
       normalized.push("=");
       continue;
     }
-    if (/^#\s+/.test(line)) line = line.replace(/^#\s+/, "= ");
+    if (/^#{2,}\s+/.test(line)) {
+      normalized.push(line.replace(/^#{2,}\s+/, ""), "-");
+      continue;
+    } else if (/^#\s+/.test(line)) {
+      line = line.replace(/^#\s+/, "= ");
+    }
     if (/^\[\d+(?:\.\d+)?mm\]$/.test(line)) {
       normalized.push(`\\\\${line}`);
       continue;
@@ -179,6 +184,8 @@ function normalizeDisplayBody(value: string): string {
 
   return normalized
     .join("\n")
+    .replace(/\\left\{/g, "\\left\\{")
+    .replace(/\\right\}/g, "\\right\\}")
     .replace(/^[-]{3,}$/gm, "")
     .replace(/\n=\n/g, " = ")
     .replace(/\n([+\-=])\s*/g, " $1 ")
@@ -273,6 +280,7 @@ function canonicalizeExternalMarkdown(value: string): string {
     .replace(/([A-Za-z])'\*\{([^}\n]+)\}/g, "$1'_{$2}")
     .replace(/([A-Za-z])\*\{([^}\n]+)\}/g, "$1_{$2}")
     .replace(/([A-Za-z])'\*([A-Za-z]|\\[A-Za-z]+)/g, "$1'_$2")
+    .replace(/^ {0,3}#{1,6}\s+(\[|\])\s*$/gm, "$1")
     .replace(/^•\s+/gm, "- ");
   const existingMath = protectDisplayMath(normalized);
   const displays = existingMath.restore(
