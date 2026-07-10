@@ -15,6 +15,7 @@ from sqlalchemy.engine import Connection, RowMapping
 from ..config import get_settings
 from ..schemas.workspace import PromptBatchCreateCommand
 from .pdf_ink_image_service import annotation_image_path
+from .pdf_reader_service import PdfReaderError, render_pdf_page
 from .resource_open_service import ResourceOpenError, safe_local_resource_path
 
 
@@ -308,9 +309,13 @@ def _question_rows(
           aa.page_number,
           aa.annotation_kind,
           aa.selector_json,
-          r.title AS resource_title
+          r.title AS resource_title,
+          r.metadata_json,
+          rv.local_path AS current_local_path,
+          rv.file_name AS current_file_name
         FROM annotations a
         JOIN resources r ON r.id = a.resource_id
+        LEFT JOIN resource_versions rv ON rv.id = r.current_version_id
         LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
         WHERE a.id IN :annotation_ids
           AND a.deleted_at IS NULL
@@ -346,6 +351,26 @@ def _question_image_path(row: RowMapping) -> Path | None:
     except Exception:
         return None
     return path if path.is_file() else None
+
+
+def _question_image_bytes(row: RowMapping) -> bytes | None:
+    image_path = _question_image_path(row)
+    if image_path is not None:
+        try:
+            return image_path.read_bytes()
+        except OSError:
+            return None
+
+    metadata = _json_object(row["selector_json"])
+    if not metadata.get("includeSlideScreenshot") or row["page_number"] is None:
+        return None
+    paths = _resource_paths(row)
+    if not paths:
+        return None
+    try:
+        return render_pdf_page(str(paths[0]), int(row["page_number"]))
+    except PdfReaderError:
+        return None
 
 
 def _resource_attachment_name(
@@ -506,8 +531,8 @@ def prepare_prompt_attachments(
             _question_rows(connection, command.annotation_ids),
             start=1,
         ):
-            image_path = _question_image_path(row)
-            if image_path is None:
+            image_bytes = _question_image_bytes(row)
+            if image_bytes is None:
                 continue
             question_label = f"Q-{index:03d}"
             preferred_name = _question_attachment_name(
@@ -519,12 +544,13 @@ def prepare_prompt_attachments(
                     else None
                 ),
             )
-            target = _copy_file(
-                image_path,
-                destination,
-                preferred_name,
-                used_names,
-            )
+            target = destination / _unique_name(preferred_name, used_names)
+            try:
+                target.write_bytes(image_bytes)
+            except OSError as error:
+                raise PromptAttachmentError(
+                    f"Could not write question screenshot to {target}."
+                ) from error
             attachments.append(
                 PreparedPromptAttachment(
                     name=target.name,

@@ -28,6 +28,7 @@ import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import type { AnnotationKind, Resource } from "../../types/tracker";
+import { prepareReaderCapture } from "../../lib/readerCapture";
 
 type ResourceReaderProps = {
   accent: string;
@@ -45,6 +46,7 @@ type ResourceReaderProps = {
     markdown: string,
     pageNumber: number,
     sectionTitle?: string,
+    includeScreenshot?: boolean,
   ) => void;
   onOpenExternal: () => void;
 };
@@ -174,13 +176,15 @@ export function ResourceReader({
   }
 
   function saveQuickAnnotation() {
-    const markdown = quickDraft?.trim() ?? "";
+    const prepared = prepareReaderCapture(quickDraft ?? "", quickKind);
+    const { includeScreenshot, markdown } = prepared;
     if (!markdown) return;
     onCreatePageAnnotation(
-      quickKind,
+      prepared.kind,
       markdown,
       pageNumber,
       pdf?.pages[pageNumber - 1]?.title,
+      includeScreenshot,
     );
     setQuickDraft(null);
     setQuickKind("note");
@@ -426,7 +430,7 @@ export function ResourceReader({
                   saveQuickAnnotation();
                 }
               }}
-              placeholder="Type the thought; ⌘Enter saves it to this slide."
+              placeholder="Type the thought; add /screen to send this slide to the tutor."
               value={quickDraft}
             />
             <button
@@ -443,7 +447,7 @@ export function ResourceReader({
         <footer className="readerFooter">
           <span>
             {pdf
-              ? "←/→ slides · start typing for a note · ? question · ! todo · ⌘Enter save"
+              ? "←/→ slides · type note · ? question · ! todo · /screen attach · ⌘Enter save"
               : "Select text to save a highlight or question with source context."}
           </span>
           <button

@@ -17,6 +17,7 @@ import {
   linkDiscussionQuestion,
   openResource,
   openResourceFile,
+  pdfReaderPageUrl,
   reviewDiscussionMessage,
   updateAnnotation,
   updateDayStatus,
@@ -782,6 +783,7 @@ export function App() {
     markdown: string,
     pageNumber: number,
     sectionTitle?: string,
+    includeScreenshot = false,
   ) {
     void runMutation(async () => {
       await createAnnotation({
@@ -789,7 +791,13 @@ export function App() {
           anchorType: "pdf_page",
           pageNumber,
           sectionTitle,
-          metadata: { captureSource: "lecture_reader" },
+          metadata: {
+            captureSource: "lecture_reader",
+            contextImageUrl: ["question", "todo"].includes(kind)
+              ? pdfReaderPageUrl(resourceId, pageNumber)
+              : undefined,
+            includeSlideScreenshot: includeScreenshot,
+          },
         },
         kind,
         markdown,
@@ -1451,6 +1459,7 @@ export function App() {
             markdown,
             pageNumber,
             sectionTitle,
+            includeScreenshot,
           ) =>
             handleReaderPageAnnotation(
               readerResource.id,
@@ -1458,6 +1467,7 @@ export function App() {
               markdown,
               pageNumber,
               sectionTitle,
+              includeScreenshot,
             )
           }
           onOpenExternal={() =>

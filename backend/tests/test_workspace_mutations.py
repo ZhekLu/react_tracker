@@ -860,6 +860,72 @@ def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_questi
     )
 
 
+def test_reader_screen_marker_adds_slide_png_to_prompt_bundle(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    pdf_path = tmp_path / "lecture.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Bellman backup diagram")
+    document.save(pdf_path)
+    document.close()
+
+    with transaction() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE resource_versions
+                SET local_path = :local_path,
+                    file_name = :file_name
+                WHERE id = (
+                  SELECT current_version_id FROM resources WHERE id = :resource_id
+                )
+                """
+            ),
+            {
+                "file_name": pdf_path.name,
+                "local_path": str(pdf_path),
+                "resource_id": resource_id,
+            },
+        )
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                origin="lecture_reader",
+                markdown="Why does this backup contract?",
+                anchor=AnnotationAnchorCreate(
+                    anchor_type="pdf_page",
+                    page_number=1,
+                    annotation_kind="question",
+                    metadata={
+                        "captureSource": "lecture_reader",
+                        "includeSlideScreenshot": True,
+                    },
+                ),
+            ),
+        )
+        result = create_prompt_batch_with_attachments(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Lecture question",
+                source_scope="resource_questions",
+                source_resource_id=resource_id,
+                markdown="# Q-001\n\nWhy does this backup contract?",
+                annotation_ids=[question.id],
+            ),
+        )
+
+    screenshot = next(
+        item for item in result.attachments if item.kind == "question_image"
+    )
+    assert screenshot.name.startswith("Q-001__Paper__p-1")
+    assert Path(screenshot.path).read_bytes().startswith(b"\x89PNG")
+
+
 def test_book_question_counts_follow_task_chapter_scope_without_hiding_annotations(
     tmp_path: Path,
 ) -> None:
