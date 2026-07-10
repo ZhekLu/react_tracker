@@ -193,6 +193,16 @@ export type ResourceFile = {
   isPrimary: boolean;
 };
 
+export type ResourceChapterStatus = "unread" | "read_partially" | "read_fully";
+
+export type ResourceChapter = {
+  number: number;
+  title: string;
+  planned: boolean;
+  status: ResourceChapterStatus;
+  revision?: number | null;
+};
+
 export type Resource = {
   id: string;
   parentResourceId?: string | null;
@@ -215,6 +225,7 @@ export type Resource = {
   taskIds: string[];
   notes: Note[];
   annotations: Annotation[];
+  chapters: ResourceChapter[];
   openQuestionCount: number;
 };
 

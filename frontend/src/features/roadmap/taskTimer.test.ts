@@ -22,6 +22,7 @@ const task = (changes: Partial<Task>): Task => ({
 const resource = (changes: Partial<Resource>): Resource => ({
   annotations: [],
   authors: [],
+  chapters: [],
   dayIds: [],
   format: "pdf",
   id: "resource",

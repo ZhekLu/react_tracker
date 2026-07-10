@@ -108,6 +108,23 @@ def discussion_export_root(short_code: str) -> Path | None:
     return resolved
 
 
+def book_chapter_titles(metadata: dict[str, Any], title: str) -> list[str]:
+    """Return configured chapter titles using a stable plan id or resource title."""
+
+    _config_path, config = _config()
+    configured = config.get("book_chapters")
+    if not isinstance(configured, dict):
+        return []
+    keys = [metadata.get("plan_resource_id"), title]
+    for key in keys:
+        if not isinstance(key, str):
+            continue
+        values = configured.get(key) or configured.get(key.casefold())
+        if isinstance(values, list):
+            return [str(value).strip() for value in values if str(value).strip()]
+    return []
+
+
 def _course_files(short_code: str) -> tuple[list[Path], list[CourseFile]]:
     roots = _roots(short_code)
     records: list[CourseFile] = []

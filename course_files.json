@@ -6,5 +6,26 @@
   },
   "discussion_export_roots": {
     "TORL": "../../special_course/exercises/discussions"
+  },
+  "book_chapters": {
+    "rl-book": [
+      "Introduction",
+      "Multi-armed Bandits",
+      "Finite Markov Decision Processes",
+      "Dynamic Programming",
+      "Monte Carlo Methods",
+      "Temporal-Difference Learning",
+      "n-step Bootstrapping",
+      "Planning and Learning with Tabular Methods",
+      "On-policy Prediction with Approximation",
+      "On-policy Control with Approximation",
+      "Off-policy Methods with Approximation",
+      "Eligibility Traces",
+      "Policy Gradient Methods",
+      "Psychology",
+      "Neuroscience",
+      "Applications and Case Studies",
+      "Frontiers"
+    ]
   }
 }

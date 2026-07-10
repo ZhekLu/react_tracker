@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 TaskStatus = Literal["todo", "in_progress", "done", "later", "skipped"]
 DayStatus = Literal["not_started", "open", "closed", "completed", "archived"]
 ResourceStatus = Literal["unread", "skimmed", "reading", "read", "review", "archived"]
+ResourceChapterStatus = Literal["unread", "read_partially", "read_fully"]
 ExamStatus = Literal["unsolved", "attempted", "solved", "review", "skipped"]
 AnnotationKind = Literal["question", "note", "highlight", "todo"]
 AnnotationStatus = Literal["open", "answered", "archived"]
@@ -154,6 +155,14 @@ class ResourceFile(StrictModel):
     is_primary: bool
 
 
+class ResourceChapter(StrictModel):
+    number: int
+    title: str
+    planned: bool
+    status: ResourceChapterStatus
+    revision: int | None = None
+
+
 class Resource(StrictModel):
     id: str
     parent_resource_id: str | None = None
@@ -176,6 +185,7 @@ class Resource(StrictModel):
     task_ids: list[str] = Field(default_factory=list)
     notes: list[Note] = Field(default_factory=list)
     annotations: list[Annotation] = Field(default_factory=list)
+    chapters: list[ResourceChapter] = Field(default_factory=list)
     open_question_count: int
 
 
@@ -388,6 +398,11 @@ class ResourceProgressCommand(StrictModel):
     progress_percent: float = Field(ge=0, le=100)
     heading_id: str | None = None
     position: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResourceChapterProgressCommand(StrictModel):
+    status: ResourceChapterStatus
+    revision: int | None = Field(default=None, ge=1)
 
 
 class ExamStatusCommand(RevisionCommand):

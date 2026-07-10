@@ -27,6 +27,7 @@ import {
   updateExamQuestionStatus,
   updateResourceStatus,
   updateResourceProgress,
+  updateResourceChapterProgress,
   updateTaskStatus,
   upsertNote,
 } from "../api/trackerApi";
@@ -73,6 +74,7 @@ import type {
   DiscussionQuestionRelation,
   Note,
   ResourceStatus,
+  ResourceChapterStatus,
   StudyDay,
   TaskStatus,
   TrackerView,
@@ -674,6 +676,21 @@ export function App() {
     if (!resource) return;
     void runMutation(async () => {
       await updateResourceStatus(resource.id, status, resource.revision);
+    });
+  }
+
+  function handleResourceChapterProgressChange(
+    resource: Course["resources"][number],
+    chapter: Course["resources"][number]["chapters"][number],
+    status: ResourceChapterStatus,
+  ) {
+    void runMutation(async () => {
+      await updateResourceChapterProgress(
+        resource.id,
+        chapter.number,
+        status,
+        chapter.revision,
+      );
     });
   }
 
@@ -1309,6 +1326,7 @@ export function App() {
           onActiveDayChange={setActiveDayId}
           onAnnotationChange={handleAnnotationChange}
           onCollectPdfAnnotations={handleCollectPdfAnnotations}
+          onChapterProgressChange={handleResourceChapterProgressChange}
           onDayClosedChange={handleDayClosedChange}
           onDayNoteSave={handleDayNoteSave}
           onCreateCapture={handleCreateResourceCapture}
@@ -1333,6 +1351,7 @@ export function App() {
       {view === "resources" ? (
         <ResourcesView
           course={workspace}
+          onChapterProgressChange={handleResourceChapterProgressChange}
           onCopyInventory={() =>
             void handleCopyPrompt(
               resourceInventory(workspace),

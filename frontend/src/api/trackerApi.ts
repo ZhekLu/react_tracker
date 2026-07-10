@@ -20,6 +20,7 @@ import type {
   NoteLink,
   Resource,
   ResourceFile,
+  ResourceChapterStatus,
   ResourceStatus,
   ResourceVersion,
   Skill,
@@ -208,6 +209,13 @@ type ApiResource = {
   task_ids: string[];
   notes: ApiNote[];
   annotations: ApiAnnotation[];
+  chapters: {
+    number: number;
+    title: string;
+    planned: boolean;
+    status: ResourceChapterStatus;
+    revision?: number | null;
+  }[];
   open_question_count: number;
 };
 
@@ -711,6 +719,13 @@ function resource(api: ApiResource): Resource {
     taskIds: api.task_ids,
     notes: api.notes.map(note),
     annotations: api.annotations.map(annotation),
+    chapters: api.chapters.map((chapter) => ({
+      number: chapter.number,
+      planned: chapter.planned,
+      revision: chapter.revision,
+      status: chapter.status,
+      title: chapter.title,
+    })),
     openQuestionCount: api.open_question_count,
   };
 }
@@ -957,6 +972,21 @@ export async function updateResourceProgress(
     }),
     method: "PATCH",
   });
+}
+
+export async function updateResourceChapterProgress(
+  resourceId: string,
+  chapterNumber: number,
+  status: ResourceChapterStatus,
+  revision?: number | null,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(
+    `/resources/${resourceId}/chapters/${chapterNumber}`,
+    {
+      body: JSON.stringify({ revision, status }),
+      method: "PATCH",
+    },
+  );
 }
 
 export async function updateExamQuestionStatus(

@@ -25,6 +25,7 @@ from tracker_api.repositories.workspace_repository import (
     toggl_task_totals,
     update_annotation,
     update_discussion_message,
+    update_resource_chapter_progress,
     update_resource_progress,
     upsert_note,
 )
@@ -41,6 +42,7 @@ from tracker_api.schemas.workspace import (
     DiscussionReviewItem,
     NoteUpsertCommand,
     PromptBatchCreateCommand,
+    ResourceChapterProgressCommand,
     ResourceProgressCommand,
 )
 from tracker_api.services.pdf_annotation_service import collect_resource_pdf_annotations
@@ -924,6 +926,71 @@ def test_reader_screen_marker_adds_slide_png_to_prompt_bundle(
     )
     assert screenshot.name.startswith("Q-001__Paper__p-1")
     assert Path(screenshot.path).read_bytes().startswith(b"\x89PNG")
+
+
+def test_book_chapter_progress_combines_plan_scope_and_persistent_state(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE resources
+                SET kind = 'book',
+                    title = 'Reinforcement Learning: An Introduction, second edition',
+                    metadata_json = '{"plan_resource_id":"rl-book"}'
+                WHERE id = :resource_id
+                """
+            ),
+            {"resource_id": resource_id},
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE tasks
+                SET title = 'Read Sections 3.1-3.6'
+                WHERE day_id IN (
+                  SELECT id FROM study_days WHERE course_id = :course_id
+                )
+                """
+            ),
+            {"course_id": course_id},
+        )
+        before = get_workspace(connection, course_id)
+        created = update_resource_chapter_progress(
+            connection,
+            resource_id,
+            3,
+            ResourceChapterProgressCommand(status="read_partially"),
+        )
+        partial = get_workspace(connection, course_id)
+        update_resource_chapter_progress(
+            connection,
+            resource_id,
+            3,
+            ResourceChapterProgressCommand(
+                status="read_fully",
+                revision=created.revision,
+            ),
+        )
+        completed = get_workspace(connection, course_id)
+
+    before_book = next(resource for resource in before.resources if resource.id == resource_id)
+    assert len(before_book.chapters) == 17
+    assert next(chapter for chapter in before_book.chapters if chapter.number == 3).planned
+    partial_book = next(
+        resource for resource in partial.resources if resource.id == resource_id
+    )
+    assert next(
+        chapter for chapter in partial_book.chapters if chapter.number == 3
+    ).status == "read_partially"
+    completed_book = next(
+        resource for resource in completed.resources if resource.id == resource_id
+    )
+    assert next(
+        chapter for chapter in completed_book.chapters if chapter.number == 3
+    ).status == "read_fully"
 
 
 def test_book_question_counts_follow_task_chapter_scope_without_hiding_annotations(

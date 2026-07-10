@@ -46,6 +46,8 @@ from ..schemas.workspace import (
     NoteUpsertCommand,
     PromptBatchCreateCommand,
     Resource,
+    ResourceChapter,
+    ResourceChapterProgressCommand,
     ResourceFile,
     ResourceProgressCommand,
     ResourceStatusCommand,
@@ -59,7 +61,10 @@ from ..services.chapter_scope_service import (
     annotation_chapter_number,
     referenced_chapter_numbers,
 )
-from ..services.course_file_service import CourseFileError
+from ..services.course_file_service import (
+    CourseFileError,
+    book_chapter_titles,
+)
 from ..services.discussion_export_service import sync_discussion_exports
 
 
@@ -710,11 +715,14 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
     )
     tasks_by_section: dict[str | None, list[Task]] = defaultdict(list)
     task_annotation_ids: dict[str, set[str]] = {}
+    planned_chapters_by_resource: dict[str, set[int]] = defaultdict(set)
     for row in task_rows:
         task_id = str(row["id"])
         linked_resources = task_to_resources.get(task_id, [])
         linked_questions = task_to_exam_questions.get(task_id, [])
         chapter_numbers = referenced_chapter_numbers(str(row["title"]))
+        for resource_id in linked_resources:
+            planned_chapters_by_resource[resource_id].update(chapter_numbers)
         linked_annotations = _task_scoped_annotations(
             [*linked_resources, *linked_questions],
             annotations_by_resource,
@@ -837,6 +845,7 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
         documents,
         notes_by_entity,
         annotations_by_resource,
+        planned_chapters_by_resource,
     )
     exams = _exams(
         connection,
@@ -884,8 +893,24 @@ def _resources(
     documents: Mapping[str, DocumentContent],
     notes_by_entity: Mapping[tuple[str, str], list[Note]],
     annotations_by_resource: Mapping[str, list[Annotation]],
+    planned_chapters_by_resource: Mapping[str, set[int]],
 ) -> list[Resource]:
     resources: list[Resource] = []
+    chapter_progress: dict[str, dict[int, tuple[str, int]]] = defaultdict(dict)
+    for progress_row in _rows(
+        connection,
+        """
+        SELECT rcp.resource_id, rcp.chapter_number, rcp.status, rcp.revision
+        FROM resource_chapter_progress rcp
+        JOIN resources r ON r.id = rcp.resource_id
+        WHERE r.course_id = :course_id AND r.deleted_at IS NULL
+        ORDER BY rcp.resource_id, rcp.chapter_number
+        """,
+        {"course_id": course_id},
+    ):
+        chapter_progress[str(progress_row["resource_id"])][
+            int(progress_row["chapter_number"])
+        ] = (str(progress_row["status"]), int(progress_row["revision"]))
     for row in _rows(
         connection,
         """
@@ -901,6 +926,27 @@ def _resources(
         resource_id = str(row["id"])
         resource_annotations = annotations_by_resource.get(resource_id, [])
         metadata: dict[str, Any] = _json_loads(row["metadata_json"], {})
+        configured_chapter_titles = book_chapter_titles(metadata, str(row["title"]))
+        planned_chapters = planned_chapters_by_resource.get(resource_id, set())
+        stored_chapters = chapter_progress.get(resource_id, {})
+        annotation_chapter_titles: dict[int, str] = {}
+        for annotation in resource_annotations:
+            chapter_number = _annotation_chapter(annotation)
+            if chapter_number is None:
+                continue
+            anchor_metadata = annotation.anchor.metadata if annotation.anchor else {}
+            chapter_title = str(
+                anchor_metadata.get("chapterTitle")
+                or anchor_metadata.get("chapterLabel")
+                or ""
+            ).strip()
+            if chapter_title:
+                annotation_chapter_titles.setdefault(chapter_number, chapter_title)
+        known_chapter_numbers = set(planned_chapters) | set(stored_chapters) | set(
+            annotation_chapter_titles
+        )
+        if configured_chapter_titles:
+            known_chapter_numbers.update(range(1, len(configured_chapter_titles) + 1))
         raw_local_paths = metadata.get("local_paths", [])
         local_paths = (
             [str(item) for item in raw_local_paths if str(item).strip()]
@@ -942,6 +988,33 @@ def _resources(
                 task_ids=resource_to_tasks.get(resource_id, []),
                 notes=notes_by_entity.get(("resource", resource_id), []),
                 annotations=resource_annotations,
+                chapters=(
+                    [
+                        ResourceChapter(
+                            number=number,
+                            title=(
+                                configured_chapter_titles[number - 1]
+                                if number <= len(configured_chapter_titles)
+                                else annotation_chapter_titles.get(
+                                    number, f"Chapter {number}"
+                                )
+                            ),
+                            planned=number in planned_chapters,
+                            status=cast(
+                                Any,
+                                stored_chapters.get(number, ("unread", 0))[0],
+                            ),
+                            revision=(
+                                stored_chapters[number][1]
+                                if number in stored_chapters
+                                else None
+                            ),
+                        )
+                        for number in sorted(known_chapter_numbers)
+                    ]
+                    if str(row["kind"]) == "book"
+                    else []
+                ),
                 open_question_count=_open_question_count(resource_annotations),
             )
         )
@@ -1503,6 +1576,88 @@ def update_resource_progress(
     )
     if row is None:
         raise WorkspaceRepositoryError("Could not update resource progress.")
+    return _mutation_result(row)
+
+
+def update_resource_chapter_progress(
+    connection: Connection,
+    resource_id: str,
+    chapter_number: int,
+    command: ResourceChapterProgressCommand,
+) -> MutationResponse:
+    resource = _one_or_none(
+        connection,
+        """
+        SELECT id
+        FROM resources
+        WHERE id = :id AND kind = 'book' AND deleted_at IS NULL
+        """,
+        {"id": resource_id},
+    )
+    if resource is None:
+        raise EntityNotFoundError(f"Book resource does not exist: {resource_id}")
+    existing = _one_or_none(
+        connection,
+        """
+        SELECT id, revision
+        FROM resource_chapter_progress
+        WHERE resource_id = :resource_id AND chapter_number = :chapter_number
+        """,
+        {"chapter_number": chapter_number, "resource_id": resource_id},
+    )
+    now = _now()
+    if existing is None:
+        if command.revision is not None:
+            raise RevisionConflictError(
+                f"Stale chapter progress for resource: {resource_id}"
+            )
+        row = _one_or_none(
+            connection,
+            """
+            INSERT INTO resource_chapter_progress (
+              id, resource_id, chapter_number, status,
+              created_at, updated_at, revision
+            )
+            VALUES (
+              :id, :resource_id, :chapter_number, :status,
+              :now, :now, 1
+            )
+            RETURNING id, revision, updated_at
+            """,
+            {
+                "chapter_number": chapter_number,
+                "id": _new_id(),
+                "now": now,
+                "resource_id": resource_id,
+                "status": command.status,
+            },
+        )
+    else:
+        if command.revision != int(existing["revision"]):
+            raise RevisionConflictError(
+                f"Stale chapter progress for resource: {resource_id}"
+            )
+        row = _one_or_none(
+            connection,
+            """
+            UPDATE resource_chapter_progress
+            SET status = :status,
+                updated_at = :now,
+                revision = revision + 1
+            WHERE id = :id AND revision = :revision
+            RETURNING id, revision, updated_at
+            """,
+            {
+                "id": str(existing["id"]),
+                "now": now,
+                "revision": command.revision,
+                "status": command.status,
+            },
+        )
+    if row is None:
+        raise RevisionConflictError(
+            f"Stale chapter progress for resource: {resource_id}"
+        )
     return _mutation_result(row)
 
 

@@ -26,6 +26,7 @@ import { ResourceCaptureShelf } from "../../components/annotations/ResourceCaptu
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
+import { BookChapterProgress } from "../../components/resources/BookChapterProgress";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import type {
   Course,
@@ -35,11 +36,17 @@ import type {
   Resource,
   ResourceKind,
   ResourceStatus,
+  ResourceChapterStatus,
 } from "../../types/tracker";
 
 type ResourcesViewProps = {
   course: Course;
   onCopyInventory: () => void;
+  onChapterProgressChange: (
+    resource: Resource,
+    chapter: Resource["chapters"][number],
+    status: ResourceChapterStatus,
+  ) => void;
   onCopyResourceQuestions: (resource: Resource) => void;
   onAnnotationChange: (
     annotation: Annotation,
@@ -100,6 +107,7 @@ function ResourceRow({
   resource,
   onNoteSave,
   onCollectPdfAnnotations,
+  onChapterProgressChange,
   onCopyResourceQuestions,
   onAnnotationChange,
   onCreateCapture,
@@ -113,6 +121,7 @@ function ResourceRow({
   resource: Resource;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
+  onChapterProgressChange: ResourcesViewProps["onChapterProgressChange"];
   onCopyResourceQuestions: (resource: Resource) => void;
   onAnnotationChange: ResourcesViewProps["onAnnotationChange"];
   onCreateCapture: ResourcesViewProps["onCreateCapture"];
@@ -154,6 +163,10 @@ function ResourceRow({
           {resource.publicationYear ? <span>{resource.publicationYear}</span> : null}
           {sourcePath ? <span className="fileName" title={sourcePath}>{resource.version?.fileName ?? sourcePath}</span> : null}
         </div>
+        <BookChapterProgress
+          onChange={onChapterProgressChange}
+          resource={resource}
+        />
         {firstOpenQuestion ? (
           <button
             className="resourceQuestionPeek"
@@ -334,6 +347,7 @@ function ResourceRow({
 
 export function ResourcesView({
   course,
+  onChapterProgressChange,
   onCopyInventory,
   onCollectPdfAnnotations,
   onCopyResourceQuestions,
@@ -483,7 +497,8 @@ export function ResourcesView({
                   accent={course.accent}
                   dayNumberById={dayNumberById}
                   key={resource.id}
-                  onCollectPdfAnnotations={onCollectPdfAnnotations}
+              onCollectPdfAnnotations={onCollectPdfAnnotations}
+              onChapterProgressChange={onChapterProgressChange}
                   onCopyResourceQuestions={onCopyResourceQuestions}
                   onAnnotationChange={onAnnotationChange}
                   onCreateCapture={onCreateCapture}

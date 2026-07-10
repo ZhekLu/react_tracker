@@ -386,6 +386,25 @@ normal note. `Cmd+Enter` saves and Escape cancels. Notes are stored as ordinary
 resource annotations with the slide number and the extracted slide heading, so
 they immediately appear in the task shelf, Notes, and discussions.
 
+Quick slide questions always retain the rendered slide in their expandable
+tracker context. Add `/screen` anywhere in the draft when that slide must also
+be copied into the next ChatGPT attachment bundle; the command is removed from
+the saved question. `??` and `todo!` also promote a draft to a coloured question
+or todo before it is saved.
+
+### Book chapter progress
+
+Book resources show a dense row of chapter squares both in Resources and beside
+chapter-scoped Roadmap tasks. Planned-but-unread chapters are outlined, unplanned
+chapters are grey, partial chapters are half green, and completed chapters are
+solid green. Click a square to cycle **unread → partial → read → unread**. The
+state is stored in SQLite and is independent from the whole-resource status.
+
+The complete chapter list is configured by stable plan resource id in
+`course_files.json` under `book_chapters`; planned chapters are derived from
+task text such as `Read Sections 3.1-3.6`, so plan updates change the outline
+without erasing the progress you recorded.
+
 ### Pet completion animations
 
 Transparent animal GIFs live in `../gifs/`. Task and perfect-day effects are

@@ -43,6 +43,7 @@ import {
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
+import { BookChapterProgress } from "../../components/resources/BookChapterProgress";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import { petCelebrationDuration } from "../../config/petCelebrations";
 import { statusTone } from "../../lib/progress";
@@ -54,6 +55,7 @@ import type {
   EntityNoteSaveInput,
   ExamQuestion,
   Resource,
+  ResourceChapterStatus,
   Skill,
   StudyDay,
   Task,
@@ -80,6 +82,11 @@ type RoadmapViewProps = {
   ) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
   onCreateCapture: (resourceId: string, input: ResourceCaptureInput) => void;
+  onChapterProgressChange: (
+    resource: Resource,
+    chapter: Resource["chapters"][number],
+    status: ResourceChapterStatus,
+  ) => void;
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
@@ -114,6 +121,7 @@ type TaskRowProps = {
   task: Task;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
+  onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
@@ -151,6 +159,7 @@ function TaskRow({
   task,
   onAnnotationChange,
   onCollectPdfAnnotations,
+  onChapterProgressChange,
   onCreateCapture,
   onNoteSave,
   onNoteAttentionChange,
@@ -261,6 +270,17 @@ function TaskRow({
                 <CircleHelp size={11} /> {taskOpenQuestionCount}
               </span>
             ) : null}
+            {linkedResources
+              .filter((resource) => resource.kind === "book")
+              .map((resource) => (
+                <BookChapterProgress
+                  compact
+                  key={resource.id}
+                  onChange={onChapterProgressChange}
+                  preferredChapterNumbers={task.chapterNumbers}
+                  resource={resource}
+                />
+              ))}
             {task.status === "later" ? (
               <span className="taskStateLabel later"><Clock3 size={11} /> Later</span>
             ) : null}
@@ -716,6 +736,7 @@ type DayCardProps = {
   skillById: Map<string, Skill>;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
+  onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onEntityNoteSave: (input: EntityNoteSaveInput) => void;
@@ -736,6 +757,7 @@ function DayCard({
   skillById,
   onAnnotationChange,
   onCollectPdfAnnotations,
+  onChapterProgressChange,
   onCreateCapture,
   onDayNoteSave,
   onEntityNoteSave,
@@ -849,6 +871,7 @@ function DayCard({
                 key={task.id}
                 onAnnotationChange={onAnnotationChange}
                 onCollectPdfAnnotations={onCollectPdfAnnotations}
+                onChapterProgressChange={onChapterProgressChange}
                 onCreateCapture={onCreateCapture}
                 onStatusChange={onTaskStatusChange}
                 onNoteSave={onEntityNoteSave}
@@ -967,6 +990,7 @@ export function RoadmapView({
   onActiveDayChange,
   onAnnotationChange,
   onCollectPdfAnnotations,
+  onChapterProgressChange,
   onCreateCapture,
   onDayClosedChange,
   onDayNoteSave,
@@ -1064,6 +1088,7 @@ export function RoadmapView({
           key={day.id}
           onAnnotationChange={onAnnotationChange}
           onCollectPdfAnnotations={onCollectPdfAnnotations}
+          onChapterProgressChange={onChapterProgressChange}
           onCreateCapture={onCreateCapture}
           onClosedChange={onDayClosedChange}
           onDayNoteSave={onDayNoteSave}

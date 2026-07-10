@@ -36,6 +36,7 @@ from ..schemas.workspace import (
     PdfReaderPage,
     PromptBatchCreateCommand,
     PromptBatchCreateResponse,
+    ResourceChapterProgressCommand,
     ResourceContentResponse,
     ResourceOpenResponse,
     ResourceProgressCommand,
@@ -498,6 +499,27 @@ def update_resource_progress(
         return workspace_repository.update_resource_progress(
             connection,
             resource_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.patch(
+    "/resources/{resource_id}/chapters/{chapter_number}",
+    response_model=MutationResponse,
+)
+def update_resource_chapter_progress(
+    resource_id: str,
+    chapter_number: int,
+    command: ResourceChapterProgressCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.update_resource_chapter_progress(
+            connection,
+            resource_id,
+            chapter_number,
             command,
         )
     except workspace_repository.WorkspaceRepositoryError as error:
