@@ -1,5 +1,8 @@
 # React Study Tracker
 
+For the keyboard-first study loop and current interaction conventions, see
+[UI_WORKFLOWS.md](UI_WORKFLOWS.md).
+
 This is the next-generation tracker app. It is intentionally separate from the
 stable generated `../tracker.html` workflow.
 
