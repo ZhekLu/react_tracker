@@ -452,8 +452,12 @@ export function App() {
     return () => window.removeEventListener("keydown", handleKeyboardNavigation);
   }, [activeDayId, view, workspace]);
 
-  async function runMutation(action: () => Promise<void>) {
+  async function runMutation(
+    action: () => Promise<void>,
+    options: { preserveScroll?: boolean } = {},
+  ) {
     if (!workspace) return;
+    const preservedScrollY = options.preserveScroll ? window.scrollY : null;
     setMutating(true);
     setError(null);
     setActionMessage(null);
@@ -462,6 +466,13 @@ export function App() {
       await loadWorkspace(workspace.id);
       await loadCourses();
       broadcastRef.current?.postMessage({ courseId: workspace.id });
+      if (preservedScrollY !== null) {
+        window.requestAnimationFrame(() =>
+          window.requestAnimationFrame(() =>
+            window.scrollTo({ behavior: "auto", top: preservedScrollY }),
+          ),
+        );
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Tracker update failed.");
     } finally {
@@ -684,14 +695,17 @@ export function App() {
     chapter: Course["resources"][number]["chapters"][number],
     status: ResourceChapterStatus,
   ) {
-    void runMutation(async () => {
-      await updateResourceChapterProgress(
-        resource.id,
-        chapter.number,
-        status,
-        chapter.revision,
-      );
-    });
+    void runMutation(
+      async () => {
+        await updateResourceChapterProgress(
+          resource.id,
+          chapter.number,
+          status,
+          chapter.revision,
+        );
+      },
+      { preserveScroll: true },
+    );
   }
 
   function handleQuestionStatusChange(

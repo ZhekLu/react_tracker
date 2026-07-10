@@ -28,6 +28,16 @@
   contain: none;
 }
 
+.petCelebration-task.petAnimation-rain:not(.isContained) {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  overflow: hidden;
+  border-radius: inherit;
+  contain: layout;
+}
+
 .petCelebration-task.petAnimation-orbit .petActor {
   filter:
     drop-shadow(0 7px 10px rgba(7, 24, 18, 0.24))
@@ -103,6 +113,12 @@
   top: 50%;
   left: 50%;
   animation-name: petFirework;
+}
+
+.petAnimation-rain .petActor {
+  top: calc(-1 * var(--pet-size));
+  left: var(--pet-x);
+  animation-name: petRain;
 }
 
 @keyframes petScamper {
@@ -209,6 +225,27 @@
         calc(-50% + var(--pet-dy) + 10vh)
       )
       scale(0.72) rotate(-4deg);
+  }
+}
+
+@keyframes petRain {
+  0% {
+    top: calc(-1 * var(--pet-size));
+    opacity: 0;
+    transform: translateX(-50%) scale(0.72) rotate(-7deg);
+  }
+  14% {
+    opacity: 1;
+  }
+  58% {
+    top: 55%;
+    opacity: 1;
+    transform: translateX(calc(-50% + 4px)) scale(1) rotate(4deg);
+  }
+  100% {
+    top: calc(100% + var(--pet-size));
+    opacity: 0;
+    transform: translateX(calc(-50% - 3px)) scale(0.86) rotate(-3deg);
   }
 }
 

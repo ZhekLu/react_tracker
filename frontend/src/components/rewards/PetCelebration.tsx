@@ -40,9 +40,18 @@ function actorStyle(
   token: number,
   index: number,
   sizePx: number,
+  copies: number,
+  mode: PetAnimationMode,
 ): PetActorStyle {
   const seed = token % 100_003;
-  const x = 7 + seededUnit(seed + index * 17) * 86;
+  const columns = Math.max(1, Math.ceil(Math.sqrt(copies * 1.8)));
+  const column = index % columns;
+  const cellWidth = 100 / columns;
+  const rainX = (column + 0.5) * cellWidth;
+  const rainJitter = (seededUnit(seed + index * 17) - 0.5) * cellWidth * 0.34;
+  const x = mode === "rain"
+    ? Math.max(4, Math.min(96, rainX + rainJitter))
+    : 7 + seededUnit(seed + index * 17) * 86;
   const y = 6 + seededUnit(seed + index * 29) * 78;
   const dx = (seededUnit(seed + index * 41) - 0.5) * 84;
   const dy = (seededUnit(seed + index * 53) - 0.5) * 74;
@@ -115,7 +124,13 @@ export function PetCelebration({
           draggable={false}
           key={`${selectedAsset}-${index}`}
           src={petAssetUrl(selectedAsset)}
-          style={actorStyle(token, index, selectedSize)}
+          style={actorStyle(
+            token,
+            index,
+            selectedSize,
+            selectedCopies,
+            selectedMode,
+          )}
         />
       ))}
     </span>

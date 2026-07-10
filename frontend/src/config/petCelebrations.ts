@@ -6,6 +6,7 @@ export const petAnimationModes = [
   "orbit",
   "bounce",
   "firework",
+  "rain",
 ] as const;
 
 export type PetAnimationMode = (typeof petAnimationModes)[number];
@@ -43,5 +44,6 @@ export const petAnimationDescriptions: Record<PetAnimationMode, string> = {
   firework: "Explodes copies from the centre like soft, ridiculous fireworks.",
   orbit: "Loops pets around the celebration centre before fading away.",
   parade: "Sends a small group across the available width at different heights.",
+  rain: "Rains small pets across the full target without crowding one spot.",
   scamper: "Runs one or more pets across the bottom edge of the target.",
 };

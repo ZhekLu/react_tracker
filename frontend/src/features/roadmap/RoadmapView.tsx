@@ -170,6 +170,7 @@ function TaskRow({
   timer,
 }: TaskRowProps) {
   const reward = useCompletionReward();
+  const celebrateTask = reward.celebrate;
   const [rationaleOpen, setRationaleOpen] = useState(false);
   const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
   const [quickCaptureResourceId, setQuickCaptureResourceId] = useState("");
@@ -196,8 +197,20 @@ function TaskRow({
       return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
     });
   const taskOpenQuestionCount = task.openQuestionCount;
+  const previousTaskOpenQuestionCount = useRef(taskOpenQuestionCount);
   const shouldCompact = completed && taskOpenQuestionCount === 0;
   const showTaskDetails = !shouldCompact || compactDetailsOpen;
+
+  useEffect(() => {
+    const previous = previousTaskOpenQuestionCount.current;
+    previousTaskOpenQuestionCount.current = taskOpenQuestionCount;
+    if (completed && previous > 0 && taskOpenQuestionCount === 0) {
+      const frame = window.requestAnimationFrame(() =>
+        celebrateTask(petCelebrationDuration("task")),
+      );
+      return () => window.cancelAnimationFrame(frame);
+    }
+  }, [celebrateTask, completed, taskOpenQuestionCount]);
 
   function toggleDone() {
     const nextStatus = task.status === "done" ? "todo" : "done";
@@ -517,10 +530,9 @@ function TaskCapturePanel({
       ["question", "todo"].includes(capture.annotation.kind) &&
       capture.annotation.status === "open",
   );
-  const [open, setOpen] = useState(activeQuestions.length > 0);
+  const [open, setOpen] = useState(false);
   const [questionsOnly, setQuestionsOnly] = useState(false);
   const showingQuestionsOnly = questionsOnly && activeQuestions.length > 0;
-  const previousActiveQuestionCount = useRef(activeQuestions.length);
   const importedCaptures = captures.filter(({ annotation }) =>
     ["drawboard_cloud", "drawboard_cloud_ink", "pdf_import"].includes(
       annotation.origin,
@@ -567,13 +579,6 @@ function TaskCapturePanel({
       }, new Map<string, { annotations: Annotation[]; resource: Resource }>())
       .values(),
   ];
-
-  useEffect(() => {
-    if (activeQuestions.length > previousActiveQuestionCount.current) {
-      setOpen(true);
-    }
-    previousActiveQuestionCount.current = activeQuestions.length;
-  }, [activeQuestions.length]);
 
   return (
     <section className="taskCapturePanel">
