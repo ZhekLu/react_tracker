@@ -132,8 +132,10 @@ type TaskRowProps = {
 };
 
 function taskTimerText(task: Task, trackedSeconds: number): string {
-  const actualMinutes = Math.max(0, Math.round(trackedSeconds / 60));
-  if (task.status === "done") return `${actualMinutes}m`;
+  const actualMinutes = Math.max(1, Math.round(trackedSeconds / 60));
+  if (task.status === "done") {
+    return trackedSeconds > 0 ? `${actualMinutes}m` : "—";
+  }
   if (task.estimatedMinutes) {
     return trackedSeconds > 0
       ? `${actualMinutes}/${task.estimatedMinutes}m`
@@ -227,10 +229,14 @@ function TaskRow({
             <button
               aria-label={timer.active ? "Stop task timer" : "Start task timer"}
               className={`taskMetaBadge taskTimerBadge ${timer.active ? "active" : ""}`}
-              disabled={timer.busy || !timer.online || !timer.configured}
+              disabled={completed || timer.busy || !timer.online || !timer.configured}
               onClick={onToggleTimer}
               title={
-                timer.error ||
+                completed
+                  ? timer.trackedSeconds > 0
+                    ? "Actual tracked time for this completed task"
+                    : "No task-specific time was recorded"
+                  : timer.error ||
                 (!timer.online
                   ? "Start the tracker API to enable timing"
                   : !timer.configured
