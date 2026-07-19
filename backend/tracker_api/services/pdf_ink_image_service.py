@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -13,7 +14,8 @@ from ..config import get_settings
 from .drawboard_service import DrawboardCapture, DrawboardInk
 
 SAFE_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
-INK_RENDERER_VERSION = "ink-render-v4"
+INK_RENDERER_VERSION = "ink-render-v5"
+INK_VECTOR_EMBOLDEN_WIDTH = 0.22
 
 
 class PdfInkImageError(RuntimeError):
@@ -144,6 +146,70 @@ class InkOutline:
     segments: tuple[InkLine | InkBezier, ...]
 
 
+def _distance(
+    first: tuple[float, float],
+    second: tuple[float, float],
+) -> float:
+    return math.hypot(second[0] - first[0], second[1] - first[1])
+
+
+def _numeric_points(value: object) -> list[tuple[float, float]] | None:
+    if (
+        not isinstance(value, (list, tuple))
+        or not value
+        or len(value) % 2 != 0
+        or not all(_is_number(number) for number in value)
+    ):
+        return None
+    numbers = [float(number) for number in value]
+    return [
+        (numbers[index], numbers[index + 1])
+        for index in range(0, len(numbers), 2)
+    ]
+
+
+def _decode_drawboard_segment(
+    value: object,
+    current: tuple[float, float],
+) -> tuple[list[InkLine | InkBezier], tuple[float, float], bool] | None:
+    points = _numeric_points(value)
+    if not points:
+        return None
+
+    line_cost = 0.0
+    line_cursor = current
+    for point in points:
+        line_cost += _distance(line_cursor, point)
+        line_cursor = point
+
+    if len(points) % 3 != 0:
+        return [InkLine(point) for point in points], points[-1], False
+
+    beziers: list[InkLine | InkBezier] = []
+    bezier_cost = 0.0
+    bezier_cursor = current
+    for index in range(0, len(points), 3):
+        end, control_1, control_2 = points[index : index + 3]
+        bezier_cost += _distance(bezier_cursor, control_1)
+        bezier_cost += _distance(control_1, control_2)
+        bezier_cost += _distance(control_2, end)
+        beziers.append(
+            InkBezier(
+                control_1=control_1,
+                control_2=control_2,
+                end=end,
+            )
+        )
+        bezier_cursor = end
+
+    # Drawboard uses the same flattened numeric representation for both
+    # polyline runs and cubic curves. The intended interpretation is the one
+    # that preserves the shorter continuous pen path.
+    if bezier_cost < line_cost:
+        return beziers, bezier_cursor, True
+    return [InkLine(point) for point in points], points[-1], False
+
+
 def _ink_outline_paths(value: object) -> list[InkOutline]:
     """Decode the filled paths used by Drawboard's own SVG renderer.
 
@@ -161,32 +227,19 @@ def _ink_outline_paths(value: object) -> list[InkOutline]:
     if start is not None and len(value) >= 2:
         segments: list[InkLine | InkBezier] = []
         has_bezier = False
+        has_compound_lines = False
         valid = True
+        current = start
         for item in value[1:]:
-            point = _point(item)
-            if point is not None:
-                segments.append(InkLine(point))
-                continue
-            if (
-                isinstance(item, (list, tuple))
-                and len(item) >= 6
-                and len(item) % 6 == 0
-                and all(_is_number(number) for number in item)
-            ):
-                numbers = [float(number) for number in item]
-                segments.extend(
-                    InkBezier(
-                        control_1=(numbers[index + 2], numbers[index + 3]),
-                        control_2=(numbers[index + 4], numbers[index + 5]),
-                        end=(numbers[index], numbers[index + 1]),
-                    )
-                    for index in range(0, len(numbers), 6)
-                )
-                has_bezier = True
-                continue
-            valid = False
-            break
-        if valid and segments and has_bezier:
+            decoded = _decode_drawboard_segment(item, current)
+            if decoded is None:
+                valid = False
+                break
+            item_segments, current, item_has_bezier = decoded
+            segments.extend(item_segments)
+            has_bezier = has_bezier or item_has_bezier
+            has_compound_lines = has_compound_lines or len(item_segments) > 1
+        if valid and segments and (has_bezier or has_compound_lines):
             return [InkOutline(start=start, segments=tuple(segments))]
 
     paths: list[InkOutline] = []
@@ -231,10 +284,14 @@ def _render_drawboard_outlines(
                 )
             current = end
         shape.finish(
-            color=None,
+            width=INK_VECTOR_EMBOLDEN_WIDTH,
+            color=color,
             fill=color,
+            lineCap=1,
+            lineJoin=1,
             closePath=True,
             fill_opacity=max(0.0, min(opacity, 1.0)),
+            stroke_opacity=max(0.0, min(opacity, 1.0)),
         )
         shape.commit(overlay=True)
     return True
