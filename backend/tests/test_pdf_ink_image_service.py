@@ -14,10 +14,42 @@ from tracker_api.services.drawboard_service import (
 from tracker_api.services.pdf_ink_image_service import (
     InkBezier,
     InkLine,
+    _blend_opacities,
     _ink_coordinate_paths,
     _ink_outline_paths,
     render_ink_context_images,
 )
+
+
+def test_drawboard_multiply_highlight_registers_pdf_blend_mode() -> None:
+    document = pymupdf.open()
+    page = document.new_page(width=100, height=100)
+
+    fill_opacity, stroke_opacity = _blend_opacities(
+        page,
+        fill_opacity=1.0,
+        stroke_opacity=1.0,
+        blend_mode="Multiply",
+    )
+    page.draw_rect(
+        pymupdf.Rect(10, 10, 90, 30),
+        color=None,
+        fill=(1.0, 0.2, 0.3),
+        fill_opacity=fill_opacity,
+        stroke_opacity=stroke_opacity,
+    )
+
+    resource_kind, resource_value = document.xref_get_key(
+        page.xref,
+        "Resources",
+    )
+    assert resource_kind == "xref"
+    resource_xref = int(resource_value.split()[0])
+    assert "/BM/Multiply" in document.xref_object(
+        resource_xref,
+        compressed=True,
+    )
+    document.close()
 
 
 def _ink(
@@ -172,6 +204,25 @@ def test_vertical_guides_prevent_transitive_question_merges() -> None:
     members = [set(group.member_fingerprints) for group in groups]
     assert {"guide-1", "bridge"} in members
     assert {"guide-2", "second-text"} in members
+
+
+def test_contained_guide_groups_become_one_screenshot() -> None:
+    outer_guide = _ink("guide-outer", [0.0, 0.0, 2.0, 100.0])
+    outer_text = _ink("outer-text", [1.0, 0.0, 100.0, 100.0])
+    inner_guide = _ink("guide-inner", [20.0, 20.0, 22.0, 80.0])
+    inner_text = _ink("inner-text", [21.0, 20.0, 90.0, 80.0])
+
+    groups = group_red_ink_annotations(
+        [outer_guide, outer_text, inner_guide, inner_text]
+    )
+
+    assert len(groups) == 1
+    assert set(groups[0].member_fingerprints) == {
+        "guide-outer",
+        "outer-text",
+        "guide-inner",
+        "inner-text",
+    }
 
 
 def test_handwriting_image_contains_nearby_ink_and_highlights(

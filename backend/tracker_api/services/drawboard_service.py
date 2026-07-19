@@ -24,6 +24,7 @@ TEXT_ANNOTATION_TYPES = TEXT_MARKUP_TYPES | {"TextInsert"}
 INK_VERTICAL_OVERLAP_TOLERANCE = 2.0
 INK_VERTICAL_GUIDE_MIN_HEIGHT = 36.0
 INK_VERTICAL_GUIDE_ASPECT_RATIO = 3.0
+INK_GROUP_CONTAINMENT_THRESHOLD = 0.9
 _STATE_LOCK = threading.Lock()
 
 
@@ -739,6 +740,65 @@ def _merge_red_ink_group(members: list[DrawboardInk]) -> DrawboardInk:
     )
 
 
+def _rect_area(rect: list[float]) -> float:
+    if len(rect) != 4:
+        return 0.0
+    return max(0.0, rect[2] - rect[0]) * max(0.0, rect[3] - rect[1])
+
+
+def _rect_intersection_area(first: list[float], second: list[float]) -> float:
+    if len(first) != 4 or len(second) != 4:
+        return 0.0
+    return max(0.0, min(first[2], second[2]) - max(first[0], second[0])) * max(
+        0.0,
+        min(first[3], second[3]) - max(first[1], second[1]),
+    )
+
+
+def _groups_are_near_duplicates(
+    first: DrawboardInk,
+    second: DrawboardInk,
+) -> bool:
+    if first.page != second.page:
+        return False
+    smaller_area = min(_rect_area(first.rect), _rect_area(second.rect))
+    if smaller_area <= 0:
+        return False
+    return (
+        _rect_intersection_area(first.rect, second.rect) / smaller_area
+        >= INK_GROUP_CONTAINMENT_THRESHOLD
+    )
+
+
+def _merge_contained_ink_groups(groups: list[DrawboardInk]) -> list[DrawboardInk]:
+    """Merge guide groups that describe the same screenshot region.
+
+    A broad margin guide and a second arrow or bracket inside it can otherwise
+    become two questions with nearly identical screenshots. Strong geometric
+    containment is narrow enough to retain neighbouring independent notes.
+    """
+
+    remaining = list(groups)
+    merged: list[DrawboardInk] = []
+    while remaining:
+        seed = remaining.pop(0)
+        members = [seed]
+        changed = True
+        while changed:
+            changed = False
+            still_remaining: list[DrawboardInk] = []
+            combined = _merge_red_ink_group(members)
+            for candidate in remaining:
+                if _groups_are_near_duplicates(combined, candidate):
+                    members.append(candidate)
+                    changed = True
+                else:
+                    still_remaining.append(candidate)
+            remaining = still_remaining
+        merged.append(_merge_red_ink_group(members))
+    return merged
+
+
 def group_red_ink_annotations(
     inks: list[DrawboardInk],
     *,
@@ -797,17 +857,18 @@ def group_red_ink_annotations(
             )
             guide_members[guide.fingerprint].append(candidate)
 
-        grouped.extend(
+        page_groups = [
             _merge_red_ink_group(guide_members[guide.fingerprint])
             for guide in guides
-        )
-        grouped.extend(
+        ]
+        page_groups.extend(
             _merge_red_ink_group(members)
             for members in _connected_vertical_groups(
                 unassigned,
                 tolerance=tolerance,
             )
         )
+        grouped.extend(_merge_contained_ink_groups(page_groups))
 
     grouped.sort(
         key=lambda ink: (

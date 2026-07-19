@@ -14,8 +14,16 @@ from ..config import get_settings
 from .drawboard_service import DrawboardCapture, DrawboardInk
 
 SAFE_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
-INK_RENDERER_VERSION = "ink-render-v5"
+INK_RENDERER_VERSION = "ink-render-v7"
 INK_VECTOR_EMBOLDEN_WIDTH = 0.22
+PDF_BLEND_MODES = {
+    "darken": "Darken",
+    "lighten": "Lighten",
+    "multiply": "Multiply",
+    "normal": "Normal",
+    "overlay": "Overlay",
+    "screen": "Screen",
+}
 
 
 class PdfInkImageError(RuntimeError):
@@ -262,11 +270,18 @@ def _render_drawboard_outlines(
     page_height: float,
     color: tuple[float, ...],
     opacity: float,
+    blend_mode: str,
 ) -> bool:
     outlines = _ink_outline_paths(ink_vertices)
     if not outlines:
         return False
 
+    fill_opacity, stroke_opacity = _blend_opacities(
+        page,
+        fill_opacity=opacity,
+        stroke_opacity=opacity,
+        blend_mode=blend_mode,
+    )
     for outline in outlines:
         shape = page.new_shape()
         current = _pdf_point(outline.start, page_height)
@@ -290,11 +305,59 @@ def _render_drawboard_outlines(
             lineCap=1,
             lineJoin=1,
             closePath=True,
-            fill_opacity=max(0.0, min(opacity, 1.0)),
-            stroke_opacity=max(0.0, min(opacity, 1.0)),
+            fill_opacity=fill_opacity,
+            stroke_opacity=stroke_opacity,
         )
         shape.commit(overlay=True)
     return True
+
+
+def _blend_opacities(
+    page: Any,
+    *,
+    fill_opacity: float,
+    stroke_opacity: float,
+    blend_mode: str,
+) -> tuple[float, float]:
+    """Register a PDF blend mode and return draw-compatible opacities.
+
+    PyMuPDF exposes alpha ExtGStates but does not currently attach the blend
+    mode passed to its private helper. Adding ``/BM`` to that same resource
+    preserves Drawboard's Multiply highlights so dark text remains visible.
+    """
+
+    normalized = PDF_BLEND_MODES.get(blend_mode.casefold())
+    clamped_fill = max(0.0, min(fill_opacity, 1.0))
+    clamped_stroke = max(0.0, min(stroke_opacity, 1.0))
+    if normalized in (None, "Normal"):
+        return clamped_fill, clamped_stroke
+
+    # Fully opaque values do not otherwise allocate an ExtGState. These values
+    # are visually equivalent while giving the blend mode a resource to attach
+    # to for either a filled highlight or a freehand highlighter path.
+    effective_fill = min(clamped_fill, 0.999)
+    effective_stroke = min(clamped_stroke, 0.999)
+    state_name = page._set_opacity(CA=effective_stroke, ca=effective_fill)
+    if not state_name:
+        return effective_fill, effective_stroke
+    resource_kind, resource_value = page.parent.xref_get_key(
+        page.xref,
+        "Resources",
+    )
+    if resource_kind != "xref":
+        return effective_fill, effective_stroke
+    resource_xref = int(resource_value.split()[0])
+    page.parent.xref_set_key(
+        resource_xref,
+        f"ExtGState/{state_name}/Type",
+        "/ExtGState",
+    )
+    page.parent.xref_set_key(
+        resource_xref,
+        f"ExtGState/{state_name}/BM",
+        f"/{normalized}",
+    )
+    return effective_fill, effective_stroke
 
 
 def _render_ink(
@@ -349,11 +412,17 @@ def _render_ink(
                     overlay=True,
                 )
             elif capture.annotation_kind == "TextHighlight":
+                fill_opacity, _stroke_opacity = _blend_opacities(
+                    overlay_page,
+                    fill_opacity=capture.opacity,
+                    stroke_opacity=1.0,
+                    blend_mode=capture.blend_mode,
+                )
                 overlay_page.draw_rect(
                     capture_rect,
                     color=None,
                     fill=color,
-                    fill_opacity=capture.opacity,
+                    fill_opacity=fill_opacity,
                     overlay=True,
                 )
             else:
@@ -381,8 +450,15 @@ def _render_ink(
                     page_height=source_page.rect.height,
                     color=tuple(visible_ink.rgb),
                     opacity=visible_ink.opacity,
+                    blend_mode=visible_ink.blend_mode,
                 ):
                     continue
+                _fill_opacity, stroke_opacity = _blend_opacities(
+                    overlay_page,
+                    fill_opacity=1.0,
+                    stroke_opacity=visible_ink.opacity,
+                    blend_mode=visible_ink.blend_mode,
+                )
                 for points in _ink_paths(ink_vertices, source_page.rect.height):
                     overlay_page.draw_polyline(
                         points,
@@ -390,6 +466,7 @@ def _render_ink(
                         width=stroke_width,
                         lineCap=1,
                         lineJoin=1,
+                        stroke_opacity=stroke_opacity,
                         overlay=True,
                     )
         pixmap = overlay_page.get_pixmap(
