@@ -12,7 +12,10 @@ from tracker_api.services.drawboard_service import (
     group_red_ink_annotations,
 )
 from tracker_api.services.pdf_ink_image_service import (
+    InkBezier,
+    InkLine,
     _ink_coordinate_paths,
+    _ink_outline_paths,
     render_ink_context_images,
 )
 
@@ -76,6 +79,29 @@ def test_nested_flat_strokes_are_not_joined() -> None:
         [(1.0, 2.0), (3.0, 4.0)],
         [(20.0, 21.0), (22.0, 23.0)],
     ]
+
+
+def test_drawboard_filled_outline_preserves_bezier_command_order() -> None:
+    paths = _ink_outline_paths(
+        [
+            [
+                [333.18, 484.58],
+                [334.08, 480.64, 333.44, 483.25, 333.64, 481.93],
+                [335.0, 479.0],
+            ]
+        ]
+    )
+
+    assert len(paths) == 1
+    assert paths[0].start == (333.18, 484.58)
+    assert paths[0].segments == (
+        InkBezier(
+            control_1=(333.44, 483.25),
+            control_2=(333.64, 481.93),
+            end=(334.08, 480.64),
+        ),
+        InkLine(end=(335.0, 479.0)),
+    )
 
 
 def test_vertical_guides_prevent_transitive_question_merges() -> None:

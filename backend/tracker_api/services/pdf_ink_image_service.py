@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeGuard
 
@@ -12,7 +13,7 @@ from ..config import get_settings
 from .drawboard_service import DrawboardCapture, DrawboardInk
 
 SAFE_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
-INK_RENDERER_VERSION = "ink-render-v3"
+INK_RENDERER_VERSION = "ink-render-v4"
 
 
 class PdfInkImageError(RuntimeError):
@@ -125,6 +126,120 @@ def _ink_paths(
     ]
 
 
+@dataclass(frozen=True, slots=True)
+class InkLine:
+    end: tuple[float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class InkBezier:
+    control_1: tuple[float, float]
+    control_2: tuple[float, float]
+    end: tuple[float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class InkOutline:
+    start: tuple[float, float]
+    segments: tuple[InkLine | InkBezier, ...]
+
+
+def _ink_outline_paths(value: object) -> list[InkOutline]:
+    """Decode the filled paths used by Drawboard's own SVG renderer.
+
+    Drawboard stores each cubic segment as ``end, control 1, control 2``.
+    Its web viewer reorders that payload into the SVG command
+    ``C control1 control2 end`` and closes the resulting outline. Keeping that
+    geometry intact avoids the jagged, doubled handwriting produced by
+    treating all of those values as ordinary polyline points.
+    """
+
+    if not isinstance(value, (list, tuple)) or not value:
+        return []
+
+    start = _point(value[0])
+    if start is not None and len(value) >= 2:
+        segments: list[InkLine | InkBezier] = []
+        has_bezier = False
+        valid = True
+        for item in value[1:]:
+            point = _point(item)
+            if point is not None:
+                segments.append(InkLine(point))
+                continue
+            if (
+                isinstance(item, (list, tuple))
+                and len(item) >= 6
+                and len(item) % 6 == 0
+                and all(_is_number(number) for number in item)
+            ):
+                numbers = [float(number) for number in item]
+                segments.extend(
+                    InkBezier(
+                        control_1=(numbers[index + 2], numbers[index + 3]),
+                        control_2=(numbers[index + 4], numbers[index + 5]),
+                        end=(numbers[index], numbers[index + 1]),
+                    )
+                    for index in range(0, len(numbers), 6)
+                )
+                has_bezier = True
+                continue
+            valid = False
+            break
+        if valid and segments and has_bezier:
+            return [InkOutline(start=start, segments=tuple(segments))]
+
+    paths: list[InkOutline] = []
+    for item in value:
+        paths.extend(_ink_outline_paths(item))
+    return paths
+
+
+def _pdf_point(point: tuple[float, float], page_height: float) -> pymupdf.Point:
+    return pymupdf.Point(  # type: ignore[no-untyped-call]
+        point[0],
+        page_height - point[1],
+    )
+
+
+def _render_drawboard_outlines(
+    page: Any,
+    ink_vertices: object,
+    *,
+    page_height: float,
+    color: tuple[float, ...],
+    opacity: float,
+) -> bool:
+    outlines = _ink_outline_paths(ink_vertices)
+    if not outlines:
+        return False
+
+    for outline in outlines:
+        shape = page.new_shape()
+        current = _pdf_point(outline.start, page_height)
+        for segment in outline.segments:
+            if isinstance(segment, InkLine):
+                end = _pdf_point(segment.end, page_height)
+                shape.draw_line(current, end)
+            else:
+                end = _pdf_point(segment.end, page_height)
+                shape.draw_bezier(
+                    current,
+                    _pdf_point(segment.control_1, page_height),
+                    _pdf_point(segment.control_2, page_height),
+                    end,
+                )
+            current = end
+        shape.finish(
+            color=None,
+            fill=color,
+            closePath=True,
+            fill_opacity=max(0.0, min(opacity, 1.0)),
+        )
+        shape.commit(overlay=True)
+    return True
+
+
 def _render_ink(
     source_document: Any,
     ink: DrawboardInk,
@@ -181,7 +296,7 @@ def _render_ink(
                     capture_rect,
                     color=None,
                     fill=color,
-                    fill_opacity=0.26,
+                    fill_opacity=capture.opacity,
                     overlay=True,
                 )
             else:
@@ -203,6 +318,14 @@ def _render_ink(
         ]
         for visible_ink in visible_inks or [ink]:
             for ink_vertices in visible_ink.ink_vertex_sets:
+                if _render_drawboard_outlines(
+                    overlay_page,
+                    ink_vertices,
+                    page_height=source_page.rect.height,
+                    color=tuple(visible_ink.rgb),
+                    opacity=visible_ink.opacity,
+                ):
+                    continue
                 for points in _ink_paths(ink_vertices, source_page.rect.height):
                     overlay_page.draw_polyline(
                         points,

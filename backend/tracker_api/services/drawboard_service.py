@@ -52,6 +52,8 @@ class DrawboardCapture:
     is_question: bool
     created_at: str
     rect: list[float]
+    opacity: float = 1.0
+    blend_mode: str = "Normal"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +67,8 @@ class DrawboardInk:
     rect: list[float]
     ink_vertex_sets: tuple[list[Any], ...]
     member_fingerprints: tuple[str, ...]
+    opacity: float = 1.0
+    blend_mode: str = "Normal"
 
     @property
     def quote(self) -> str:
@@ -366,29 +370,39 @@ def _annotation_rect(annotation: dict[str, Any]) -> list[float]:
     return [min(xs), min(ys), max(xs), max(ys)]
 
 
-def _annotation_color(annotation: dict[str, Any]) -> tuple[str, list[float]]:
+def _annotation_appearance(
+    annotation: dict[str, Any],
+) -> tuple[str, list[float], float, str]:
     raw = str(
         annotation.get("fillColor")
         or annotation.get("strokeColor")
         or ""
     ).strip().lstrip("#")
-    if len(raw) == 8:
+    opacity = 1.0
+    if len(raw) == 8 and re.fullmatch(r"[a-fA-F0-9]{8}", raw):
+        opacity = int(raw[:2], 16) / 255
         raw = raw[2:]
     if len(raw) != 6 or not re.fullmatch(r"[a-fA-F0-9]{6}", raw):
-        return "", []
+        return "", [], opacity, str(annotation.get("blendMode") or "Normal")
     rgb = [int(raw[index : index + 2], 16) / 255 for index in (0, 2, 4)]
     red, green, blue = rgb
+    color = "custom"
     if red >= 0.75 and green <= 0.55 and blue <= 0.65:
-        return "red", rgb
-    if red >= 0.85 and green >= 0.75 and blue <= 0.55:
-        return "yellow", rgb
-    if red <= 0.35 and green >= 0.75 and blue >= 0.75:
-        return "cyan", rgb
-    if green >= 0.55 and red <= 0.55:
-        return "green", rgb
-    if blue >= 0.55 and red <= 0.55:
-        return "blue", rgb
-    return "custom", rgb
+        color = "red"
+    elif red >= 0.85 and green >= 0.75 and blue <= 0.55:
+        color = "yellow"
+    elif red <= 0.35 and green >= 0.75 and blue >= 0.75:
+        color = "cyan"
+    elif green >= 0.55 and red <= 0.55:
+        color = "green"
+    elif blue >= 0.55 and red <= 0.55:
+        color = "blue"
+    return color, rgb, opacity, str(annotation.get("blendMode") or "Normal")
+
+
+def _annotation_color(annotation: dict[str, Any]) -> tuple[str, list[float]]:
+    color, rgb, _opacity, _blend_mode = _annotation_appearance(annotation)
+    return color, rgb
 
 
 def _timestamp(value: object) -> str:
@@ -424,7 +438,7 @@ def _capture(
         page_id,
         _as_int(annotation.get("resourcePageNo") or annotation.get("pageNumber"), 1),
     )
-    color, rgb = _annotation_color(annotation)
+    color, rgb, opacity, blend_mode = _annotation_appearance(annotation)
     is_markup = annotation_kind in TEXT_MARKUP_TYPES
     is_question = (
         color == "red"
@@ -456,6 +470,8 @@ def _capture(
         is_question=is_question,
         created_at=_timestamp(annotation.get("created") or item.get("created")),
         rect=_annotation_rect(annotation),
+        opacity=opacity,
+        blend_mode=blend_mode,
     )
 
 
@@ -472,7 +488,7 @@ def _ink_capture(
     )
     if str(annotation.get("type") or "") != "Ink":
         return None
-    color, rgb = _annotation_color(annotation)
+    color, rgb, opacity, blend_mode = _annotation_appearance(annotation)
     ink_vertices = annotation.get("inkVertices")
     if not isinstance(ink_vertices, list):
         return None
@@ -516,6 +532,8 @@ def _ink_capture(
         rect=rect,
         ink_vertex_sets=(ink_vertices,),
         member_fingerprints=(fingerprint,),
+        opacity=opacity,
+        blend_mode=blend_mode,
     )
 
 
@@ -716,6 +734,8 @@ def _merge_red_ink_group(members: list[DrawboardInk]) -> DrawboardInk:
         rect=rect,
         ink_vertex_sets=vertex_sets,
         member_fingerprints=member_fingerprints,
+        opacity=anchor.opacity,
+        blend_mode=anchor.blend_mode,
     )
 
 

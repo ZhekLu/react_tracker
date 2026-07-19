@@ -185,6 +185,12 @@ def test_cloud_extraction_pages_batches_and_reuses_credentials(
     }
     assert colors["TextHighlight"] == "yellow"
     assert colors["TextUnderline"] == "cyan"
+    highlight = next(
+        capture
+        for capture in first.captures
+        if capture.annotation_kind == "TextHighlight"
+    )
+    assert highlight.opacity == pytest.approx(128 / 255)
     assert first.ignored == {"Ink": 1, "Rectangle": 1}
     assert second.captures == first.captures
     state_path = get_settings().drawboard_state_path

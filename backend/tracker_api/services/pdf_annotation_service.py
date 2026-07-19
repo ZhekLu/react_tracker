@@ -27,6 +27,7 @@ from .pdf_context_service import (
     extract_pdf_annotation_contexts,
 )
 from .pdf_ink_image_service import (
+    INK_RENDERER_VERSION,
     PdfInkImageError,
     render_ink_context_images,
 )
@@ -517,7 +518,8 @@ def collect_resource_pdf_annotations(
             context = contexts.get(ink.fingerprint)
             sync_revision = (
                 f"{ink.source_revision}:"
-                f"{'ink-paragraph-context-v2' if context else 'ink-plain-v4'}"
+                f"{'ink-paragraph-context-v2' if context else 'ink-plain-v4'}:"
+                f"{INK_RENDERER_VERSION}"
             )
             command = _drawboard_ink_command(
                 resource_id,
