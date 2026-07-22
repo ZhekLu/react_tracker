@@ -82,11 +82,17 @@ export function DiscussionMarkdownSurfaceImpl({
   editable = false,
   markdown,
   onCancel,
+  onChange,
+  onReviewItemsChange,
   onSave,
   placeholder,
   reviewMode = false,
+  showActions = true,
 }: DiscussionMarkdownSurfaceProps) {
   const surfaceRef = useRef<HTMLElement | null>(null);
+  const changeEventsReadyRef = useRef(false);
+  const onChangeRef = useRef(onChange);
+  const onReviewItemsChangeRef = useRef(onReviewItemsChange);
   const [formulaDraft, setFormulaDraft] = useState<FormulaDraft | null>(null);
   const [followupDraft, setFollowupDraft] = useState("");
   const [pendingReviewItems, setPendingReviewItems] = useState<
@@ -118,9 +124,36 @@ export function DiscussionMarkdownSurfaceImpl({
         },
       },
       immediatelyRender: false,
+      onUpdate: ({ editor: updatedEditor }) => {
+        if (!editable || !changeEventsReadyRef.current) return;
+        onChangeRef.current?.(
+          normalizeDiscussionMarkdown(updatedEditor.getMarkdown()),
+        );
+      },
     },
     [editable, placeholder],
   );
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    onReviewItemsChangeRef.current = onReviewItemsChange;
+  }, [onReviewItemsChange]);
+
+  useEffect(() => {
+    onReviewItemsChangeRef.current?.(pendingReviewItems);
+  }, [pendingReviewItems]);
+
+  useEffect(() => {
+    changeEventsReadyRef.current = false;
+    if (!editor) return;
+    const frame = window.requestAnimationFrame(() => {
+      changeEventsReadyRef.current = true;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editor]);
 
   useEffect(() => {
     if (!editor || editor.getMarkdown() === markdown) return;
@@ -406,7 +439,7 @@ export function DiscussionMarkdownSurfaceImpl({
         </div>
       ) : null}
       <EditorContent editor={activeEditor} />
-      {editable ? (
+      {editable && showActions ? (
         <footer className="discussionEditorActions">
           <button className="commandButton" onClick={save} type="button">
             <Save size={13} />

@@ -58,6 +58,7 @@ import {
   type DiscussionHighlightExcerpt,
 } from "../../lib/discussionHighlights";
 import { discussionExportSegments } from "../../lib/discussionExports";
+import { DiscussionQaReview } from "./DiscussionQaReview";
 
 type DiscussionsViewProps = {
   course: Course;
@@ -815,6 +816,7 @@ export function DiscussionsView({
   const [captureEditorResourceId, setCaptureEditorResourceId] = useState("");
   const [allCaptureResourceId, setAllCaptureResourceId] = useState("");
   const [editingMessageId, setEditingMessageId] = useState("");
+  const [qaReviewDiscussionId, setQaReviewDiscussionId] = useState("");
   const [highlightOnlyDiscussionId, setHighlightOnlyDiscussionId] =
     useState("");
   const sourceResources = course.resources.filter(
@@ -1073,6 +1075,17 @@ export function DiscussionsView({
                 ) : null}
                 {discussion ? (
                   <button
+                    className="commandButton qaReviewLaunch"
+                    onClick={() => setQaReviewDiscussionId(discussion.id)}
+                    title="Review every mapped answer in a focused workspace"
+                    type="button"
+                  >
+                    <Sparkles size={14} />
+                    <span>QA</span>
+                  </button>
+                ) : null}
+                {discussion ? (
+                  <button
                     className={
                       discussion.attention === "professor"
                         ? "commandButton professorAttention active"
@@ -1279,7 +1292,6 @@ export function DiscussionsView({
                           }
                           onSaveEditing={(updatedMarkdown, reviewItems) => {
                             onUpdateMessage(message, updatedMarkdown, reviewItems);
-                            setEditingMessageId("");
                           }}
                         />
                       {message.annotationLinks.length ||
@@ -1371,6 +1383,16 @@ export function DiscussionsView({
             setPendingDelete(null);
           }}
           title="Delete this discussion?"
+        />
+      ) : null}
+      {discussion && qaReviewDiscussionId === discussion.id ? (
+        <DiscussionQaReview
+          course={course}
+          discussion={discussion}
+          onAnnotationChange={onAnnotationChange}
+          onClose={() => setQaReviewDiscussionId("")}
+          onQuestionLink={onQuestionLink}
+          onUpdateMessage={onUpdateMessage}
         />
       ) : null}
     </div>

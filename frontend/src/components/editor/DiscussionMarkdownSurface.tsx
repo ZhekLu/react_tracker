@@ -10,9 +10,12 @@ export type DiscussionMarkdownSurfaceProps = {
   editable?: boolean;
   markdown: string;
   onCancel?: () => void;
+  onChange?: (markdown: string) => void;
+  onReviewItemsChange?: (items: DiscussionReviewItem[]) => void;
   onSave?: (markdown: string, reviewItems: DiscussionReviewItem[]) => void;
   placeholder?: string;
   reviewMode?: boolean;
+  showActions?: boolean;
 };
 
 const DiscussionMarkdownSurfaceImpl = lazy(() =>

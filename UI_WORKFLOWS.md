@@ -72,17 +72,26 @@ squares; Resources shows the full configurable book map.
 1. **Paste response** imports the clipboard through the ChatGPT-aware Markdown
    converter. Short pasted fragments, small formulas, `text` code fragments,
    and short quote blocks are compacted; manual line breaks made later are not.
-2. Switch the tutor message to **Edit**. Edit/remove tutor prose directly.
-3. Select a sentence, paragraph, formula, or code block. A floating card appears;
+2. Press **QA** for the focused answer-review workspace. The original source
+   page or slide stays on the left and the mapped answer is immediately editable
+   on the right. **Open only** works through the remaining questions; switch it
+   off to revisit answered questions and introduction sections. Use
+   `Cmd+Option+Left/Right` or the footer arrows to move, mark an answer
+   **Understood** when it is clear, then commit every edited answer and queued
+   follow-up together with **Save session** (`Cmd+S` also saves the session).
+3. For ordinary in-place work, switch the tutor message to **Edit**. Saving one
+   answer section keeps the message in edit mode so adjacent questions remain
+   available without reopening it.
+4. Select a sentence, paragraph, formula, or code block. A floating card appears;
    type the follow-up and press `Cmd+Enter` to queue it. The message edit and all
    queued follow-ups are committed together only when you press **Save**.
-4. `Cmd+H` / `Cmd+Shift+H` highlight ordinary text. The same shortcuts on a
+5. `Cmd+H` / `Cmd+Shift+H` highlight ordinary text. The same shortcuts on a
    formula or code block create an anchored structured highlight: no colour is
    painted over the formula/code, but it appears in Highlights mode.
-5. **Copy follow-ups** produces each selected excerpt plus its question under a
+6. **Copy follow-ups** produces each selected excerpt plus its question under a
    stable `Q-###` heading. Paste the tutor's response normally; matching headings
    map the response back to the correct follow-up.
-6. **Highlights** shows each valuable excerpt with surrounding paragraph context,
+7. **Highlights** shows each valuable excerpt with surrounding paragraph context,
    rather than isolated fragments.
 
 Linked questions remain expandable in both reading and editing mode, including

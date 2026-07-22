@@ -416,6 +416,567 @@
   }
 }
 
+/* Focused discussion QA review */
+.qaReviewLaunch {
+  border-color: color-mix(in srgb, #7c4dff 34%, var(--line));
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(240, 233, 255, 0.9));
+  color: #6540bb;
+}
+
+.qaReviewBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  padding: 10px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(92, 214, 176, 0.18), transparent 27%),
+    radial-gradient(circle at 88% 2%, rgba(142, 92, 255, 0.18), transparent 31%),
+    #f4f7f6;
+}
+
+.qaReviewSession {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--course-accent) 22%, var(--line));
+  border-radius: 18px;
+  background: rgba(250, 252, 251, 0.97);
+  box-shadow: 0 24px 70px rgba(15, 34, 28, 0.2);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.qaReviewHeader {
+  min-height: 86px;
+  padding: 12px 16px 11px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  display: grid;
+  grid-template-columns: minmax(250px, 0.8fr) minmax(260px, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+}
+
+.qaReviewTitle,
+.qaReviewHeaderActions,
+.qaReviewProgressLabels,
+.qaReviewNavigation,
+.qaAnswerHeading,
+.qaAnsweredToggle,
+.qaQuestionPrompt > span,
+.qaSourcePanel > header {
+  display: flex;
+  align-items: center;
+}
+
+.qaReviewTitle {
+  min-width: 0;
+  gap: 11px;
+}
+
+.qaReviewBadge {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border: 1px solid rgba(116, 75, 214, 0.2);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #efe8ff, #e6f8ef);
+  color: #6241b1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.qaReviewTitle > div {
+  min-width: 0;
+}
+
+.qaReviewTitle p,
+.qaReviewTitle strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qaReviewTitle p {
+  margin: 0 0 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.qaReviewTitle strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.qaReviewProgressBlock {
+  min-width: 0;
+}
+
+.qaReviewProgressLabels {
+  margin-bottom: 6px;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.qaReviewProgressLabels strong {
+  color: #6742bd;
+  font-size: 12px;
+}
+
+.qaReviewProgressTrack {
+  height: 12px;
+  padding: 2px;
+  overflow: hidden;
+  border: 1px solid rgba(87, 119, 107, 0.17);
+  border-radius: 999px;
+  background: #e7ece9;
+}
+
+.qaReviewProgressTrack > span {
+  position: relative;
+  width: var(--qa-progress);
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #38c983, #4bbfdb 45%, #9d63ef 78%, #ff77a8);
+  box-shadow: 0 0 15px rgba(123, 83, 222, 0.35);
+  display: block;
+  transition: width 280ms ease;
+}
+
+.qaReviewProgressTrack > span::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 255, 255, 0.65), transparent 70%);
+  animation: qa-progress-shine 2.4s ease-in-out infinite;
+}
+
+@keyframes qa-progress-shine {
+  55%,
+  100% {
+    transform: translateX(110%);
+  }
+}
+
+.qaReviewHeaderActions {
+  gap: 7px;
+}
+
+.qaReviewFilter {
+  min-height: 34px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.qaReviewFilter input {
+  accent-color: #744ed4;
+}
+
+.qaSaveAll.saved {
+  border-color: color-mix(in srgb, var(--green) 45%, var(--line));
+  background: var(--green-soft);
+  color: var(--green-deep);
+}
+
+.qaReviewClose {
+  width: 35px;
+  height: 35px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
+.qaReviewWorkspace {
+  min-height: 0;
+  padding: 11px;
+  display: grid;
+  grid-template-columns: minmax(360px, 1fr) minmax(420px, 1fr);
+  gap: 11px;
+}
+
+.qaSourcePanel,
+.qaSourceEmpty,
+.qaAnswerPanel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.qaSourcePanel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.qaSourcePanel > header {
+  min-height: 39px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.qaSourcePanel > header span {
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.qaSourcePanel > header strong {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+}
+
+.qaSourceCanvas {
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+  background:
+    linear-gradient(45deg, rgba(35, 81, 67, 0.035) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(35, 81, 67, 0.035) 25%, transparent 25%),
+    #eef2f0;
+  background-position: 0 0, 8px 8px;
+  background-size: 16px 16px;
+  display: grid;
+  place-items: center;
+}
+
+.qaSourceCanvas img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 7px 24px rgba(20, 42, 34, 0.14);
+  object-fit: contain;
+}
+
+.qaSourcePanel > footer {
+  min-height: 32px;
+  padding: 7px 10px;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qaSourceText {
+  padding: 18px;
+  overflow: auto;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.qaSourceText blockquote {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-left: 4px solid var(--course-accent);
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.qaSourceEmpty,
+.qaReviewComplete,
+.qaUnmappedAnswer {
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+}
+
+.qaSourceEmpty strong,
+.qaReviewComplete h2,
+.qaUnmappedAnswer h3 {
+  margin: 0;
+  color: var(--ink);
+}
+
+.qaSourceEmpty p,
+.qaReviewComplete p,
+.qaUnmappedAnswer p {
+  max-width: 520px;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.qaAnswerPanel {
+  padding: 13px;
+  overflow-y: auto;
+}
+
+.qaAnswerHeading {
+  margin-bottom: 10px;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.qaAnswerHeading > div {
+  min-width: 0;
+}
+
+.qaAnswerHeading span {
+  color: #7653c8;
+  font-size: 9px;
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.qaAnswerHeading h2 {
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: clamp(17px, 1.5vw, 23px);
+  line-height: 1.2;
+}
+
+.qaAnsweredToggle {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--amber) 34%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--amber-soft) 65%, #fff);
+  color: var(--amber-deep);
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 820;
+}
+
+.qaAnsweredToggle.answered {
+  border-color: color-mix(in srgb, var(--green) 38%, var(--line));
+  background: var(--green-soft);
+  color: var(--green-deep);
+}
+
+.qaQuestionPrompt {
+  margin-bottom: 11px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #df4d76 22%, var(--line));
+  border-left: 4px solid #df4d76;
+  border-radius: 10px;
+  background: color-mix(in srgb, #fff0f5 70%, #fff);
+}
+
+.qaQuestionPrompt > span {
+  margin-bottom: 5px;
+  color: #a12e52;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.qaQuestionPrompt .markdownMath {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.qaAnswerEditor.discussionMarkdownSurface.isEditing {
+  border-color: color-mix(in srgb, #7853d0 23%, var(--line));
+  box-shadow: 0 8px 25px rgba(88, 58, 158, 0.07);
+}
+
+.qaAnswerEditor.discussionMarkdownSurface.isEditing .discussionRichSurface {
+  min-height: min(56vh, 620px);
+  padding: 15px 16px;
+  font-size: clamp(12px, 1vw, 15px);
+  line-height: 1.62;
+}
+
+.qaReviewNavigation {
+  min-height: 54px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  justify-content: space-between;
+}
+
+.qaReviewNavigation > span {
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 740;
+}
+
+.qaReviewNavigation button {
+  min-width: 112px;
+  min-height: 35px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.qaReviewNavigation button:not(:disabled):hover {
+  border-color: color-mix(in srgb, #7450ca 38%, var(--line));
+  background: #f4efff;
+  color: #6542b4;
+}
+
+.qaReviewNavigation button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.qaReviewComplete {
+  min-height: 0;
+}
+
+.qaCompletionHalo {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 24%, #ffe98a 25%, #80e5bd 54%, #9e6cf1 75%, transparent 76%);
+  color: #fff;
+  filter: drop-shadow(0 10px 22px rgba(105, 69, 184, 0.25));
+  display: grid;
+  place-items: center;
+  animation: qa-complete-pulse 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes qa-complete-pulse {
+  to {
+    transform: scale(1.06) rotate(4deg);
+  }
+}
+
+@media (max-width: 900px) {
+  .qaReviewBackdrop {
+    padding: 0;
+  }
+
+  .qaReviewSession {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .qaReviewHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .qaReviewProgressBlock {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .qaReviewHeaderActions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .qaReviewWorkspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(220px, 42vh) minmax(360px, 1fr);
+    overflow-y: auto;
+  }
+
+  .qaAnswerPanel {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 620px) {
+  .qaReviewHeader {
+    padding: 9px;
+    gap: 9px;
+  }
+
+  .qaReviewBadge,
+  .qaReviewTitle p,
+  .qaReviewNavigation > span {
+    display: none;
+  }
+
+  .qaReviewTitle strong {
+    font-size: 11px;
+  }
+
+  .qaReviewFilter {
+    padding-inline: 6px;
+  }
+
+  .qaSaveAll span {
+    display: none;
+  }
+
+  .qaSaveAll {
+    width: 35px;
+    padding: 0;
+  }
+
+  .qaReviewWorkspace {
+    padding: 6px;
+    gap: 6px;
+  }
+
+  .qaAnswerHeading {
+    align-items: flex-start;
+  }
+
+  .qaAnsweredToggle {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
+
+  .qaReviewNavigation {
+    padding: 6px 9px;
+  }
+
+  .qaReviewNavigation button {
+    min-width: 92px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qaReviewProgressTrack > span::after,
+  .qaCompletionHalo {
+    animation: none;
+  }
+}
+
 .fileMentionChips {
   margin-top: 7px;
   display: flex;
