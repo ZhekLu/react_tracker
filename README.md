@@ -264,7 +264,10 @@ question/type rules.
 The anonymous sharing credentials are cached with owner-only permissions in the
 gitignored `drawboard_state.json`. Generated handwriting crops live in the
 gitignored `react_tracker/data/annotation_images/` directory and are served only
-by the local tracker API.
+by the local tracker API. QA review also keeps high-resolution annotated page
+images for question pages and their annotated neighbors. These use the same
+Drawboard appearance data as the focused crops, so highlights keep their
+opacity and handwriting is visible beside the clean PDF text layer.
 
 The cloud reader is a compatibility integration with Drawboard's current web
 client rather than a documented public API. If Drawboard changes that protocol,
@@ -375,6 +378,13 @@ file contents into SQLite or track file versions.
 The ChatGPT attachment directory is cleaned in place on each structured copy.
 The directory itself is no longer deleted, so Finder tags (including your red
 tag) and folder-level metadata survive while stale attachment files are removed.
+
+Book tasks whose title names exercises expose **Screenshot solutions**. This
+locates each exact exercise heading, joins the vertically connected Drawboard
+handwriting that belongs to it, and writes high-resolution full-width crops to
+the same ChatGPT attachment directory. An exercise without nearby handwriting
+is skipped with an explicit warning, which prevents a later exercise's notes
+from being attached by mistake.
 
 ### Keyboard-first lecture reader
 

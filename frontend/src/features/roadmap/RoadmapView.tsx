@@ -19,6 +19,7 @@ import {
   Clock3,
   FileScan,
   FileQuestion,
+  Images,
   Flag,
   FolderOpen,
   Highlighter,
@@ -96,6 +97,7 @@ type RoadmapViewProps = {
   ) => void;
   onOpenDiscussion: (resourceId: string, taskId?: string) => void;
   onOpenResource: (resourceId: string) => void;
+  onPrepareExerciseScreenshots: (task: Task) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
   onToggleTaskTimer: (day: StudyDay, task: Task, resources: Resource[]) => void;
   taskTimer: {
@@ -127,6 +129,7 @@ type TaskRowProps = {
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
+  onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
   onStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
   onToggleTimer: () => void;
   timer: {
@@ -165,6 +168,7 @@ function TaskRow({
   onNoteAttentionChange,
   onOpenDiscussion,
   onOpenResource,
+  onPrepareExerciseScreenshots,
   onStatusChange,
   onToggleTimer,
   timer,
@@ -197,6 +201,10 @@ function TaskRow({
       return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
     });
   const taskOpenQuestionCount = task.openQuestionCount;
+  const exerciseNumbers =
+    task.title.toLowerCase().includes("exercise")
+      ? [...task.title.matchAll(/\b(\d+\.\d+)\b/g)].map((match) => match[1])
+      : [];
   const previousTaskOpenQuestionCount = useRef(taskOpenQuestionCount);
   const shouldCompact = completed && taskOpenQuestionCount === 0;
   const showTaskDetails = !shouldCompact || compactDetailsOpen;
@@ -308,6 +316,16 @@ function TaskRow({
                 type="button"
               >
                 <Info size={11} /> Why this
+              </button>
+            ) : null}
+            {exerciseNumbers.length ? (
+              <button
+                className="taskMetaBadge exerciseScreenshots"
+                onClick={() => onPrepareExerciseScreenshots(task)}
+                title={`Render handwritten solutions for Exercises ${exerciseNumbers.join(", ")} into the ChatGPT attachment folder`}
+                type="button"
+              >
+                <Images size={11} /> Screenshot solutions
               </button>
             ) : null}
             {shouldCompact ? (
@@ -748,6 +766,7 @@ type DayCardProps = {
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
+  onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
   onClosedChange: (day: StudyDay, closed: boolean) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
   onToggleTaskTimer: RoadmapViewProps["onToggleTaskTimer"];
@@ -769,6 +788,7 @@ function DayCard({
   onNoteAttentionChange,
   onOpenDiscussion,
   onOpenResource,
+  onPrepareExerciseScreenshots,
   onClosedChange,
   onTaskStatusChange,
   onToggleTaskTimer,
@@ -883,6 +903,7 @@ function DayCard({
                 onNoteAttentionChange={onNoteAttentionChange}
                 onOpenDiscussion={onOpenDiscussion}
                 onOpenResource={onOpenResource}
+                onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
                 onToggleTimer={() => onToggleTaskTimer(day, task, task.resourceIds
                   .map((resourceId) => resourceById.get(resourceId))
                   .filter((resource): resource is Resource => Boolean(resource)))}
@@ -1003,6 +1024,7 @@ export function RoadmapView({
   onNoteAttentionChange,
   onOpenDiscussion,
   onOpenResource,
+  onPrepareExerciseScreenshots,
   onTaskStatusChange,
   onToggleTaskTimer,
   taskTimer,
@@ -1101,6 +1123,7 @@ export function RoadmapView({
           onNoteAttentionChange={onNoteAttentionChange}
           onOpenDiscussion={onOpenDiscussion}
           onOpenResource={onOpenResource}
+          onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
         onTaskStatusChange={onTaskStatusChange}
         onToggleTaskTimer={onToggleTaskTimer}
         resourceById={resourceById}

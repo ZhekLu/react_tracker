@@ -563,3 +563,17 @@ class PromptBatchCreateResponse(MutationResponse):
     attachment_directory: str
     attachments: list[PromptAttachmentItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class ExerciseScreenshotItem(StrictModel):
+    exercise: str
+    name: str
+    page: int
+    path: str
+
+
+class ExerciseScreenshotResponse(StrictModel):
+    directory: str
+    exercises: list[str] = Field(default_factory=list)
+    screenshots: list[ExerciseScreenshotItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)

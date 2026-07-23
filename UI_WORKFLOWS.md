@@ -29,6 +29,12 @@ record.
 4. Mark the task complete. The pet orbits the completion halo, the task receives
    a brief colour sweep, and—if it has no open questions—it contracts to one
    line. **Details** restores its resources and note editor.
+5. On a book exercise task, press **Screenshot solutions** after writing the
+   answers in Drawboard. The tracker finds each named `Exercise X.Y`, follows
+   the connected handwriting below it, and refreshes the existing
+   `data/chatgpt_prompt_attachments` folder with full-width solution crops.
+   Missing handwriting is reported as a warning instead of exporting an
+   unrelated annotation from a later exercise.
 
 Question counts are de-duplicated per day. Book tasks with section numbers count
 only annotations from those chapters.
@@ -79,6 +85,10 @@ squares; Resources shows the full configurable book map.
    `Cmd+Option+Left/Right` or the footer arrows to move, mark an answer
    **Understood** when it is clear, then commit every edited answer and queued
    follow-up together with **Save session** (`Cmd+S` also saves the session).
+   Companion text and screenshot captures count as one answer group. For PDF
+   questions the source rail shows the previous, current, and next page; the
+   current page includes the real Drawboard highlights and handwriting and an
+   outline around the question location.
 3. For ordinary in-place work, switch the tutor message to **Edit**. Saving one
    answer section keeps the message in edit mode so adjacent questions remain
    available without reopening it.

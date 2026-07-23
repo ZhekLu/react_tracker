@@ -7,7 +7,7 @@ import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection, RowMapping
@@ -23,7 +23,7 @@ class PromptAttachmentError(RuntimeError):
     """Raised when the ephemeral ChatGPT attachment folder cannot be prepared."""
 
 
-_ATTACHMENT_LOCK = threading.Lock()
+ATTACHMENT_LOCK = threading.Lock()
 _SAFE_FILENAME = re.compile(r"[^A-Za-z0-9._ -]+")
 _WHITESPACE = re.compile(r"\s+")
 _WINDOWS_RESERVED = {
@@ -39,7 +39,7 @@ _WINDOWS_RESERVED = {
 @dataclass(frozen=True, slots=True)
 class PreparedPromptAttachment:
     name: str
-    kind: str
+    kind: Literal["resource", "question_image", "manifest"]
     path: str
     resource_id: str | None = None
     annotation_id: str | None = None
@@ -472,7 +472,7 @@ def prepare_prompt_attachments(
     warnings: list[str] = []
     used_names: set[str] = set()
 
-    with _ATTACHMENT_LOCK:
+    with ATTACHMENT_LOCK:
         try:
             if destination.exists():
                 for child in destination.iterdir():

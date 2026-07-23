@@ -29,6 +29,8 @@ from ..schemas.workspace import (
     DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
     ExamStatusCommand,
+    ExerciseScreenshotItem,
+    ExerciseScreenshotResponse,
     MutationResponse,
     NoteUpsertCommand,
     PdfAnnotationCollectionResponse,
@@ -49,6 +51,10 @@ from ..services.course_file_service import (
     CourseFileError,
     list_course_files,
     open_course_file,
+)
+from ..services.exercise_solution_service import (
+    ExerciseSolutionError,
+    prepare_exercise_solution_screenshots,
 )
 from ..services.pdf_annotation_service import (
     PdfAnnotationError,
@@ -387,6 +393,40 @@ def collect_resource_annotations(
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error
     except PdfAnnotationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.post(
+    "/tasks/{task_id}/exercise-screenshots",
+    response_model=ExerciseScreenshotResponse,
+)
+def prepare_task_exercise_screenshots(
+    task_id: str,
+    connection: Database,
+) -> ExerciseScreenshotResponse:
+    try:
+        bundle = prepare_exercise_solution_screenshots(connection, task_id)
+        return ExerciseScreenshotResponse(
+            directory=bundle.directory,
+            exercises=bundle.exercises,
+            screenshots=[
+                ExerciseScreenshotItem(
+                    exercise=item.exercise,
+                    name=item.name,
+                    page=item.page,
+                    path=item.path,
+                )
+                for item in bundle.screenshots
+            ],
+            warnings=bundle.warnings,
+        )
+    except (
+        ExerciseSolutionError,
+        workspace_repository.WorkspaceRepositoryError,
+    ) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(error),

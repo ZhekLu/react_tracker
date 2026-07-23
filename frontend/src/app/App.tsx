@@ -18,6 +18,7 @@ import {
   openResource,
   openResourceFile,
   pdfReaderPageUrl,
+  prepareExerciseScreenshots,
   reviewDiscussionMessage,
   updateAnnotation,
   updateDayStatus,
@@ -1016,6 +1017,20 @@ export function App() {
     });
   }
 
+  function handlePrepareExerciseScreenshots(task: Course["days"][number]["sections"][number]["tasks"][number]) {
+    void runMutation(async () => {
+      const bundle = await prepareExerciseScreenshots(task.id);
+      const warningText = bundle.warnings.length
+        ? ` ${bundle.warnings.length} exercise${bundle.warnings.length === 1 ? "" : "s"} need attention.`
+        : "";
+      setActionMessage(
+        `${bundle.screenshots.length} handwritten solution screenshot${
+          bundle.screenshots.length === 1 ? "" : "s"
+        } ready in ${bundle.directory}.${warningText}`,
+      );
+    });
+  }
+
   function handleCreateDiscussion(resourceId: string) {
     if (!workspace) return;
     setFocusedResourceId(resourceId);
@@ -1348,6 +1363,7 @@ export function App() {
           onNoteAttentionChange={handleNoteAttentionChange}
           onOpenDiscussion={handleOpenDiscussion}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
+          onPrepareExerciseScreenshots={handlePrepareExerciseScreenshots}
           onTaskStatusChange={handleTaskStatusChange}
           onToggleTaskTimer={(day, task, resources) =>
             void toggl.toggleTask(day, task, resources)
