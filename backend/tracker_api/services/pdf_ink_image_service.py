@@ -481,6 +481,171 @@ def _render_ink(
         overlay_document.close()  # type: ignore[no-untyped-call]
 
 
+def _render_annotated_page(
+    source_document: Any,
+    page_number: int,
+    output_path: Path,
+    *,
+    captures: Iterable[DrawboardCapture],
+    page_inks: Iterable[DrawboardInk],
+    scale: float,
+    stroke_width: float,
+) -> None:
+    if page_number < 1 or page_number > source_document.page_count:
+        raise PdfInkImageError(f"Annotation page is outside the PDF: {page_number}")
+    source_page = source_document[page_number - 1]
+    overlay_document = pymupdf.open()  # type: ignore[no-untyped-call]
+    try:
+        overlay_page = overlay_document.new_page(
+            width=source_page.rect.width,
+            height=source_page.rect.height,
+        )
+        overlay_page.show_pdf_page(
+            overlay_page.rect,
+            source_document,
+            page_number - 1,
+        )
+        for capture in captures:
+            if capture.page != page_number or len(capture.rect) != 4:
+                continue
+            capture_rect = pymupdf.Rect(  # type: ignore[no-untyped-call]
+                drawboard_rect_to_pdf(capture.rect, source_page.rect.height)
+            )
+            if len(capture.rgb) < 3:
+                continue
+            color = tuple(capture.rgb[:3])
+            if capture.annotation_kind == "TextUnderline":
+                overlay_page.draw_line(
+                    capture_rect.bottom_left,
+                    capture_rect.bottom_right,
+                    color=color,
+                    width=1.1,
+                    overlay=True,
+                )
+            elif capture.annotation_kind == "TextHighlight":
+                fill_opacity, _stroke_opacity = _blend_opacities(
+                    overlay_page,
+                    fill_opacity=capture.opacity,
+                    stroke_opacity=1.0,
+                    blend_mode=capture.blend_mode,
+                )
+                overlay_page.draw_rect(
+                    capture_rect,
+                    color=None,
+                    fill=color,
+                    fill_opacity=fill_opacity,
+                    overlay=True,
+                )
+            else:
+                overlay_page.draw_rect(
+                    capture_rect,
+                    color=color,
+                    width=0.8,
+                    overlay=True,
+                )
+        for ink in page_inks:
+            if ink.page != page_number:
+                continue
+            for ink_vertices in ink.ink_vertex_sets:
+                if _render_drawboard_outlines(
+                    overlay_page,
+                    ink_vertices,
+                    page_height=source_page.rect.height,
+                    color=tuple(ink.rgb),
+                    opacity=ink.opacity,
+                    blend_mode=ink.blend_mode,
+                ):
+                    continue
+                _fill_opacity, stroke_opacity = _blend_opacities(
+                    overlay_page,
+                    fill_opacity=1.0,
+                    stroke_opacity=ink.opacity,
+                    blend_mode=ink.blend_mode,
+                )
+                for points in _ink_paths(ink_vertices, source_page.rect.height):
+                    overlay_page.draw_polyline(
+                        points,
+                        color=tuple(ink.rgb),
+                        width=stroke_width,
+                        lineCap=1,
+                        lineJoin=1,
+                        stroke_opacity=stroke_opacity,
+                        overlay=True,
+                    )
+        pixmap = overlay_page.get_pixmap(
+            matrix=pymupdf.Matrix(scale, scale),  # type: ignore[no-untyped-call]
+            alpha=False,
+            colorspace=pymupdf.csRGB,
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        pixmap.save(output_path)  # type: ignore[no-untyped-call]
+    finally:
+        overlay_document.close()  # type: ignore[no-untyped-call]
+
+
+def render_annotated_page_images(
+    source_path: Path,
+    resource_id: str,
+    pages: Iterable[int],
+    *,
+    captures: Iterable[DrawboardCapture] = (),
+    page_inks: Iterable[DrawboardInk] = (),
+    scale: float = 3.0,
+    stroke_width: float = 0.65,
+) -> dict[int, str]:
+    """Cache complete PDF pages with the exact Drawboard annotation overlay."""
+
+    try:
+        source_document: Any = pymupdf.open(  # type: ignore[no-untyped-call]
+            source_path
+        )
+    except Exception as error:
+        raise PdfInkImageError(
+            f"Could not open PDF for annotated pages: {source_path}"
+        ) from error
+    capture_list = list(captures)
+    ink_list = list(page_inks)
+    urls: dict[int, str] = {}
+    try:
+        for page_number in sorted(set(pages)):
+            page_captures = [
+                item for item in capture_list if item.page == page_number
+            ]
+            page_ink_items = [
+                item for item in ink_list if item.page == page_number
+            ]
+            if not page_captures and not page_ink_items:
+                continue
+            image_id = f"drawboard-page-{page_number}"
+            output_path = annotation_image_path(resource_id, image_id)
+            _render_annotated_page(
+                source_document,
+                page_number,
+                output_path,
+                captures=page_captures,
+                page_inks=page_ink_items,
+                scale=scale,
+                stroke_width=stroke_width,
+            )
+            revision = hashlib.sha1(
+                ":".join(
+                    [
+                        *sorted(item.source_revision for item in page_captures),
+                        *sorted(item.source_revision for item in page_ink_items),
+                    ]
+                ).encode(),
+                usedforsecurity=False,
+            ).hexdigest()
+            urls[page_number] = annotation_image_url(
+                resource_id,
+                image_id,
+                source_revision=revision,
+            )
+    finally:
+        source_document.close()
+    return urls
+
+
 def render_ink_context_images(
     source_path: Path,
     resource_id: str,

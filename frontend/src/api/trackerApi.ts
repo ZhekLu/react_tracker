@@ -947,6 +947,13 @@ export function pdfReaderPageUrl(
   return `${API_BASE}/resources/${resourceId}/pdf/pages/${pageNumber}`;
 }
 
+export function annotationImageUrl(
+  resourceId: string,
+  imageId: string,
+): string {
+  return `${API_BASE}/resources/${resourceId}/annotation-images/${imageId}`;
+}
+
 export async function openCourseFile(
   courseId: string,
   fileId: string,
@@ -1108,6 +1115,24 @@ export async function createPromptBatch(
     })),
     warnings: result.warnings,
   };
+}
+
+export async function prepareExerciseScreenshots(
+  taskId: string,
+): Promise<{
+  directory: string;
+  exercises: string[];
+  screenshots: Array<{
+    exercise: string;
+    name: string;
+    page: number;
+    path: string;
+  }>;
+  warnings: string[];
+}> {
+  return requestJson(`/tasks/${taskId}/exercise-screenshots`, {
+    method: "POST",
+  });
 }
 
 export async function openResource(resourceId: string): Promise<ResourceOpenResult> {

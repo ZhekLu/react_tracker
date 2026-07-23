@@ -13,7 +13,11 @@ import pymupdf
 from sqlalchemy.engine import Connection
 
 from ..repositories import workspace_repository
-from ..schemas.workspace import AnnotationAnchorCreate, AnnotationCreateCommand
+from ..schemas.workspace import (
+    AnnotationAnchorCreate,
+    AnnotationCreateCommand,
+    AnnotationKind,
+)
 from .drawboard_service import (
     DrawboardCapture,
     DrawboardError,
@@ -29,6 +33,7 @@ from .pdf_context_service import (
 from .pdf_ink_image_service import (
     INK_RENDERER_VERSION,
     PdfInkImageError,
+    render_annotated_page_images,
     render_ink_context_images,
 )
 from .resource_open_service import ResourceOpenError, safe_local_resource_path
@@ -259,7 +264,7 @@ def _annotation_command(
     context: PdfAnnotationContext | None,
     sync_revision: str,
 ) -> AnnotationCreateCommand:
-    kind = (
+    kind: AnnotationKind = (
         "question"
         if capture.is_question
         else "highlight"
@@ -301,9 +306,10 @@ def _drawboard_annotation_command(
     document_id: str,
     capture: DrawboardCapture,
     context: PdfAnnotationContext | None,
+    annotated_page_url: str | None,
     sync_revision: str,
 ) -> AnnotationCreateCommand:
-    kind = (
+    kind: AnnotationKind = (
         "question"
         if capture.is_question
         else "highlight"
@@ -335,8 +341,13 @@ def _drawboard_annotation_command(
                 "contextParagraphStartPage": context.paragraph_start_page,
                 "contextParagraphTruncated": context.paragraph_truncated,
                 "subchapterTitle": context.subchapter_title,
+                "pageWidth": context.page_width,
+                "pageHeight": context.page_height,
+                "pageCount": context.page_count,
             }
         )
+    if annotated_page_url:
+        metadata["annotatedPageImageUrl"] = annotated_page_url
     return AnnotationCreateCommand(
         resource_id=resource_id,
         kind=kind,
@@ -377,6 +388,9 @@ def _context_metadata(
         "contextParagraphStartPage": context.paragraph_start_page,
         "contextParagraphTruncated": context.paragraph_truncated,
         "subchapterTitle": context.subchapter_title,
+        "pageWidth": context.page_width,
+        "pageHeight": context.page_height,
+        "pageCount": context.page_count,
     }
 
 
@@ -387,6 +401,7 @@ def _drawboard_ink_command(
     ink: DrawboardInk,
     context: PdfAnnotationContext | None,
     image_url: str | None,
+    annotated_page_url: str | None,
     sync_revision: str,
 ) -> AnnotationCreateCommand:
     context_text = " ".join(
@@ -426,6 +441,8 @@ def _drawboard_ink_command(
     }
     if image_url:
         metadata["contextImageUrl"] = image_url
+    if annotated_page_url:
+        metadata["annotatedPageImageUrl"] = annotated_page_url
     return AnnotationCreateCommand(
         resource_id=resource_id,
         kind="question",
@@ -463,6 +480,7 @@ def collect_resource_pdf_annotations(
             raise PdfAnnotationError(str(error)) from error
         contexts: dict[str, PdfAnnotationContext] = {}
         image_urls: dict[str, str] = {}
+        annotated_page_urls: dict[int, str] = {}
         safe_path: Path | None = None
         if local_path:
             try:
@@ -489,13 +507,41 @@ def collect_resource_pdf_annotations(
                     )
                 except PdfInkImageError:
                     image_urls = {}
+            try:
+                source_annotation_pages = {
+                    item.page for item in cloud_extraction.captures
+                } | {
+                    item.page for item in cloud_extraction.all_ink
+                }
+                question_pages = {
+                    item.page
+                    for item in cloud_extraction.captures
+                    if item.is_question
+                } | {
+                    item.page for item in cloud_extraction.red_ink
+                }
+                review_pages = {
+                    neighboring_page
+                    for page in question_pages
+                    for neighboring_page in (page - 1, page, page + 1)
+                    if neighboring_page in source_annotation_pages
+                }
+                annotated_page_urls = render_annotated_page_images(
+                    safe_path,
+                    resource_id,
+                    review_pages,
+                    captures=cloud_extraction.captures,
+                    page_inks=cloud_extraction.all_ink,
+                )
+            except PdfInkImageError:
+                annotated_page_urls = {}
         counts = {"created": 0, "existing": 0, "updated": 0}
         cloud_kind_counts: dict[str, int] = {}
         for cloud_capture in cloud_extraction.captures:
             context = contexts.get(cloud_capture.fingerprint)
             sync_revision = (
                 f"{cloud_capture.source_revision}:"
-                f"{'pdf-paragraph-context-v1' if context else 'plain-v1'}"
+                f"{'pdf-paragraph-context-v2' if context else 'plain-v1'}"
             )
             command = _drawboard_annotation_command(
                 resource_id,
@@ -503,6 +549,7 @@ def collect_resource_pdf_annotations(
                 cloud_extraction.document_id,
                 cloud_capture,
                 context,
+                annotated_page_urls.get(cloud_capture.page),
                 sync_revision,
             )
             cloud_kind_counts[command.kind] = (
@@ -518,7 +565,7 @@ def collect_resource_pdf_annotations(
             context = contexts.get(ink.fingerprint)
             sync_revision = (
                 f"{ink.source_revision}:"
-                f"{'ink-paragraph-context-v2' if context else 'ink-plain-v4'}:"
+                f"{'ink-paragraph-context-v3' if context else 'ink-plain-v4'}:"
                 f"{INK_RENDERER_VERSION}"
             )
             command = _drawboard_ink_command(
@@ -528,6 +575,7 @@ def collect_resource_pdf_annotations(
                 ink,
                 context,
                 image_urls.get(ink.fingerprint),
+                annotated_page_urls.get(ink.page),
                 sync_revision,
             )
             cloud_kind_counts["question"] = (

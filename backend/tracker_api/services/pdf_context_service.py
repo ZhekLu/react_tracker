@@ -94,6 +94,9 @@ class PdfAnnotationContext:
     paragraph_start_page: int | None = None
     paragraph_end_page: int | None = None
     paragraph_truncated: bool = False
+    page_width: float | None = None
+    page_height: float | None = None
+    page_count: int | None = None
 
 
 def _normalized_text(value: str) -> str:
@@ -681,6 +684,9 @@ def extract_pdf_annotation_contexts(
                 paragraph_start_page=(paragraph.start_page if paragraph else None),
                 paragraph_end_page=(paragraph.end_page if paragraph else None),
                 paragraph_truncated=paragraph_truncated,
+                page_width=float(page.rect.width),
+                page_height=float(page.rect.height),
+                page_count=int(document.page_count),
             )
     finally:
         cast(Any, document).close()

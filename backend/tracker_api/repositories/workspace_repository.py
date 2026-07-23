@@ -430,11 +430,21 @@ def _annotations(
 
 
 def _open_question_count(annotations: Iterable[Annotation]) -> int:
-    return sum(
-        1
-        for annotation in annotations
-        if annotation.kind in {"question", "todo"} and annotation.status == "open"
-    )
+    logical_questions: set[str] = set()
+    for annotation in annotations:
+        if (
+            annotation.kind not in {"question", "todo"}
+            or annotation.status != "open"
+        ):
+            continue
+        metadata = annotation.anchor.metadata if annotation.anchor else {}
+        context_group = metadata.get("contextGroupId")
+        logical_questions.add(
+            f"{annotation.resource_id}:{context_group}"
+            if isinstance(context_group, str) and context_group.strip()
+            else annotation.id
+        )
+    return len(logical_questions)
 
 
 def _annotation_chapter(annotation: Annotation) -> int | None:
@@ -602,11 +612,18 @@ def list_courses(connection: Connection) -> CourseListResponse:
             annotation_stats AS (
               SELECT
                 r.course_id,
-                COUNT(a.id) FILTER (
-                  WHERE a.kind IN ('question', 'todo') AND a.status = 'open'
+                COUNT(
+                  DISTINCT CASE
+                    WHEN a.kind IN ('question', 'todo') AND a.status = 'open'
+                    THEN r.id || ':' || COALESCE(
+                      json_extract(aa.selector_json, '$.contextGroupId'),
+                      a.id
+                    )
+                  END
                 ) AS open_question_count
               FROM annotations a
               JOIN resources r ON r.id = a.resource_id
+              LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
               WHERE a.deleted_at IS NULL AND r.deleted_at IS NULL
               GROUP BY r.course_id
             )

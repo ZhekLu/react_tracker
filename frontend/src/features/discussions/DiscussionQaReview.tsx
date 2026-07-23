@@ -16,9 +16,13 @@ import {
   type CSSProperties,
 } from "react";
 import { createPortal } from "react-dom";
-import { pdfReaderPageUrl } from "../../api/trackerApi";
+import {
+  annotationImageUrl,
+  pdfReaderPageUrl,
+} from "../../api/trackerApi";
 import {
   annotationDisplayText,
+  metadataNumber,
   metadataText,
 } from "../../components/annotations/annotationDisplay";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
@@ -40,6 +44,10 @@ import type {
   DiscussionQuestionRelation,
   Resource,
 } from "../../types/tracker";
+import {
+  qaReviewItems,
+  sourceQuestionForReview,
+} from "./discussionQaReviewModel";
 
 type DiscussionQaReviewProps = {
   course: Course;
@@ -68,29 +76,105 @@ type DiscussionQaReviewProps = {
   ) => void;
 };
 
-type QaReviewItem = {
-  id: string;
-  question?: Annotation;
-  section?: DiscussionQaSection;
-};
+function SourcePageImage({
+  annotated,
+  focusQuestions = [],
+  pageNumber,
+  primaryPageNumber,
+  resourceId,
+}: {
+  annotated: boolean;
+  focusQuestions?: Annotation[];
+  pageNumber: number;
+  primaryPageNumber: number;
+  resourceId: string;
+}) {
+  const [useCleanPage, setUseCleanPage] = useState(!annotated);
+  const representative = focusQuestions[0];
+  const pageWidth = representative
+    ? metadataNumber(representative, "pageWidth")
+    : null;
+  const pageHeight = representative
+    ? metadataNumber(representative, "pageHeight")
+    : null;
+  const focusRects =
+    pageNumber === primaryPageNumber && pageWidth && pageHeight
+      ? focusQuestions
+          .filter(
+            (question) =>
+              question.anchor?.pageNumber === pageNumber &&
+              question.anchor.rect?.length === 4,
+          )
+          .map((question) => {
+            const rect = question.anchor!.rect!;
+            const drawboard = question.origin.startsWith("drawboard_cloud");
+            return {
+              x: rect[0],
+              y: drawboard ? pageHeight - rect[3] : rect[1],
+              width: Math.max(2, rect[2] - rect[0]),
+              height: Math.max(2, rect[3] - rect[1]),
+            };
+          })
+      : [];
+  const annotatedUrl = annotationImageUrl(
+    resourceId,
+    `drawboard-page-${pageNumber}`,
+  );
+  const cleanUrl = pdfReaderPageUrl(resourceId, pageNumber);
+
+  return (
+    <div className="qaSourcePageFrame">
+      <img
+        alt={`Source page ${pageNumber}`}
+        onError={() => {
+          if (!useCleanPage) setUseCleanPage(true);
+        }}
+        src={useCleanPage ? cleanUrl : annotatedUrl}
+      />
+      {focusRects.length && pageWidth && pageHeight ? (
+        <svg
+          aria-hidden="true"
+          className="qaSourceFocus"
+          preserveAspectRatio="none"
+          viewBox={`0 0 ${pageWidth} ${pageHeight}`}
+        >
+          {focusRects.map((rect, index) => (
+            <rect
+              height={rect.height}
+              key={`${rect.x}:${rect.y}:${index}`}
+              rx="3"
+              width={rect.width}
+              x={rect.x}
+              y={rect.y}
+            />
+          ))}
+        </svg>
+      ) : null}
+    </div>
+  );
+}
 
 function SourcePreview({
-  question,
+  questions,
   resource,
 }: {
-  question?: Annotation;
+  questions: Annotation[];
   resource?: Resource;
 }) {
-  const [useFallback, setUseFallback] = useState(false);
+  const question = sourceQuestionForReview(questions);
   const pageNumber = question?.anchor?.pageNumber ?? null;
-  const contextImageUrl = question
-    ? metadataText(question, "contextImageUrl")
-    : "";
-  const fullPageUrl =
-    question && pageNumber
-      ? pdfReaderPageUrl(question.resourceId, pageNumber)
-      : "";
-  const imageUrl = useFallback ? contextImageUrl : fullPageUrl || contextImageUrl;
+  const pageCount =
+    (question ? metadataNumber(question, "pageCount") : null) ??
+    resource?.version?.pageCount ??
+    null;
+  const annotated = questions.some((item) =>
+    Boolean(metadataText(item, "annotatedPageImageUrl")),
+  );
+  const neighboringPages = pageNumber
+    ? [pageNumber - 1, pageNumber, pageNumber + 1].filter(
+        (page) => page >= 1 && (!pageCount || page <= pageCount),
+      )
+    : [];
 
   if (!question) {
     return (
@@ -110,18 +194,34 @@ function SourcePreview({
           {pageNumber ? `p. ${pageNumber}` : "Text context"}
         </strong>
       </header>
-      {imageUrl ? (
-        <div className="qaSourceCanvas">
-          <img
-            alt={`${resource?.title ?? "Question source"}${pageNumber ? `, page ${pageNumber}` : ""}`}
-            key={`${question.id}:${imageUrl}`}
-            onError={() => {
-              if (!useFallback && contextImageUrl && contextImageUrl !== fullPageUrl) {
-                setUseFallback(true);
+      {pageNumber ? (
+        <div className="qaSourcePages">
+          {neighboringPages.map((sourcePage) => (
+            <div
+              className={
+                sourcePage === pageNumber
+                  ? "qaSourcePage current"
+                  : "qaSourcePage neighbor"
               }
-            }}
-            src={imageUrl}
-          />
+              key={sourcePage}
+            >
+              <span>
+                {sourcePage === pageNumber
+                  ? "Current"
+                  : sourcePage < pageNumber
+                    ? "Previous"
+                    : "Next"}{" "}
+                · p. {sourcePage}
+              </span>
+              <SourcePageImage
+                annotated={annotated}
+                focusQuestions={questions}
+                pageNumber={sourcePage}
+                primaryPageNumber={pageNumber}
+                resourceId={question.resourceId}
+              />
+            </div>
+          ))}
         </div>
       ) : (
         <div className="qaSourceText">
@@ -139,39 +239,6 @@ function SourcePreview({
       <footer title={resource?.title}>{resource?.title ?? "Linked resource"}</footer>
     </section>
   );
-}
-
-function sectionItems(
-  sections: DiscussionQaSection[],
-  annotationById: Map<string, Annotation>,
-  discussion: Discussion,
-): QaReviewItem[] {
-  const mappedQuestionIds = new Set<string>();
-  const items = sections.flatMap((section) => {
-    const questions = section.questionIds
-      .map((id) => annotationById.get(id))
-      .filter((item): item is Annotation => Boolean(item));
-    questions.forEach((question) => mappedQuestionIds.add(question.id));
-    return questions.length
-      ? questions.map((question) => ({
-          id: `${section.id}:${question.id}`,
-          question,
-          section,
-        }))
-      : [{ id: `${section.id}:orientation`, section }];
-  });
-  const unmapped = discussion.questionIds
-    .filter((id) => !mappedQuestionIds.has(id))
-    .map((id) => annotationById.get(id))
-    .filter(
-      (item): item is Annotation =>
-        Boolean(item && ["question", "todo"].includes(item.kind)),
-    )
-    .map((question) => ({
-      id: `unmapped:${question.id}`,
-      question,
-    }));
-  return [...items, ...unmapped];
 }
 
 export function DiscussionQaReview({
@@ -233,13 +300,15 @@ export function DiscussionQaReview({
   const [savedPulse, setSavedPulse] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const allItems = useMemo(
-    () => sectionItems(sections, annotationById, discussion),
+    () => qaReviewItems(sections, annotationById, discussion),
     [annotationById, discussion, sections],
   );
   const visibleItems = useMemo(
     () =>
       openQuestionsOnly
-        ? allItems.filter((item) => item.question?.status === "open")
+        ? allItems.filter((item) =>
+            item.questions.some((question) => question.status === "open"),
+          )
         : allItems,
     [allItems, openQuestionsOnly],
   );
@@ -248,18 +317,14 @@ export function DiscussionQaReview({
     Math.min(activeIndex, Math.max(0, visibleItems.length - 1)),
   );
   const activeItem = visibleItems[boundedActiveIndex];
-  const questionItems = allItems.filter(
-    (item): item is QaReviewItem & { question: Annotation } =>
-      Boolean(item.question),
-  );
-  const uniqueQuestions = [
-    ...new Map(questionItems.map((item) => [item.question.id, item.question])).values(),
-  ];
-  const answeredQuestions = uniqueQuestions.filter(
-    (question) => question.status === "answered",
+  const reviewUnits = allItems.filter((item) => item.questions.length);
+  const answeredUnits = reviewUnits.filter(
+    (item) =>
+      item.questions.length > 0 &&
+      item.questions.every((question) => question.status === "answered"),
   ).length;
-  const completionRatio = uniqueQuestions.length
-    ? answeredQuestions / uniqueQuestions.length
+  const completionRatio = reviewUnits.length
+    ? answeredUnits / reviewUnits.length
     : 0;
 
   const reconstructedByMessage = useMemo(
@@ -401,7 +466,7 @@ export function DiscussionQaReview({
             <div>
               <p>{discussion.title}</p>
               <strong>
-                {answeredQuestions}/{uniqueQuestions.length} questions understood
+                {answeredUnits}/{reviewUnits.length} answer groups understood
               </strong>
             </div>
           </div>
@@ -416,9 +481,9 @@ export function DiscussionQaReview({
             </div>
             <div
               aria-label="Questions understood"
-              aria-valuemax={uniqueQuestions.length}
+              aria-valuemax={reviewUnits.length}
               aria-valuemin={0}
-              aria-valuenow={answeredQuestions}
+              aria-valuenow={answeredUnits}
               className="qaReviewProgressTrack"
               role="progressbar"
             >
@@ -467,11 +532,11 @@ export function DiscussionQaReview({
         {activeItem ? (
           <div className="qaReviewWorkspace">
             <SourcePreview
-              key={activeItem.question?.id ?? activeItem.id}
-              question={activeItem.question}
+              key={activeItem.id}
+              questions={activeItem.questions}
               resource={
-                activeItem.question
-                  ? resourceById.get(activeItem.question.resourceId)
+                activeItem.questions[0]
+                  ? resourceById.get(activeItem.questions[0].resourceId)
                   : undefined
               }
             />
@@ -483,49 +548,76 @@ export function DiscussionQaReview({
                   </span>
                   <h2>{activeItem.section?.title ?? "Unmapped question"}</h2>
                 </div>
-                {activeItem.question ? (
+                {activeItem.questions.length ? (
                   <button
                     className={
-                      activeItem.question.status === "answered"
+                      activeItem.questions.every(
+                        (question) => question.status === "answered",
+                      )
                         ? "qaAnsweredToggle answered"
                         : "qaAnsweredToggle"
                     }
                     onClick={() => {
-                      if (activeItem.question?.status === "answered") {
-                        onAnnotationChange(activeItem.question, { status: "open" });
-                      } else if (activeItem.section) {
-                        onQuestionLink(
-                          activeItem.section.messageId,
-                          activeItem.question!.id,
-                          "answers",
-                        );
-                      } else {
-                        onAnnotationChange(activeItem.question!, {
-                          status: "answered",
-                        });
+                      const allAnswered = activeItem.questions.every(
+                        (question) => question.status === "answered",
+                      );
+                      for (const question of activeItem.questions) {
+                        if (allAnswered) {
+                          onAnnotationChange(question, { status: "open" });
+                        } else if (
+                          activeItem.section &&
+                          question.status !== "answered"
+                        ) {
+                          onQuestionLink(
+                            activeItem.section.messageId,
+                            question.id,
+                            "answers",
+                          );
+                        } else if (question.status !== "answered") {
+                          onAnnotationChange(question, { status: "answered" });
+                        }
                       }
                     }}
                     type="button"
                   >
-                    {activeItem.question.status === "answered" ? (
+                    {activeItem.questions.every(
+                      (question) => question.status === "answered",
+                    ) ? (
                       <CheckCircle2 size={15} />
                     ) : (
                       <Circle size={15} />
                     )}
-                    {activeItem.question.status === "answered"
+                    {activeItem.questions.every(
+                      (question) => question.status === "answered",
+                    )
                       ? "Understood"
                       : "Mark understood"}
                   </button>
                 ) : null}
               </header>
-              {activeItem.question ? (
+              {activeItem.questions.length ? (
                 <section className="qaQuestionPrompt">
                   <span>
                     <CircleHelp size={13} /> Original question
+                    {activeItem.questions.length > 1
+                      ? ` · ${activeItem.questions.length} linked captures`
+                      : ""}
                   </span>
-                  <MarkdownMath>
-                    {annotationDisplayText(activeItem.question)}
-                  </MarkdownMath>
+                  {(
+                    activeItem.questions.filter(
+                      (question) =>
+                        !annotationDisplayText(question).startsWith("Screenshot ·"),
+                    ).length
+                      ? activeItem.questions.filter(
+                          (question) =>
+                            !annotationDisplayText(question).startsWith("Screenshot ·"),
+                        )
+                      : activeItem.questions.slice(0, 1)
+                  ).map((question) => (
+                    <MarkdownMath key={question.id}>
+                      {annotationDisplayText(question)}
+                    </MarkdownMath>
+                  ))}
                 </section>
               ) : null}
               {activeItem.section ? (

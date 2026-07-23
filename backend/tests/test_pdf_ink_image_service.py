@@ -17,6 +17,7 @@ from tracker_api.services.pdf_ink_image_service import (
     _blend_opacities,
     _ink_coordinate_paths,
     _ink_outline_paths,
+    render_annotated_page_images,
     render_ink_context_images,
 )
 
@@ -285,6 +286,68 @@ def test_handwriting_image_contains_nearby_ink_and_highlights(
 
     assert any(red > 180 and green < 150 for red, green, _blue in pixels)
     assert any(blue > 180 and red < 150 for red, _green, blue in pixels)
+    assert any(
+        red > 210 and green > 190 and blue < 245
+        for red, green, blue in pixels
+    )
+    get_settings.cache_clear()
+
+
+def test_complete_annotated_page_preserves_highlight_and_ink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_path = tmp_path / "source.pdf"
+    document = pymupdf.open()
+    page = document.new_page(width=200, height=200)
+    page.insert_text((20, 100), "Readable source text", fontsize=14)
+    document.save(source_path)
+    document.close()
+
+    monkeypatch.setenv(
+        "TRACKER_ANNOTATION_IMAGE_DIR",
+        str(tmp_path / "annotation-images"),
+    )
+    get_settings.cache_clear()
+    red_ink = _ink("red-ink", [15.0, 60.0, 95.0, 82.0])
+    highlight = DrawboardCapture(
+        fingerprint="highlight",
+        source_revision="capture-1",
+        page=1,
+        annotation_kind="TextHighlight",
+        color="yellow",
+        rgb=[1.0, 0.82, 0.1],
+        quote="Readable source text",
+        comment="",
+        is_question=False,
+        created_at="2026-07-10T10:00:00Z",
+        rect=[18.0, 92.0, 155.0, 112.0],
+    )
+
+    urls = render_annotated_page_images(
+        source_path,
+        "resource-1",
+        [1],
+        captures=[highlight],
+        page_inks=[red_ink],
+        scale=2,
+        stroke_width=2,
+    )
+
+    assert 1 in urls
+    output = (
+        tmp_path
+        / "annotation-images"
+        / "resource-1"
+        / "drawboard-page-1.png"
+    )
+    assert output.is_file()
+    pixmap = pymupdf.Pixmap(output)
+    pixels = [
+        tuple(pixmap.samples[index : index + pixmap.n])
+        for index in range(0, len(pixmap.samples), pixmap.n)
+    ]
+    assert any(red > 180 and green < 150 for red, green, _blue in pixels)
     assert any(
         red > 210 and green > 190 and blue < 245
         for red, green, blue in pixels

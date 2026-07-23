@@ -27,9 +27,16 @@ export type ReconstructedQaMessage = {
 };
 
 function annotationText(annotation: Annotation): string {
-  return (
+  const body =
     annotation.body?.markdown ||
     annotation.body?.plainText ||
+    "";
+  const selectedContext =
+    annotation.origin === "discussion_review_followup"
+      ? annotation.anchor?.quote ?? ""
+      : "";
+  return (
+    [selectedContext, body].filter(Boolean).join("\n\n") ||
     annotation.anchor?.quote ||
     "Question without text"
   );
@@ -103,10 +110,16 @@ export function discussionQaSections(
         },
       ];
     }
+    const ordinaryQuestions = questions.filter(
+      (question) => question.origin !== "discussion_review_followup",
+    );
+    const followupQuestions = questions.filter(
+      (question) => question.origin === "discussion_review_followup",
+    );
     const questionIdsByLabel = new Map(
       matchAnswerSectionsToQuestions(
         parsed.sections,
-        questions.map((question) => ({
+        ordinaryQuestions.map((question) => ({
           id: question.id,
           text: annotationText(question),
         })),
@@ -114,6 +127,19 @@ export function discussionQaSections(
           parsed.sections.every((section) => section.labels.length > 0),
       ).map((match) => [match.sectionLabel, match.questionIds]),
     );
+    for (const followup of followupQuestions) {
+      const followupMatch = matchAnswerSectionsToQuestions(
+        parsed.sections,
+        [{ id: followup.id, text: annotationText(followup) }],
+        false,
+      )[0];
+      if (!followupMatch) continue;
+      const existing = questionIdsByLabel.get(followupMatch.sectionLabel) ?? [];
+      questionIdsByLabel.set(
+        followupMatch.sectionLabel,
+        [...existing, followup.id],
+      );
+    }
     const sections: DiscussionQaSection[] = [];
     if (parsed.preamble) {
       sections.push({

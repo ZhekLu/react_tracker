@@ -90,4 +90,40 @@ describe("discussion QA review model", () => {
       rebuilt.sectionBodyOffsets.get(sections[0].id) ?? -1,
     );
   });
+
+  it("maps review follow-ups back to the answer section containing their excerpt", () => {
+    const followup = {
+      anchor: {
+        discussionMessageId: "message",
+        metadata: {},
+        quote: "ties need a stable deterministic rule",
+      },
+      body: { markdown: "Why does changing a tie break matter?" },
+      createdAt: "2026-07-10T10:02:00Z",
+      id: "followup",
+      kind: "question",
+      origin: "discussion_review_followup",
+      resourceId: "book",
+      status: "open",
+    } as Annotation;
+    const withFollowup = {
+      ...discussion,
+      messages: discussion.messages.map((message) => ({
+        ...message,
+        annotationLinks: [
+          ...message.annotationLinks,
+          { annotationId: followup.id, relation: "followup_to" as const },
+        ],
+        body: {
+          ...message.body,
+          markdown: `${message.body.markdown}\n\nThe ties need a stable deterministic rule.`,
+        },
+      })),
+      questionIds: [...discussion.questionIds, followup.id],
+    } as Discussion;
+
+    const sections = discussionQaSections(withFollowup, [...questions, followup]);
+
+    expect(sections.at(-1)?.questionIds).toContain(followup.id);
+  });
 });
