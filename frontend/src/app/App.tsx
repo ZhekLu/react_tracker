@@ -1021,7 +1021,7 @@ export function App() {
     void runMutation(async () => {
       const bundle = await prepareExerciseScreenshots(task.id);
       const warningText = bundle.warnings.length
-        ? ` ${bundle.warnings.length} exercise${bundle.warnings.length === 1 ? "" : "s"} need attention.`
+        ? ` ${bundle.warnings.join(" ")}`
         : "";
       setActionMessage(
         `${bundle.screenshots.length} handwritten solution screenshot${
