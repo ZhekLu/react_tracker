@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import shlex
 import shutil
+import signal
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -93,8 +95,9 @@ def start() -> None:
         health()
         return
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    script_path = Path(__file__).resolve()
     command = (
-        f"exec {shlex.quote(str(PYTHON))} -m tracker_api.main"
+        f"exec {shlex.quote(sys.executable)} {shlex.quote(str(script_path))} run"
         f" >> {shlex.quote(str(LOG_PATH))} 2>&1"
     )
     run_tmux(
@@ -154,11 +157,42 @@ def attach() -> None:
     run_tmux("attach-session", "-t", SESSION)
 
 
+def run_server() -> None:
+    """Supervise the single app process inside tmux and restart after a crash."""
+
+    stopping = False
+    child: subprocess.Popen[str] | None = None
+
+    def request_stop(_signum: int, _frame: object) -> None:
+        nonlocal stopping
+        stopping = True
+        if child is not None and child.poll() is None:
+            child.send_signal(signal.SIGINT)
+
+    signal.signal(signal.SIGINT, request_stop)
+    signal.signal(signal.SIGTERM, request_stop)
+    while not stopping:
+        child = subprocess.Popen(
+            [str(PYTHON), "-m", "tracker_api.main"],
+            cwd=BACKEND,
+            text=True,
+        )
+        return_code = child.wait()
+        child = None
+        if stopping:
+            break
+        print(
+            f"Tracker exited with code {return_code}; restarting in 2 seconds.",
+            flush=True,
+        )
+        time.sleep(2.0)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("start", "stop", "restart", "status", "attach"),
+        choices=("start", "stop", "restart", "status", "attach", "run"),
     )
     return parser.parse_args()
 
@@ -176,6 +210,8 @@ def main() -> int:
             status()
         elif args.command == "attach":
             attach()
+        elif args.command == "run":
+            run_server()
         else:
             raise AssertionError(f"Unhandled command: {args.command}")
     except (OSError, subprocess.CalledProcessError, ServiceError) as error:

@@ -48,8 +48,8 @@ The always-on process uses one named `tmux` session. It has much less idle
 overhead and rebuild cost than Docker for this single-user local app, retains
 macOS permission to read course files under `Documents`, and gives us clean
 start/stop/restart/status semantics without PID files or broad `kill` commands.
-The session survives terminal windows closing; after a Mac reboot, run
-`make service-start` once.
+The session survives terminal windows closing and restarts the app process after
+a crash. After a Mac reboot, run `make service-start` once.
 
 Normal maintenance:
 
