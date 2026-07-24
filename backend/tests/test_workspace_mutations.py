@@ -454,6 +454,78 @@ def test_prompt_discussion_tracks_question_coverage_and_answer_state(
     assert followup.id in after.discussions[0].question_ids
 
 
+def test_prompt_discussion_skips_annotations_deleted_after_prompt_creation(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        current_question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Current question",
+            ),
+        )
+        deleted_question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Question removed during a later PDF sync",
+            ),
+        )
+        batch = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Question snapshot",
+                source_scope="resource_questions",
+                source_resource_id=resource_id,
+                markdown="# Questions",
+                annotation_ids=[current_question.id, deleted_question.id],
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+                initial_prompt_batch_id=batch.id,
+            ),
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE annotations
+                SET deleted_at = '2026-07-24T00:00:00Z'
+                WHERE id = :annotation_id
+                """
+            ),
+            {"annotation_id": deleted_question.id},
+        )
+
+        message = create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown="An answer imported after the PDF was resynced.",
+                link_prompt_questions=True,
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+
+    stored_message = next(
+        item
+        for item in workspace.discussions[0].messages
+        if item.id == message.id
+    )
+    assert [link.annotation_id for link in stored_message.annotation_links] == [
+        current_question.id
+    ]
+
+
 def test_reviewing_message_saves_selection_followups_and_math_highlights(
     tmp_path: Path,
 ) -> None:

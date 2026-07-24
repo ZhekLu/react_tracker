@@ -3450,13 +3450,21 @@ def create_discussion_message(
             for annotation_id in connection.execute(
                 text(
                     """
-                    SELECT annotation_id
-                    FROM prompt_batch_items
-                    WHERE prompt_batch_id = :prompt_batch_id
-                    ORDER BY order_index
+                    SELECT pbi.annotation_id
+                    FROM prompt_batch_items pbi
+                    JOIN annotations a ON a.id = pbi.annotation_id
+                    JOIN resources r ON r.id = a.resource_id
+                    WHERE pbi.prompt_batch_id = :prompt_batch_id
+                      AND a.deleted_at IS NULL
+                      AND r.deleted_at IS NULL
+                      AND r.course_id = :course_id
+                    ORDER BY pbi.order_index
                     """
                 ),
-                {"prompt_batch_id": thread["initial_prompt_batch_id"]},
+                {
+                    "prompt_batch_id": thread["initial_prompt_batch_id"],
+                    "course_id": thread["course_id"],
+                },
             ).scalars()
             if str(annotation_id) not in included
         )
