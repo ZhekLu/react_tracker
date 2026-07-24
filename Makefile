@@ -6,14 +6,14 @@ FRONTEND := $(ROOT)/frontend
 UV ?= uv
 UV_CACHE_DIR ?= /private/tmp/study-tracker-uv-cache
 UV_RUN := UV_CACHE_DIR=$(UV_CACHE_DIR) $(UV)
-SERVICE := $(ROOT)/scripts/macos_service.py
+SERVICE := $(ROOT)/scripts/service.py
 SERVICE_PYTHON ?= python3
 
 .PHONY: help install backend-install frontend-install build serve app dev-api dev-ui \
 	migrate plan-validate plan-sync plan-update plan-patch plan-inspect backup \
 	backend-check test frontend-test lint check service-install service-start \
 	service-stop service-restart service-status service-uninstall rebuild update \
-	logs logs-once health
+	service-attach logs logs-once health
 
 help:
 	@echo "React Study Tracker"
@@ -24,11 +24,11 @@ help:
 	@echo "  make dev-api          Run the API for active development"
 	@echo "  make dev-ui           Run Vite with hot reload"
 	@echo "  make check            Run backend and frontend checks"
-	@echo "  make service-install  Install/start the lightweight macOS login service"
-	@echo "  make service-stop     Stop and unload the macOS service"
-	@echo "  make service-start    Load and start the macOS service"
-	@echo "  make service-restart  Restart through launchd (no PID handling)"
-	@echo "  make service-status   Show launchd state and HTTP health"
+	@echo "  make service-install  Start the persistent named tmux service"
+	@echo "  make service-stop     Stop the named service"
+	@echo "  make service-start    Start the named service"
+	@echo "  make service-restart  Restart through tmux (no PID handling)"
+	@echo "  make service-status   Show tmux state and HTTP health"
 	@echo "  make rebuild          Rebuild frontend and restart the service"
 	@echo "  make update           Sync locked deps, rebuild, and restart"
 	@echo "  make logs             Follow service logs"
@@ -103,7 +103,7 @@ lint:
 check: backend-check test frontend-test lint build
 
 service-install:
-	$(SERVICE_PYTHON) $(SERVICE) install
+	$(SERVICE_PYTHON) $(SERVICE) start
 
 service-start:
 	$(SERVICE_PYTHON) $(SERVICE) start
@@ -118,7 +118,10 @@ service-status:
 	$(SERVICE_PYTHON) $(SERVICE) status
 
 service-uninstall:
-	$(SERVICE_PYTHON) $(SERVICE) uninstall
+	$(SERVICE_PYTHON) $(SERVICE) stop
+
+service-attach:
+	$(SERVICE_PYTHON) $(SERVICE) attach
 
 rebuild: build service-restart
 
@@ -126,12 +129,10 @@ update: backend-install frontend-install build service-restart
 
 logs:
 	@mkdir -p "$(ROOT)/data/logs"
-	tail -n 100 -F "$(ROOT)/data/logs/tracker.stdout.log" \
-		"$(ROOT)/data/logs/tracker.stderr.log"
+	tail -n 100 -F "$(ROOT)/data/logs/tracker.log"
 
 logs-once:
-	@tail -n 100 "$(ROOT)/data/logs/tracker.stdout.log" \
-		"$(ROOT)/data/logs/tracker.stderr.log" 2>/dev/null || true
+	@tail -n 100 "$(ROOT)/data/logs/tracker.log" 2>/dev/null || true
 
 health:
 	curl -fsS http://127.0.0.1:8787/api/health

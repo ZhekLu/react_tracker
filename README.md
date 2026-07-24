@@ -23,7 +23,7 @@ react_tracker/
   backend/           FastAPI + SQLite backend managed by uv
   data/              Machine-local database, credentials, logs, and screenshots
   docs/              migration notes and architecture decisions
-  scripts/           macOS launchd service management
+  scripts/           Persistent local service management
 ```
 
 ## Install and run
@@ -44,19 +44,22 @@ Open `http://127.0.0.1:8787`. FastAPI serves both the API and the built React
 frontend. PDF collection and Toggl controls live in that same process, so this
 app does not need a separate Toggl helper server.
 
-The always-on installation uses the native macOS `launchd` supervisor. It has
-less idle overhead than Docker for this single-user local app, starts at login,
-restarts after a crash, owns the process lifecycle, and does not use PID files
-or broad `kill` commands.
+The always-on process uses one named `tmux` session. It has much less idle
+overhead and rebuild cost than Docker for this single-user local app, retains
+macOS permission to read course files under `Documents`, and gives us clean
+start/stop/restart/status semantics without PID files or broad `kill` commands.
+The session survives terminal windows closing; after a Mac reboot, run
+`make service-start` once.
 
 Normal maintenance:
 
 ```sh
-make service-status       # launchd state plus /api/health
+make service-status       # named session state plus /api/health
 make service-restart      # restart without rebuilding
 make rebuild              # rebuild the UI and restart
 make update               # sync locked deps, rebuild, restart
 make logs                 # follow stdout/stderr
+make service-attach       # inspect the live tmux pane
 make service-stop
 make service-start
 ```
