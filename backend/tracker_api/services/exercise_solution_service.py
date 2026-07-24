@@ -57,17 +57,28 @@ class ExerciseLocation:
     rect: tuple[float, float, float, float]
 
 
+@dataclass(frozen=True, slots=True)
+class ExercisePageSegment:
+    page: int
+    top: float
+    bottom: float
+
+
 def _task_resource_ids(connection: Connection, task_id: str) -> tuple[str, list[str]]:
-    task = connection.execute(
-        text(
-            """
+    task = (
+        connection.execute(
+            text(
+                """
             SELECT title
             FROM tasks
             WHERE id = :task_id AND deleted_at IS NULL
             """
-        ),
-        {"task_id": task_id},
-    ).mappings().first()
+            ),
+            {"task_id": task_id},
+        )
+        .mappings()
+        .first()
+    )
     if task is None:
         raise ExerciseSolutionError("Task does not exist.")
     resource_ids = [
@@ -124,12 +135,63 @@ def _intersects_vertical(rect: list[float], top: float, bottom: float) -> bool:
     return len(rect) == 4 and min(rect[3], bottom) > max(rect[1], top)
 
 
+def _exercise_page_segments(
+    location: ExerciseLocation,
+    next_location: ExerciseLocation | None,
+    *,
+    page_heights: list[float],
+) -> list[ExercisePageSegment]:
+    """Return the complete printed interval owned by an exercise.
+
+    Drawboard page numbers and ``ExerciseLocation.page`` are one-based.  An
+    exercise owns everything from its heading to the next printed Exercise
+    heading, including continuation pages.
+    """
+
+    final_page = next_location.page if next_location is not None else len(page_heights)
+    segments: list[ExercisePageSegment] = []
+    for page_number in range(location.page, final_page + 1):
+        top = location.rect[1] if page_number == location.page else 0.0
+        bottom = page_heights[page_number - 1]
+        if next_location is not None and page_number == next_location.page:
+            bottom = next_location.rect[1]
+        if bottom > top:
+            segments.append(
+                ExercisePageSegment(
+                    page=page_number,
+                    top=top,
+                    bottom=bottom,
+                )
+            )
+    return segments
+
+
+def _segment_inks(
+    inks: list[DrawboardInk],
+    segment: ExercisePageSegment,
+    *,
+    page_height: float,
+) -> list[DrawboardInk]:
+    return [
+        item
+        for item in inks
+        if item.page == segment.page
+        and _intersects_vertical(
+            _ink_pdf_rect(item, page_height),
+            segment.top,
+            segment.bottom,
+        )
+    ]
+
+
 def _overlapping_ink_groups(
     inks: list[DrawboardInk],
     *,
     page_height: float,
     tolerance: float = 12.0,
 ) -> list[list[DrawboardInk]]:
+    """Group marks that share a vertical band, as handwritten answers do."""
+
     remaining = sorted(
         inks,
         key=lambda item: _ink_pdf_rect(item, page_height)[1],
@@ -157,52 +219,48 @@ def _overlapping_ink_groups(
     return groups
 
 
-def _best_solution_group(
+def _group_vertical_bounds(
+    group: list[DrawboardInk],
+    *,
+    page_height: float,
+) -> tuple[float, float]:
+    rects = [_ink_pdf_rect(item, page_height) for item in group]
+    return (
+        min(rect[1] for rect in rects),
+        max(rect[3] for rect in rects),
+    )
+
+
+def _solution_group_at_band(
     inks: list[DrawboardInk],
     *,
     page_height: float,
-    segment_top: float,
-    segment_bottom: float,
-    continuation_page: bool,
+    band_top: float,
+    band_bottom: float,
+    tolerance: float = 14.0,
 ) -> list[DrawboardInk]:
-    eligible = [
-        item
-        for item in inks
-        if _intersects_vertical(
-            _ink_pdf_rect(item, page_height),
-            segment_top,
-            segment_bottom,
-        )
-    ]
     groups = _overlapping_ink_groups(
-        eligible,
+        inks,
         page_height=page_height,
     )
-    if not groups:
-        return []
-
-    def group_score(group: list[DrawboardInk]) -> tuple[float, float]:
-        rects = [_ink_pdf_rect(item, page_height) for item in group]
-        top = min(rect[1] for rect in rects)
-        bottom = max(rect[3] for rect in rects)
-        distance = max(0.0, top - segment_top)
-        span = bottom - top
-        # The solution normally starts beside or just below the Exercise
-        # heading. Prefer that nearby band; within it, prefer the largest
-        # vertically connected handwriting group.
-        return (-distance + min(span, 180.0) * 0.35, span)
-
-    nearby_limit = segment_top + (220.0 if continuation_page else 280.0)
-    nearby = [
+    touching = [
         group
         for group in groups
-        if min(
-            _ink_pdf_rect(item, page_height)[1]
-            for item in group
+        if (
+            _group_vertical_bounds(group, page_height=page_height)[0] <= band_bottom + tolerance
+            and _group_vertical_bounds(group, page_height=page_height)[1] >= band_top - tolerance
         )
-        <= nearby_limit
     ]
-    return max(nearby or groups, key=group_score)
+    if not touching:
+        return []
+    return max(
+        touching,
+        key=lambda group: (
+            _group_vertical_bounds(group, page_height=page_height)[1]
+            - _group_vertical_bounds(group, page_height=page_height)[0],
+            len(group),
+        ),
+    )
 
 
 def _synthetic_crop_ink(
@@ -218,9 +276,7 @@ def _synthetic_crop_ink(
     safe_exercise = exercise.replace(".", "-")
     return DrawboardInk(
         fingerprint=f"exercise-{task_id}-{safe_exercise}-p{page}",
-        source_revision=":".join(
-            sorted(item.source_revision for item in member_inks)
-        ),
+        source_revision=":".join(sorted(item.source_revision for item in member_inks)),
         page=page,
         color="red",
         rgb=[1.0, 0.1, 0.2],
@@ -228,9 +284,7 @@ def _synthetic_crop_ink(
         rect=[0.0, page_height - bottom, 1.0, page_height - top],
         ink_vertex_sets=(),
         member_fingerprints=tuple(
-            fingerprint
-            for item in member_inks
-            for fingerprint in item.member_fingerprints
+            fingerprint for item in member_inks for fingerprint in item.member_fingerprints
         ),
     )
 
@@ -288,6 +342,7 @@ def prepare_exercise_solution_screenshots(
         locations = _exercise_locations(document)
         location_by_number = {item.number: item for item in locations}
         all_ink = list(extraction.all_ink)
+        page_heights = [float(document[index].rect.height) for index in range(document.page_count)]
         for exercise in requested:
             location = location_by_number.get(exercise)
             if location is None:
@@ -295,90 +350,104 @@ def prepare_exercise_solution_screenshots(
                 continue
             location_index = locations.index(location)
             next_location = (
-                locations[location_index + 1]
-                if location_index + 1 < len(locations)
-                else None
+                locations[location_index + 1] if location_index + 1 < len(locations) else None
             )
-            selected_group: tuple[int, float, float, list[DrawboardInk]] | None = None
-            # A solution is deliberately written beside its exercise. Do not
-            # borrow unrelated reading notes from later pages merely because
-            # the next printed Exercise heading is several pages away.
-            for page_number in [location.page]:
-                page = document[page_number - 1]
-                top = location.rect[1] if page_number == location.page else 0.0
-                bottom = (
-                    next_location.rect[1]
-                    if next_location is not None and page_number == next_location.page
-                    else float(page.rect.height)
-                )
-                page_ink = _best_solution_group(
-                    [
-                        item
-                        for item in all_ink
-                        if item.page == page_number
-                    ],
-                    page_height=float(page.rect.height),
-                    segment_top=top,
-                    segment_bottom=bottom,
-                    continuation_page=False,
-                )
-                if not page_ink:
-                    continue
-                selected_group = (page_number, top, bottom, page_ink)
-                break
-
-            if selected_group is None:
-                warnings.append(
-                    f"Exercise {exercise}: no handwriting was found before the next exercise."
-                )
+            segments = _exercise_page_segments(
+                location,
+                next_location,
+                page_heights=page_heights,
+            )
+            first_segment = segments[0]
+            first_page_height = page_heights[first_segment.page - 1]
+            first_page_ink = _solution_group_at_band(
+                _segment_inks(
+                    all_ink,
+                    first_segment,
+                    page_height=first_page_height,
+                ),
+                page_height=first_page_height,
+                band_top=location.rect[1],
+                band_bottom=location.rect[3],
+            )
+            if not first_page_ink:
+                warnings.append(f"Exercise {exercise}: no handwriting mark touches its heading.")
                 continue
 
-            page_number, top, bottom, page_ink = selected_group
-            page = document[page_number - 1]
-            ink_rects = [
-                _ink_pdf_rect(item, float(page.rect.height))
-                for item in page_ink
+            selected_segments: list[tuple[ExercisePageSegment, list[DrawboardInk]]] = [
+                (first_segment, first_page_ink)
             ]
-            group_top = min(rect[1] for rect in ink_rects)
-            group_bottom = max(rect[3] for rect in ink_rects)
-            crop_top = (
-                min(top, group_top)
-                if page_number == location.page
-                else group_top
-            )
-            crop_bottom = min(bottom, group_bottom + 18.0)
-            crop = _synthetic_crop_ink(
-                task_id=task_id,
-                exercise=exercise,
-                page=page_number,
-                page_height=float(page.rect.height),
-                top=max(0.0, crop_top - 5.0),
-                bottom=crop_bottom,
-                member_inks=page_ink,
-            )
-            try:
-                render_ink_context_images(
-                    source_path,
-                    extraction.document_id,
-                    [crop],
-                    captures=extraction.captures,
-                    page_inks=extraction.all_ink,
-                    margin=16.0,
-                    scale=4.0,
+            current_group = first_page_ink
+            for segment in segments[1:]:
+                previous_segment = selected_segments[-1][0]
+                previous_height = page_heights[previous_segment.page - 1]
+                _previous_top, previous_bottom = _group_vertical_bounds(
+                    current_group,
+                    page_height=previous_height,
                 )
-            except PdfInkImageError as error:
-                warnings.append(f"Exercise {exercise}: {error}")
-                continue
-            rendered_paths.append(
-                (
-                    exercise,
-                    page_number,
-                    annotation_image_path(
-                        extraction.document_id,
-                        crop.fingerprint,
+                if (
+                    previous_segment.bottom < previous_height - 0.5
+                    or previous_bottom < previous_height - 14.0
+                ):
+                    break
+                page_height = page_heights[segment.page - 1]
+                continuation = _solution_group_at_band(
+                    _segment_inks(
+                        all_ink,
+                        segment,
+                        page_height=page_height,
                     ),
+                    page_height=page_height,
+                    band_top=0.0,
+                    band_bottom=14.0,
                 )
-            )
+                if not continuation:
+                    break
+                selected_segments.append((segment, continuation))
+                current_group = continuation
+
+            for segment, page_ink in selected_segments:
+                page_height = page_heights[segment.page - 1]
+                ink_top, ink_bottom = _group_vertical_bounds(
+                    page_ink,
+                    page_height=page_height,
+                )
+                crop_top = min(segment.top, ink_top) if segment.page == location.page else ink_top
+                hard_bottom = (
+                    segment.bottom - 6.0 if segment.bottom < page_height - 0.5 else segment.bottom
+                )
+                crop_bottom = min(hard_bottom, ink_bottom + 18.0)
+                crop = _synthetic_crop_ink(
+                    task_id=task_id,
+                    exercise=exercise,
+                    page=segment.page,
+                    page_height=page_height,
+                    top=max(0.0, crop_top),
+                    bottom=crop_bottom,
+                    member_inks=page_ink,
+                )
+                try:
+                    render_ink_context_images(
+                        source_path,
+                        extraction.document_id,
+                        [crop],
+                        captures=extraction.captures,
+                        page_inks=extraction.all_ink,
+                        margin=6.0,
+                        scale=4.0,
+                    )
+                except PdfInkImageError as error:
+                    warnings.append(f"Exercise {exercise}, page {segment.page}: {error}")
+                    continue
+                rendered_paths.append(
+                    (
+                        exercise,
+                        segment.page,
+                        annotation_image_path(
+                            extraction.document_id,
+                            crop.fingerprint,
+                        ),
+                    )
+                )
     finally:
         document.close()
 
