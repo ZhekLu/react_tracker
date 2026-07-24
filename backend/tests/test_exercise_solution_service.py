@@ -7,6 +7,7 @@ from tracker_api.services.exercise_solution_service import (
     _exercise_page_segments,
     _segment_inks,
     _solution_group_at_band,
+    exercise_chapters,
     exercise_numbers,
 )
 
@@ -22,6 +23,12 @@ def test_exercise_numbers_follow_task_order_and_remove_duplicates() -> None:
 
 def test_non_exercise_decimal_numbers_are_not_treated_as_exercises() -> None:
     assert exercise_numbers("Read Sections 5.1-5.4") == []
+
+
+def test_exercise_chapters_expand_task_numbers_to_unique_book_chapters() -> None:
+    assert exercise_chapters(
+        "Solve Exercises 5.3, 5.5, 5.10, and optional Exercise 6.2"
+    ) == ["5", "6"]
 
 
 def test_exercise_segments_span_continuation_pages_until_next_heading() -> None:

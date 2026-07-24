@@ -106,6 +106,12 @@ def exercise_numbers(task_title: str) -> list[str]:
     return list(dict.fromkeys(EXERCISE_NUMBER.findall(task_title)))
 
 
+def exercise_chapters(task_title: str) -> list[str]:
+    return list(
+        dict.fromkeys(number.partition(".")[0] for number in exercise_numbers(task_title))
+    )
+
+
 def _exercise_locations(document: Any) -> list[ExerciseLocation]:
     locations: list[ExerciseLocation] = []
     for page_index in range(document.page_count):
@@ -293,11 +299,11 @@ def prepare_exercise_solution_screenshots(
     connection: Connection,
     task_id: str,
 ) -> ExerciseScreenshotBundle:
-    """Render all handwritten solutions linked to exercise numbers in a task."""
+    """Render every handwritten exercise solution in the task's book chapter."""
 
     task_title, resource_ids = _task_resource_ids(connection, task_id)
-    requested = exercise_numbers(task_title)
-    if not requested:
+    requested_chapters = exercise_chapters(task_title)
+    if not requested_chapters:
         raise ExerciseSolutionError(
             "The task title does not contain exercise numbers such as 5.3 or 5.10."
         )
@@ -338,16 +344,23 @@ def prepare_exercise_solution_screenshots(
     warnings: list[str] = []
     screenshots: list[ExerciseScreenshot] = []
     rendered_paths: list[tuple[str, int, Path]] = []
+    detected_exercises: list[str] = []
     try:
         locations = _exercise_locations(document)
-        location_by_number = {item.number: item for item in locations}
+        chapter_locations = [
+            location
+            for location in locations
+            if location.number.partition(".")[0] in requested_chapters
+        ]
+        if not chapter_locations:
+            chapter_labels = ", ".join(requested_chapters)
+            raise ExerciseSolutionError(
+                f"No exercise headings were found for chapter {chapter_labels}."
+            )
         all_ink = list(extraction.all_ink)
         page_heights = [float(document[index].rect.height) for index in range(document.page_count)]
-        for exercise in requested:
-            location = location_by_number.get(exercise)
-            if location is None:
-                warnings.append(f"Exercise {exercise}: header was not found in the PDF.")
-                continue
+        for location in chapter_locations:
+            exercise = location.number
             location_index = locations.index(location)
             next_location = (
                 locations[location_index + 1] if location_index + 1 < len(locations) else None
@@ -370,9 +383,9 @@ def prepare_exercise_solution_screenshots(
                 band_bottom=location.rect[3],
             )
             if not first_page_ink:
-                warnings.append(f"Exercise {exercise}: no handwriting mark touches its heading.")
                 continue
 
+            detected_exercises.append(exercise)
             selected_segments: list[tuple[ExercisePageSegment, list[DrawboardInk]]] = [
                 (first_segment, first_page_ink)
             ]
@@ -411,7 +424,11 @@ def prepare_exercise_solution_screenshots(
                     page_ink,
                     page_height=page_height,
                 )
-                crop_top = min(segment.top, ink_top) if segment.page == location.page else ink_top
+                crop_top = (
+                    min(segment.bottom, segment.top + 6.0)
+                    if segment.page == location.page
+                    else ink_top
+                )
                 hard_bottom = (
                     segment.bottom - 6.0 if segment.bottom < page_height - 0.5 else segment.bottom
                 )
@@ -451,6 +468,13 @@ def prepare_exercise_solution_screenshots(
     finally:
         document.close()
 
+    if not rendered_paths:
+        chapter_labels = ", ".join(requested_chapters)
+        warnings.append(
+            "No handwriting connected to an exercise heading was found in "
+            f"chapter {chapter_labels}."
+        )
+
     destination = get_settings().chatgpt_attachment_dir.expanduser().resolve()
     with ATTACHMENT_LOCK:
         destination.mkdir(parents=True, exist_ok=True)
@@ -476,6 +500,7 @@ def prepare_exercise_solution_screenshots(
             "",
             f"Task: {task_title}",
             f"Source: {resource_title}",
+            f"Chapter: {', '.join(requested_chapters)}",
             "",
             *[
                 f"- `{item.name}` — Exercise {item.exercise}, PDF page {item.page}"
@@ -491,7 +516,7 @@ def prepare_exercise_solution_screenshots(
 
     return ExerciseScreenshotBundle(
         directory=str(destination),
-        exercises=requested,
+        exercises=list(dict.fromkeys(detected_exercises)),
         screenshots=screenshots,
         warnings=warnings,
     )

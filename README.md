@@ -386,11 +386,13 @@ The directory itself is no longer deleted, so Finder tags (including your red
 tag) and folder-level metadata survive while stale attachment files are removed.
 
 Book tasks whose title names exercises expose **Screenshot solutions**. This
-locates each exact exercise heading, joins the vertically connected Drawboard
-handwriting that belongs to it, and writes high-resolution full-width crops to
-the same ChatGPT attachment directory. An exercise without nearby handwriting
-is skipped with an explicit warning, which prevents a later exercise's notes
-from being attached by mistake.
+uses the task's exercise numbers to identify the book chapter, scans every
+exercise in that chapter, and exports each exercise whose Drawboard handwriting
+connects to its heading. The vertically connected handwriting defines the
+solution bounds, including a continuation that touches the top of the next
+page. High-resolution full-width crops are written to the same ChatGPT
+attachment directory. Unmarked exercises are skipped silently, so doing extra
+chapter exercises includes them without attaching unrelated reading notes.
 
 ### Keyboard-first lecture reader
 
