@@ -3,49 +3,81 @@
 For the keyboard-first study loop and current interaction conventions, see
 [UI_WORKFLOWS.md](UI_WORKFLOWS.md).
 
-This is the next-generation tracker app. It is intentionally separate from the
-stable generated `../tracker.html` workflow.
+This repository is the full tracker application. Its source history and runtime
+are independent from the legacy generated `tracker.html` project in the parent
+directory.
 
 Goals:
 
-- Keep `tracker.html` working while the React app is built feature by feature.
-- Move UI state and study progress toward a Python + SQLite backend.
-- Keep plan inputs readable Markdown files under `../study_plans/`.
-- Use a real editor component from the beginning, not a custom textarea renderer.
+- Keep study state in a stable, backed-up SQLite database.
+- Keep plan inputs as readable `study-plan/v1` Markdown files.
+- Serve the built React UI and FastAPI from one low-overhead local process.
+- Make installation, checks, rebuilds, and the always-on service reproducible.
 
 ## Structure
 
 ```text
 react_tracker/
+  Makefile           User-facing build, plan, and service commands
   frontend/          Vite + React + TypeScript app
   backend/           FastAPI + SQLite backend managed by uv
-  data/              Local SQLite databases, ignored by git
+  data/              Machine-local database, credentials, logs, and screenshots
   docs/              migration notes and architecture decisions
+  scripts/           macOS launchd service management
 ```
 
-## Frontend
+## Install and run
 
-For normal use, build and run the complete app as one local server:
+Requirements are macOS, Python 3.12, `uv`, Node.js, and npm. Both dependency
+trees are locked (`backend/uv.lock` and `frontend/package-lock.json`).
+
+First setup:
 
 ```sh
-cd /Users/eugene/Documents/Thesis/Tracker
-make react-app
+cd /Users/eugene/Documents/Thesis/Tracker/react_tracker
+make install
+make build
+make service-install
 ```
 
 Open `http://127.0.0.1:8787`. FastAPI serves both the API and the built React
-frontend. PDF collection and Toggl controls are part of this same process;
-`make toggl-server` is only retained for the legacy `tracker.html`.
+frontend. PDF collection and Toggl controls live in that same process, so this
+app does not need a separate Toggl helper server.
+
+The always-on installation uses the native macOS `launchd` supervisor. It has
+less idle overhead than Docker for this single-user local app, starts at login,
+restarts after a crash, owns the process lifecycle, and does not use PID files
+or broad `kill` commands.
+
+Normal maintenance:
+
+```sh
+make service-status       # launchd state plus /api/health
+make service-restart      # restart without rebuilding
+make rebuild              # rebuild the UI and restart
+make update               # sync locked deps, rebuild, restart
+make logs                 # follow stdout/stderr
+make service-stop
+make service-start
+```
+
+To run the built app in the foreground instead:
+
+```sh
+make app
+```
+
+## Development
 
 For frontend development with hot-module reload, use two terminals:
 
 ```sh
-cd /Users/eugene/Documents/Thesis/Tracker/react_tracker/frontend
-npm install
-npm run dev
+make dev-api
+make dev-ui
 ```
 
-Run `make react-api` in the other terminal. The development frontend loads
-courses from the backend API at `http://127.0.0.1:8787/api`.
+The development frontend loads courses from the backend API at
+`http://127.0.0.1:8787/api`.
 Use `VITE_TRACKER_API_BASE` only if the API host changes. The active course is
 selected in the compact sidebar dropdown; Roadmap, Resources, Exams, Notes, and
 Discussions all use the same API-owned workspace.
@@ -59,26 +91,19 @@ Frontend conventions are documented in
 status colors, progress components, and completion-reward hook established by
 the current Roadmap, Resources, and Exams views.
 
-The complete legacy-parity and improvement inventory is maintained in
-`../features/react_migration_checklist.md`. Update its statuses whenever a
-feature slice is implemented or deliberately deferred.
-
 ## Backend
 
-The backend uses a dedicated `uv` environment and stores local state in SQLite:
+The backend uses a dedicated `uv` environment, applies SQL migrations on startup,
+and stores machine-local state under `data/`. Important files are:
 
-```sh
-cd /Users/eugene/Documents/Thesis/Tracker/react_tracker/backend
-uv sync
-uv run python -m tracker_api.main
-```
+- `data/tracker_v2.db` — primary SQLite database.
+- `data/toggl_config.json` — allowed filesystem roots and preferred PDF app.
+- `data/toggl_state.json` — cached Toggl state and credentials.
+- `data/drawboard_state.json` — cached Drawboard credentials.
+- `course_files.json` — tracked course file roots and discussion export config.
 
-It creates `../data/tracker_v2.db`, applies SQL migrations on startup, and serves
-typed FastAPI endpoints for courses, complete course workspaces, status updates,
-rich-note upserts, annotation actions, resource opening, and resource-linked
-discussion threads.
-
-Local resource opening is controlled by `../toggl_config.json`:
+Copy `backend/.env.example` to `backend/.env` only when a default path or port
+must be overridden.
 
 - `open_allowed_roots` limits which local paths the API may open.
 - `pdf_app` selects the desktop PDF application. When it is configured, opening
@@ -93,28 +118,6 @@ Local resource opening is controlled by `../toggl_config.json`:
 Keep those values local and machine-specific. A missing source path is reported
 to the frontend instead of being silently ignored.
 
-Import the frozen normalized dump once, then load the current Markdown plans:
-
-```sh
-cd /Users/eugene/Documents/Thesis/Tracker
-make react-import-v2
-make react-sync-plans
-```
-
-Raw static tracker exports must be converted first with
-`dump/convert_tracker_dump_to_v2.py`; the backend importer expects the normalized
-v2 bundle shape.
-
-For normal plan edits, run only `make react-sync-plans`. It rebuilds the stable
-generated source and upserts every current task/resource into SQLite with
-deterministic IDs. Existing completion state is preserved, new rows start open,
-and unmatched dump-only tasks are soft-deleted from the active workspace while
-remaining recoverable in SQLite.
-
-The dump importer is optional for new courses. Native `study-plan/v1` files
-populate the normalized tables directly; the React components do not depend on
-legacy dump JSON.
-
 ## Native Plan Authoring
 
 New courses should use `study-plan/v1`, a Markdown file with small TOML
@@ -123,17 +126,17 @@ without a legacy dump and can be safely re-synced after an AI or human edits the
 plan:
 
 ```sh
-make react-plan-validate PLAN=features/study_plan_v1_template.md
-make react-plan-sync PLAN=/absolute/path/to/my_course_plan.md
+make plan-validate PLAN=/absolute/path/to/my_course_plan.md
+make plan-sync PLAN=/absolute/path/to/my_course_plan.md
 ```
 
 ### Updating or replanning an existing course
 
 For a revised complete plan that replaces the current structural definition,
-use `react-plan-update`, not the lower-level `react-plan-sync` command:
+use `plan-update`, not the lower-level `plan-sync` command:
 
 ```sh
-make react-plan-update PLAN=/absolute/path/to/the_latest_plan.md
+make plan-update PLAN=/absolute/path/to/the_latest_plan.md
 ```
 
 The safe workflow is:
@@ -148,45 +151,45 @@ The safe workflow is:
 4. Validate without changing the database:
 
    ```sh
-   make react-plan-validate PLAN=/absolute/path/to/the_latest_plan.md
+   make plan-validate PLAN=/absolute/path/to/the_latest_plan.md
    ```
 
 5. Run the guarded update:
 
    ```sh
-   make react-plan-update PLAN=/absolute/path/to/the_latest_plan.md
+   make plan-update PLAN=/absolute/path/to/the_latest_plan.md
    ```
 
    This validates again, creates a consistent backup under
-   `react_tracker/data/backups/`, and runs the full sync in one database
+   `data/backups/`, and runs the full sync in one database
    transaction. A failed sync rolls back; the backup path is printed before
    the sync starts.
 6. Inspect the active stable IDs and statuses:
 
    ```sh
-   make react-plan-inspect COURSE=TORL
+   make plan-inspect COURSE=TORL
    ```
 
-Use `react-plan-sync` primarily for the first load of a new course or when a
-separate backup is intentionally unnecessary. Use `react-plan-patch` only for a
+Use `plan-sync` primarily for the first load of a new course or when a separate
+backup is intentionally unnecessary. Use `plan-patch` only for a
 small partial edit that must not remove omitted structure.
 
 The current TORL plan is updated with:
 
 ```sh
-make react-plan-update PLAN=study_plans/special_course/trustworthy_offline_rl_thesis_first_sprint_2026_v2_replanned.md
+make plan-update PLAN=../study_plans/special_course/trustworthy_offline_rl_thesis_first_sprint_2026_v2_replanned.md
 ```
 
 For a deliberately partial change, use `mode = "patch"` and:
 
 ```sh
-make react-plan-patch PATCH=/absolute/path/to/my_course_patch.md
+make plan-patch PATCH=/absolute/path/to/my_course_patch.md
 ```
 
 Matching IDs preserve task progress, notes, annotations, discussions, and time
 entries. Full syncs soft-delete removed structure; patches never remove omitted
-rows. The complete format, patch semantics, and AI-generation rules are in
-`../features/study_plan_format.md`.
+rows. Preserve stable day/task IDs whenever their progress and linked content
+must survive a plan revision.
 
 ## Daily Workflow
 
@@ -233,7 +236,7 @@ url = "https://pdf.drawboard.com/documents/links/.../consume"
 kind = "book"
 ```
 
-After editing a full plan, load it with `make react-plan-update PLAN=...`. For a
+After editing a full plan, load it with `make plan-update PLAN=...`. For a
 resource with this URL, the normal **Open** action resolves the shared document
 and opens its cloud document ID in the Drawboard PDF macOS app. **Collect PDF
 notes** reads the current cloud annotations instead of the local file, so marks
@@ -263,7 +266,7 @@ question/type rules.
 
 The anonymous sharing credentials are cached with owner-only permissions in the
 gitignored `drawboard_state.json`. Generated handwriting crops live in the
-gitignored `react_tracker/data/annotation_images/` directory and are served only
+gitignored `data/annotation_images/` directory and are served only
 by the local tracker API. QA review also keeps high-resolution annotated page
 images for question pages and their annotated neighbors. These use the same
 Drawboard appearance data as the focused crops, so highlights keep their
@@ -420,8 +423,8 @@ without erasing the progress you recorded.
 
 ### Pet completion animations
 
-Transparent animal GIFs live in `../gifs/`. Task and perfect-day effects are
-configured in `../pet_animations.json`; the task preset defaults to one small
+Transparent animal GIFs live in `gifs/`. Task and perfect-day effects are
+configured in `pet_animations.json`; the task preset defaults to one small
 scampering pet, while a fully completed day uses a short multi-pet firework.
 Change the animation, number of copies, duration, or size without touching the
 Roadmap component.
@@ -431,19 +434,19 @@ test every GIF with the `scamper`, `parade`, `orbit`, `bounce`, and `firework`
 motions. The lab has task/day presets, live size/copy/duration controls, a full
 GIF-by-motion matrix, and a copyable JSON preset.
 
-The target relational model, invariants, import identity rules, and phased
-migration order are documented in `../features/db_schema.md`.
+The current architecture is documented in `docs/architecture.md`.
 
 Useful checks:
 
 ```sh
-make react-backend-check
-make react-lint
-make react-build
-make react-check
+make backend-check
+make lint
+make build
+make check
 ```
 
-## Migration Rule
+## Plan rule
 
-Do not edit generated `../tracker.html` by hand. Edit the Markdown plan,
-registry, or parser source, then run `make react-sync-plans`.
+Edit the Markdown plan or registry, validate it, then use `make plan-update
+PLAN=...` for a guarded replacement or `make plan-patch PATCH=...` for a partial
+change. The app does not read or regenerate `tracker.html`.
