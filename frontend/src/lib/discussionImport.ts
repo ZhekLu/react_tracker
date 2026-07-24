@@ -190,7 +190,8 @@ function normalizeDisplayBody(value: string): string {
       normalized.push(line.replace(/^#{2,}\s+/, ""), "-");
       continue;
     } else if (/^#\s+/.test(line)) {
-      line = line.replace(/^#\s+/, "= ");
+      normalized.push(line.replace(/^#\s+/, ""), "=");
+      continue;
     }
     if (/^\[\d+(?:\.\d+)?mm\]$/.test(line)) {
       normalized.push(`\\\\${line}`);
@@ -222,32 +223,54 @@ function restoreBracketDisplayMath(value: string): string {
   let index = 0;
 
   while (index < lines.length) {
-    if (lines[index].trim() !== "[") {
+    const opening = lines[index].match(/^(\s*(?:>\s*)*)\[\s*$/);
+    if (!opening) {
       output.push(lines[index]);
       index += 1;
       continue;
     }
+    const prefix = opening[1];
     let closing = index + 1;
-    let depth = 1;
-    while (closing < lines.length && depth > 0) {
-      const candidate = lines[closing].trim();
-      if (candidate === "[") depth += 1;
-      if (candidate === "]") depth -= 1;
+    while (closing < lines.length) {
+      const candidate = lines[closing];
+      const withoutPrefix = prefix
+        ? candidate.startsWith(prefix)
+          ? candidate.slice(prefix.length).trim()
+          : null
+        : candidate.trim();
+      if (withoutPrefix === "]") {
+        const nextLine = lines[closing + 1];
+        if (
+          prefix ||
+          nextLine === undefined ||
+          !nextLine.trim()
+        ) {
+          break;
+        }
+      }
       closing += 1;
     }
-    if (depth !== 0) {
+    if (closing >= lines.length) {
       output.push(lines[index]);
       index += 1;
       continue;
     }
-    const body = lines.slice(index + 1, closing - 1).join("\n");
+    const bodyLines = lines.slice(index + 1, closing).map((line) => {
+      if (!prefix) return line;
+      return line.startsWith(prefix) ? line.slice(prefix.length) : line;
+    });
+    const body = bodyLines.join("\n");
     if (!looksLikeDisplayMath(body)) {
-      output.push(...lines.slice(index, closing));
-      index = closing;
+      output.push(...lines.slice(index, closing + 1));
+      index = closing + 1;
       continue;
     }
-    output.push("", "$$", normalizeDisplayBody(body), "$$", "");
-    index = closing;
+    const normalizedBody = normalizeDisplayBody(body);
+    const mathLines = prefix
+      ? [`${prefix}$${normalizedBody.replace(/\s+/g, " ")}$`]
+      : ["$$", ...normalizedBody.split("\n"), "$$"];
+    output.push("", ...mathLines, "");
+    index = closing + 1;
   }
   return output.join("\n");
 }

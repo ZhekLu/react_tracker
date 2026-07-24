@@ -125,6 +125,69 @@ v_*(l) = \max \left{q_*(l,\text{wait}), q_*(l,\text{recharge})\right}
     }
   });
 
+  it("keeps nested expectation brackets inside one display formula", () => {
+    const imported = importPastedMarkdown(String.raw`
+Use the tower property:
+
+[
+\mathbb E_b
+\left[
+W_t
+\mathbb E_b[
+W_{t+1}\mid H_{t+1}
+]
+\mid S_t
+\right],
+]
+
+and:
+
+[
+\mathbb E[(V_n-v_\pi)^2]
+========================
+
+# \operatorname{Var}(V_n)
+
+\frac{\sigma^2}{n}.
+]
+`);
+
+    const displays = Array.from(
+      imported.matchAll(/\$\$([\s\S]*?)\$\$/g),
+      (match) => match[1].trim(),
+    );
+    expect(displays).toHaveLength(2);
+    expect(displays[0]).toContain("\\mathbb E_b[");
+    expect(displays[0]).toContain("\\right]");
+    expect(displays[1]).toContain(
+      "\\mathbb E[(V_n-v_\\pi)^2] = \\operatorname{Var}(V_n) = \\frac{\\sigma^2}{n}.",
+    );
+    for (const latex of displays) {
+      expect(() =>
+        renderToString(latex, { displayMode: true, throwOnError: true }),
+      ).not.toThrow();
+    }
+  });
+
+  it("restores copied display math inside a blockquote", () => {
+    const imported = importPastedMarkdown(String.raw`
+> “Converges quadratically” means:
+> [
+> \mathbb E[(V_n(s)-v_\pi(s))^2]\to0.
+> ]
+> It is not a speed claim.
+`);
+
+    expect(imported).toContain("\\mathbb E[(V_n(s)-v_\\pi(s))^2]\\to0.");
+    const formula = imported.match(
+      /\$(\\mathbb E\[\(V_n\(s\)-v_\\pi\(s\)\)\^2\]\\to0\.)\$/,
+    )?.[1];
+    expect(formula).toBeTruthy();
+    expect(() =>
+      renderToString(formula!, { displayMode: false, throwOnError: true }),
+    ).not.toThrow();
+  });
+
   it("densifies short quote blocks and separates adjacent inline formulas", () => {
     const imported = importPastedMarkdown(String.raw`
 A sweep means:
