@@ -322,7 +322,7 @@ function TaskRow({
               <button
                 className="taskMetaBadge exerciseScreenshots"
                 onClick={() => onPrepareExerciseScreenshots(task)}
-                title={`Render handwritten solutions for Exercises ${exerciseNumbers.join(", ")} into the ChatGPT attachment folder`}
+                title={`Render grouped handwritten solutions from the chapter containing Exercises ${exerciseNumbers.join(", ")} into the ChatGPT attachment folder`}
                 type="button"
               >
                 <Images size={11} /> Screenshot solutions
