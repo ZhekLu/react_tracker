@@ -199,14 +199,23 @@ export function App() {
             ...workspace,
             days: workspace.days.map((day) => ({
               ...day,
-              trackedSeconds: Math.max(
-                day.trackedSeconds,
-                toggl.trackedSecondsByDay[day.id] ?? 0,
-              ),
+              trackedSeconds:
+                toggl.status.online &&
+                toggl.status.configured &&
+                (!toggl.status.error || Object.keys(toggl.status.days).length > 0)
+                  ? toggl.trackedSecondsByDay[day.id] ?? 0
+                  : day.trackedSeconds,
             })),
           }
         : null,
-    [toggl.trackedSecondsByDay, workspace],
+    [
+      toggl.status.configured,
+      toggl.status.days,
+      toggl.status.error,
+      toggl.status.online,
+      toggl.trackedSecondsByDay,
+      workspace,
+    ],
   );
 
   const loadCourses = useCallback(async () => {

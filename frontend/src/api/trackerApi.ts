@@ -1202,10 +1202,12 @@ export async function collectResourcePdfAnnotations(
   };
 }
 
-export async function fetchTogglStatus(): Promise<TogglStatus> {
+export async function fetchTogglStatus(force = false): Promise<TogglStatus> {
   try {
     return togglStatus(
-      await requestJson<ApiTogglStatus>("/integrations/toggl"),
+      await requestJson<ApiTogglStatus>(
+        `/integrations/toggl${force ? "?force=true" : ""}`,
+      ),
     );
   } catch (caught) {
     return {

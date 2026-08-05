@@ -1993,7 +1993,10 @@ def _refresh_imported_anchor(
         return
     annotation_id = str(existing["id"])
     metadata = dict(anchor.metadata)
-    previous_metadata = _json_loads(existing["selector_json"], {})
+    previous_metadata: dict[str, Any] = _json_loads(
+        existing["selector_json"],
+        {},
+    )
     previous_created_day_id = previous_metadata.get("createdDayId")
     if isinstance(previous_created_day_id, str) and previous_created_day_id.strip():
         metadata["createdDayId"] = previous_created_day_id
@@ -2665,7 +2668,10 @@ def _sync_note_marker_annotations(
                     {"annotation_id": existing[fingerprint]},
                 ).mappings().one_or_none()
                 if anchor_row is not None:
-                    metadata = _json_loads(anchor_row["selector_json"], {})
+                    metadata: dict[str, Any] = _json_loads(
+                        anchor_row["selector_json"],
+                        {},
+                    )
                     if metadata.get("createdDayId") != source_day_id:
                         metadata["createdDayId"] = source_day_id
                         connection.execute(
@@ -3140,6 +3146,98 @@ def toggl_task_totals(connection: Connection) -> dict[str, int]:
             """,
         )
     }
+
+
+def reconcile_toggl_entries(
+    connection: Connection,
+    entries: Sequence[Mapping[str, Any]],
+    *,
+    window_start: str,
+) -> None:
+    """Refresh tracker-created Toggl mirrors from an authoritative API window."""
+    now = _now()
+    remote_entries = {
+        str(entry.get("external_id")): entry
+        for entry in entries
+        if str(entry.get("external_id") or "").strip()
+    }
+    local_entries = _rows(
+        connection,
+        """
+        SELECT id, external_id, started_at
+        FROM time_entries
+        WHERE provider = 'toggl'
+          AND external_id IS NOT NULL
+          AND julianday(started_at) >= julianday(:window_start)
+        """,
+        {"window_start": window_start},
+    )
+    for local in local_entries:
+        external_id = str(local["external_id"])
+        remote = remote_entries.get(external_id)
+        if remote is None:
+            connection.execute(
+                text("DELETE FROM time_entries WHERE id = :id"),
+                {"id": local["id"]},
+            )
+            continue
+        started_at = str(remote.get("started_at") or local["started_at"])
+        stopped_value = remote.get("stopped_at")
+        stopped_at = str(stopped_value) if stopped_value else None
+        duration_value = remote.get("duration_seconds")
+        duration_seconds = (
+            max(0, int(cast(Any, duration_value)))
+            if duration_value is not None
+            else None
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE time_entries
+                SET description = :description,
+                    started_at = :started_at,
+                    stopped_at = :stopped_at,
+                    duration_override_seconds = :duration_seconds,
+                    last_synced_at = :now,
+                    sync_payload_json = :sync_payload_json,
+                    updated_at = :now
+                WHERE id = :id
+                """
+            ),
+            {
+                "description": str(remote.get("description") or ""),
+                "duration_seconds": duration_seconds,
+                "id": local["id"],
+                "now": now,
+                "started_at": started_at,
+                "stopped_at": stopped_at,
+                "sync_payload_json": _json_dumps(remote.get("payload")),
+            },
+        )
+    connection.execute(
+        text(
+            """
+            INSERT INTO integration_sync_states (
+              id, integration, cursor, last_successful_sync_at, last_error,
+              backoff_until, settings_json, created_at, updated_at
+            )
+            VALUES (
+              :id, 'toggl', NULL, :now, NULL,
+              NULL, :settings_json, :now, :now
+            )
+            ON CONFLICT(integration) DO UPDATE SET
+              last_successful_sync_at = excluded.last_successful_sync_at,
+              last_error = NULL,
+              settings_json = excluded.settings_json,
+              updated_at = excluded.updated_at
+            """
+        ),
+        {
+            "id": _new_id(),
+            "now": now,
+            "settings_json": _json_dumps({"windowStart": window_start}),
+        },
+    )
 
 
 def create_discussion(

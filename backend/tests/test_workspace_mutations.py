@@ -18,6 +18,7 @@ from tracker_api.repositories.workspace_repository import (
     delete_discussion,
     get_workspace,
     link_discussion_question,
+    reconcile_toggl_entries,
     record_toggl_start,
     resource_content_target,
     review_discussion_message,
@@ -235,6 +236,93 @@ def test_toggl_task_binding_tracks_time_by_stable_task_id(tmp_path: Path) -> Non
 
         assert toggl_task_id(connection, "toggl-42") == task_id
         assert toggl_task_totals(connection)[task_id] == 1800
+
+
+def test_toggl_reconciliation_applies_remote_edits_and_deletions(
+    tmp_path: Path,
+) -> None:
+    course_id, _resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        task = connection.execute(
+            text(
+                """
+                SELECT t.id AS task_id, t.day_id
+                FROM tasks t
+                JOIN study_days d ON d.id = t.day_id
+                WHERE d.course_id = :course_id AND t.deleted_at IS NULL
+                LIMIT 1
+                """
+            ),
+            {"course_id": course_id},
+        ).mappings().one()
+        task_id = str(task["task_id"])
+        day_id = str(task["day_id"])
+        for external_id, started_at, stopped_at in (
+            ("toggl-edited", "2026-07-01T10:00:00Z", "2026-07-01T10:30:00Z"),
+            ("toggl-deleted", "2026-07-01T11:00:00Z", "2026-07-01T11:15:00Z"),
+        ):
+            record_toggl_start(
+                connection,
+                course_id=course_id,
+                day_id=day_id,
+                task_id=task_id,
+                external_id=external_id,
+                description="[Mutation] Day 1. Read paper",
+                started_at=started_at,
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE time_entries
+                    SET stopped_at = :stopped_at
+                    WHERE provider = 'toggl' AND external_id = :external_id
+                    """
+                ),
+                {"external_id": external_id, "stopped_at": stopped_at},
+            )
+
+        assert toggl_task_totals(connection)[task_id] == 2700
+        reconcile_toggl_entries(
+            connection,
+            [
+                {
+                    "description": "[Mutation] Day 1. Read edited paper",
+                    "duration_seconds": 600,
+                    "external_id": "toggl-edited",
+                    "payload": {"id": "toggl-edited", "duration": 600},
+                    "started_at": "2026-07-01T10:05:00Z",
+                    "stopped_at": "2026-07-01T10:15:00Z",
+                }
+            ],
+            window_start="2026-07-01T00:00:00Z",
+        )
+
+        assert toggl_task_totals(connection)[task_id] == 600
+        remaining = connection.execute(
+            text(
+                """
+                SELECT external_id, description, started_at, stopped_at,
+                       duration_override_seconds
+                FROM time_entries
+                WHERE provider = 'toggl'
+                """
+            )
+        ).mappings().all()
+        assert [row["external_id"] for row in remaining] == ["toggl-edited"]
+        assert remaining[0]["description"].endswith("edited paper")
+        assert remaining[0]["started_at"] == "2026-07-01T10:05:00Z"
+        assert remaining[0]["stopped_at"] == "2026-07-01T10:15:00Z"
+        assert remaining[0]["duration_override_seconds"] == 600
+        assert connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM integration_sync_states
+                WHERE integration = 'toggl'
+                  AND last_successful_sync_at IS NOT NULL
+                """
+            )
+        ).scalar_one() == 1
 
 
 def test_configured_pdf_application_is_used_without_system_fallback(

@@ -480,8 +480,25 @@ def _toggl_status_response(
 
 
 @router.get("/integrations/toggl", response_model=TogglStatusResponse)
-def get_toggl_status(connection: Database) -> TogglStatusResponse:
-    return _toggl_status_response(connection, public_status())
+def get_toggl_status(
+    connection: Database,
+    force: bool = False,
+) -> TogglStatusResponse:
+    payload = public_status(force=force, include_entries=force)
+    entries = payload.pop("_entries", None)
+    window_start = payload.pop("_window_start", None)
+    if (
+        force
+        and not payload.get("error")
+        and isinstance(entries, list)
+        and isinstance(window_start, str)
+    ):
+        workspace_repository.reconcile_toggl_entries(
+            connection,
+            entries,
+            window_start=window_start,
+        )
+    return _toggl_status_response(connection, payload)
 
 
 def _toggl_error(error: TogglServiceError) -> HTTPException:

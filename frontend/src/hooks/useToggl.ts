@@ -20,6 +20,15 @@ const offlineStatus: TogglStatus = {
   totals: {},
 };
 
+const DAILY_SYNC_STORAGE_KEY = "study-tracker:toggl:last-full-sync-date";
+
+function localDateToken(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function legacyPlanId(course: Course): string {
   return course.shortCode
     .replace(/([a-z])([A-Z])/g, "$1_$2")
@@ -32,13 +41,28 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
   const [busy, setBusy] = useState(false);
   const [commandError, setCommandError] = useState("");
 
-  const refresh = useCallback(async () => {
-    setStatus(await fetchTogglStatus());
+  const refresh = useCallback(async (force = false) => {
+    const nextStatus = await fetchTogglStatus(force);
+    setStatus(nextStatus);
+    return nextStatus;
   }, []);
 
   useEffect(() => {
-    const initial = window.setTimeout(() => void refresh(), 0);
-    const interval = window.setInterval(() => void refresh(), 60_000);
+    const refreshScheduled = async () => {
+      const today = localDateToken();
+      const force = window.localStorage.getItem(DAILY_SYNC_STORAGE_KEY) !== today;
+      const nextStatus = await refresh(force);
+      if (
+        force &&
+        nextStatus.online &&
+        nextStatus.configured &&
+        !nextStatus.error
+      ) {
+        window.localStorage.setItem(DAILY_SYNC_STORAGE_KEY, today);
+      }
+    };
+    const initial = window.setTimeout(() => void refreshScheduled(), 0);
+    const interval = window.setInterval(() => void refreshScheduled(), 60_000);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(interval);

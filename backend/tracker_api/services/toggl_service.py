@@ -282,10 +282,11 @@ def _entry_duration_seconds(entry: dict[str, Any]) -> int:
 def _aggregate_time_entries(
     config: dict[str, Any],
     current: dict[str, Any] | None,
+    entries: list[dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     totals: dict[str, int] = {}
     days: dict[str, dict[str, int]] = {}
-    for entry in _list_time_entries(config):
+    for entry in entries if entries is not None else _list_time_entries(config):
         if not _entry_matches_project(config, entry):
             continue
         description = str(entry.get("description") or "")
@@ -390,7 +391,25 @@ def _rate_limit_message(until: float) -> str:
     return f"Toggl API rate-limited; cached stats only until about {retry_at}."
 
 
-def public_status(*, force: bool = False) -> dict[str, Any]:
+def _reconciliation_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    stopped_at = entry.get("stop")
+    return {
+        "description": str(entry.get("description") or ""),
+        "duration_seconds": (
+            _entry_duration_seconds(entry) if stopped_at else None
+        ),
+        "external_id": str(entry.get("id") or ""),
+        "payload": entry,
+        "started_at": str(entry.get("start") or ""),
+        "stopped_at": str(stopped_at) if stopped_at else None,
+    }
+
+
+def public_status(
+    *,
+    force: bool = False,
+    include_entries: bool = False,
+) -> dict[str, Any]:
     with _STATE_LOCK:
         state = _load_state()
         try:
@@ -405,7 +424,7 @@ def public_status(*, force: bool = False) -> dict[str, Any]:
                 "totals": {},
                 "days": {},
             }
-        cached = None if force else _cached_status(state, config)
+        cached = None if force or include_entries else _cached_status(state, config)
         if cached:
             return cached
         try:
@@ -426,9 +445,31 @@ def public_status(*, force: bool = False) -> dict[str, Any]:
                 message,
             )
         try:
-            current = _tracker_current(config, _current_time_entry(config))
-            totals = _aggregate_time_entries(config, current)
+            raw_current = _current_time_entry(config)
+            current = _tracker_current(config, raw_current)
+            entries = _list_time_entries(config)
+            totals = _aggregate_time_entries(config, current, entries)
             payload = _status_payload(config, current, totals)
+            if include_entries:
+                project_entries = [
+                    entry
+                    for entry in entries
+                    if _entry_matches_project(config, entry) and entry.get("id")
+                ]
+                if (
+                    raw_current
+                    and _entry_matches_project(config, raw_current)
+                    and raw_current.get("id")
+                    and all(
+                        str(entry.get("id")) != str(raw_current.get("id"))
+                        for entry in project_entries
+                    )
+                ):
+                    project_entries.append(raw_current)
+                payload["_entries"] = [
+                    _reconciliation_entry(entry) for entry in project_entries
+                ]
+                payload["_window_start"] = _stats_window(config)[0]
             state["current"] = current
             state["toggl_backoff_until"] = 0
         except TogglApiError as error:
