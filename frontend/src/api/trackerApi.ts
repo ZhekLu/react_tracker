@@ -1170,6 +1170,7 @@ export async function openResourceFile(
 
 export async function collectResourcePdfAnnotations(
   resourceId: string,
+  sourceDayId?: string,
 ): Promise<PdfAnnotationCollectionResult> {
   const result = await requestJson<{
     resource_id: string;
@@ -1182,7 +1183,9 @@ export async function collectResourcePdfAnnotations(
     ignored_count: number;
     ignored: Record<string, number>;
     kind_counts: Partial<Record<AnnotationKind, number>>;
-  }>(`/resources/${resourceId}/pdf-annotations/collect`, {
+  }>(`/resources/${resourceId}/pdf-annotations/collect${
+    sourceDayId ? `?source_day_id=${encodeURIComponent(sourceDayId)}` : ""
+  }`, {
     method: "POST",
   });
   return {

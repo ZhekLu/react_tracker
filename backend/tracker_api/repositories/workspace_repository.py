@@ -458,11 +458,18 @@ def _annotation_chapter(annotation: Annotation) -> int | None:
     )
 
 
+def _annotation_created_day_id(annotation: Annotation) -> str | None:
+    metadata = annotation.anchor.metadata if annotation.anchor is not None else {}
+    value = metadata.get("createdDayId")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def _task_scoped_annotations(
     resource_ids: Iterable[str],
     annotations_by_resource: Mapping[str, list[Annotation]],
     resource_kind_by_id: Mapping[str, str],
     chapter_numbers: Sequence[int],
+    day_id: str,
 ) -> list[Annotation]:
     chapter_scope = set(chapter_numbers)
     scoped: list[Annotation] = []
@@ -471,12 +478,14 @@ def _task_scoped_annotations(
         for annotation in annotations_by_resource.get(resource_id, []):
             if annotation.id in seen:
                 continue
-            if (
-                resource_kind_by_id.get(resource_id) == "book"
-                and chapter_scope
-                and _annotation_chapter(annotation) not in chapter_scope
-            ):
-                continue
+            if resource_kind_by_id.get(resource_id) == "book":
+                created_on_day = _annotation_created_day_id(annotation) == day_id
+                matches_chapter = (
+                    bool(chapter_scope)
+                    and _annotation_chapter(annotation) in chapter_scope
+                )
+                if not created_on_day and not matches_chapter:
+                    continue
             seen.add(annotation.id)
             scoped.append(annotation)
     return scoped
@@ -746,6 +755,7 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
             annotations_by_resource,
             resource_kind_by_id,
             chapter_numbers,
+            str(row["day_id"]),
         )
         task_annotation_ids[task_id] = {annotation.id for annotation in linked_annotations}
         task = Task(
@@ -1982,6 +1992,11 @@ def _refresh_imported_anchor(
     if anchor is None:
         return
     annotation_id = str(existing["id"])
+    metadata = dict(anchor.metadata)
+    previous_metadata = _json_loads(existing["selector_json"], {})
+    previous_created_day_id = previous_metadata.get("createdDayId")
+    if isinstance(previous_created_day_id, str) and previous_created_day_id.strip():
+        metadata["createdDayId"] = previous_created_day_id
     if existing["anchor_annotation_id"] is None:
         resource_version_id = connection.execute(
             text(
@@ -2027,7 +2042,7 @@ def _refresh_imported_anchor(
             "color": anchor.color,
             "rgb_json": _json_dumps(anchor.rgb),
             "annotation_kind": anchor.annotation_kind,
-            "selector_json": _json_dumps(anchor.metadata),
+            "selector_json": _json_dumps(metadata),
             "now": timestamp,
             "annotation_id": annotation_id,
         },
@@ -2556,6 +2571,28 @@ def _note_marker_resource_id(
     return None
 
 
+def _note_marker_source_day_id(
+    connection: Connection,
+    command: NoteUpsertCommand,
+) -> str | None:
+    if command.entity_type != "task":
+        return None
+    value = connection.execute(
+        text(
+            """
+            SELECT t.day_id
+            FROM tasks t
+            JOIN study_days d ON d.id = t.day_id
+            WHERE t.id = :entity_id
+              AND d.course_id = :course_id
+              AND t.deleted_at IS NULL
+            """
+        ),
+        {"course_id": command.course_id, "entity_id": command.entity_id},
+    ).scalar_one_or_none()
+    return str(value) if value else None
+
+
 def _sync_note_marker_annotations(
     connection: Connection,
     *,
@@ -2567,6 +2604,7 @@ def _sync_note_marker_annotations(
     resource_id = _note_marker_resource_id(connection, command)
     if resource_id is None:
         return
+    source_day_id = _note_marker_source_day_id(connection, command)
     paragraphs = [
         re.sub(r"\s+", " ", paragraph).strip()
         for paragraph in re.split(r"\n\s*\n", markdown)
@@ -2615,6 +2653,36 @@ def _sync_note_marker_annotations(
             )
     for kind, marker_text, fingerprint in markers:
         if fingerprint in existing:
+            if source_day_id is not None:
+                anchor_row = connection.execute(
+                    text(
+                        """
+                        SELECT selector_json
+                        FROM annotation_anchors
+                        WHERE annotation_id = :annotation_id
+                        """
+                    ),
+                    {"annotation_id": existing[fingerprint]},
+                ).mappings().one_or_none()
+                if anchor_row is not None:
+                    metadata = _json_loads(anchor_row["selector_json"], {})
+                    if metadata.get("createdDayId") != source_day_id:
+                        metadata["createdDayId"] = source_day_id
+                        connection.execute(
+                            text(
+                                """
+                                UPDATE annotation_anchors
+                                SET selector_json = :selector_json,
+                                    updated_at = :updated_at
+                                WHERE annotation_id = :annotation_id
+                                """
+                            ),
+                            {
+                                "annotation_id": existing[fingerprint],
+                                "selector_json": _json_dumps(metadata),
+                                "updated_at": timestamp,
+                            },
+                        )
             continue
         create_annotation(
             connection,
@@ -2635,6 +2703,11 @@ def _sync_note_marker_annotations(
                     annotation_kind=kind,
                     metadata={
                         "captureSource": "note_marker",
+                        **(
+                            {"createdDayId": source_day_id}
+                            if source_day_id is not None
+                            else {}
+                        ),
                         "sourceNoteId": note_id,
                     },
                 ),

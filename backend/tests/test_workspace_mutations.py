@@ -1229,6 +1229,92 @@ Stop when: both chapter scopes are reviewed. {#day01-stop}
     assert len(book.annotations) == 2
 
 
+def test_generic_book_tasks_only_inherit_questions_from_their_study_day(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "book.pdf").write_bytes(b"%PDF-1.4")
+    plan_path = tmp_path / "book-study-day-plan.md"
+    plan_path.write_text(
+        """
++++
+format = "study-plan/v1"
+id = "book_study_day_scope_course"
+title = "Book Study Day Scope Course"
+mode = "full"
+
+[resources.book]
+title = "RL Book"
+path = "book.pdf"
+kind = "book"
++++
+
+# Book Study Day Scope Course
+
+### Day 1: Initial reading {#day-01}
+
+#### Reading
+
+- [ ] Read the RL book. {#read-book-day-1 resources=book}
+
+Stop when: the reading is reviewed. {#day01-stop}
+
+### Day 2: Chapter four {#day-02}
+
+#### Reading
+
+- [ ] Read Sections 4.1-4.3. {#read-book-day-2 resources=book}
+
+Stop when: chapter four is reviewed. {#day02-stop}
+
+### Day 3: Later general reading {#day-03}
+
+#### Reading
+
+- [ ] Read the RL book. {#read-book-day-3 resources=book}
+
+Stop when: the later reading is reviewed. {#day03-stop}
+""".lstrip(),
+        encoding="utf-8",
+    )
+    result = sync_study_plan(plan_path)
+    with transaction() as connection:
+        initial = get_workspace(connection, result.course_id)
+        resource_id = initial.resources[0].id
+        day_one_id = initial.days[0].id
+        for chapter in (4, 5):
+            create_annotation(
+                connection,
+                AnnotationCreateCommand(
+                    resource_id=resource_id,
+                    kind="question",
+                    markdown=f"Question from chapter {chapter}",
+                    plain_text=f"Question from chapter {chapter}",
+                    anchor=AnnotationAnchorCreate(
+                        anchor_type="pdf_rect",
+                        page_number=chapter * 10,
+                        metadata={
+                            "chapterNumber": chapter,
+                            "chapterTitle": f"Chapter {chapter}",
+                            "createdDayId": day_one_id,
+                        },
+                    ),
+                ),
+            )
+        workspace = get_workspace(connection, result.course_id)
+
+    day_one_task = workspace.days[0].sections[0].tasks[0]
+    day_two_task = workspace.days[1].sections[0].tasks[0]
+    day_three_task = workspace.days[2].sections[0].tasks[0]
+    assert day_one_task.chapter_numbers == []
+    assert day_one_task.open_question_count == 2
+    assert day_two_task.chapter_numbers == [4]
+    assert day_two_task.open_question_count == 1
+    assert day_three_task.chapter_numbers == []
+    assert day_three_task.open_question_count == 0
+    assert [day.open_question_count for day in workspace.days] == [2, 1, 0]
+    assert len(workspace.resources[0].annotations) == 2
+
+
 
 def test_local_pdf_annotations_share_paragraph_context_outside_book_resources(
     tmp_path: Path,

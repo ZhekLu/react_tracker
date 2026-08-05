@@ -375,9 +375,14 @@ def get_resource_pdf_page(
 def collect_resource_annotations(
     resource_id: str,
     connection: Database,
+    source_day_id: str | None = None,
 ) -> PdfAnnotationCollectionResponse:
     try:
-        result = collect_resource_pdf_annotations(connection, resource_id)
+        result = collect_resource_pdf_annotations(
+            connection,
+            resource_id,
+            source_day_id=source_day_id,
+        )
         return PdfAnnotationCollectionResponse(
             resource_id=result.resource_id,
             path=str(result.path),

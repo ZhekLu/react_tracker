@@ -263,6 +263,7 @@ def _annotation_command(
     capture: PdfCapture,
     context: PdfAnnotationContext | None,
     sync_revision: str,
+    source_day_id: str | None = None,
 ) -> AnnotationCreateCommand:
     kind: AnnotationKind = (
         "question"
@@ -278,6 +279,8 @@ def _annotation_command(
         "syncRevision": sync_revision,
         **_context_metadata(context),
     }
+    if source_day_id:
+        metadata["createdDayId"] = source_day_id
     return AnnotationCreateCommand(
         resource_id=resource_id,
         kind=kind,
@@ -308,6 +311,7 @@ def _drawboard_annotation_command(
     context: PdfAnnotationContext | None,
     annotated_page_url: str | None,
     sync_revision: str,
+    source_day_id: str | None = None,
 ) -> AnnotationCreateCommand:
     kind: AnnotationKind = (
         "question"
@@ -348,6 +352,8 @@ def _drawboard_annotation_command(
         )
     if annotated_page_url:
         metadata["annotatedPageImageUrl"] = annotated_page_url
+    if source_day_id:
+        metadata["createdDayId"] = source_day_id
     return AnnotationCreateCommand(
         resource_id=resource_id,
         kind=kind,
@@ -403,6 +409,7 @@ def _drawboard_ink_command(
     image_url: str | None,
     annotated_page_url: str | None,
     sync_revision: str,
+    source_day_id: str | None = None,
 ) -> AnnotationCreateCommand:
     context_text = " ".join(
         part
@@ -443,6 +450,8 @@ def _drawboard_ink_command(
         metadata["contextImageUrl"] = image_url
     if annotated_page_url:
         metadata["annotatedPageImageUrl"] = annotated_page_url
+    if source_day_id:
+        metadata["createdDayId"] = source_day_id
     return AnnotationCreateCommand(
         resource_id=resource_id,
         kind="question",
@@ -467,6 +476,7 @@ def _drawboard_ink_command(
 def collect_resource_pdf_annotations(
     connection: Connection,
     resource_id: str,
+    source_day_id: str | None = None,
 ) -> PdfCollection:
     local_path, source_url = workspace_repository.resource_open_target(
         connection,
@@ -551,6 +561,7 @@ def collect_resource_pdf_annotations(
                 context,
                 annotated_page_urls.get(cloud_capture.page),
                 sync_revision,
+                source_day_id,
             )
             cloud_kind_counts[command.kind] = (
                 cloud_kind_counts.get(command.kind, 0) + 1
@@ -577,6 +588,7 @@ def collect_resource_pdf_annotations(
                 image_urls.get(ink.fingerprint),
                 annotated_page_urls.get(ink.page),
                 sync_revision,
+                source_day_id,
             )
             cloud_kind_counts["question"] = (
                 cloud_kind_counts.get("question", 0) + 1
@@ -644,6 +656,7 @@ def collect_resource_pdf_annotations(
             local_capture,
             context,
             sync_revision,
+            source_day_id,
         )
         kind_counts[command.kind] = kind_counts.get(command.kind, 0) + 1
         outcome = workspace_repository.upsert_imported_annotation(

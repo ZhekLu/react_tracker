@@ -36,7 +36,10 @@ import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { DayCompletionParade } from "../../components/rewards/DayCompletionParade";
 import { PetCelebration } from "../../components/rewards/PetCelebration";
 import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
-import { annotationChapterNumber } from "../../components/annotations/annotationDisplay";
+import {
+  annotationChapterNumber,
+  annotationMetadata,
+} from "../../components/annotations/annotationDisplay";
 import {
   InlineCaptureEditor,
   type ResourceCaptureInput,
@@ -460,6 +463,7 @@ function TaskRow({
           <TaskCapturePanel
             captures={captures}
             chapterNumbers={task.chapterNumbers}
+            dayId={dayId}
             onAnnotationChange={onAnnotationChange}
             onNoteSave={onNoteSave}
             onOpenDiscussion={(resourceId) =>
@@ -518,6 +522,7 @@ function TaskRow({
 function TaskCapturePanel({
   captures,
   chapterNumbers,
+  dayId,
   onAnnotationChange,
   onNoteSave,
   onOpenDiscussion,
@@ -525,6 +530,7 @@ function TaskCapturePanel({
 }: {
   captures: Array<{ annotation: Annotation; resource: Resource }>;
   chapterNumbers: number[];
+  dayId: string;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
   onNoteSave: RoadmapViewProps["onNoteSave"];
   onOpenDiscussion: (resourceId: string) => void;
@@ -538,25 +544,31 @@ function TaskCapturePanel({
     annotation: Annotation;
     resource: Resource;
   }) => {
-    if (resource.kind !== "book" || chapterScope.size === 0) return true;
+    if (resource.kind !== "book") return true;
+    const createdDayId = annotationMetadata(annotation).createdDayId;
+    if (createdDayId === dayId) return true;
     const chapterNumber = annotationChapterNumber(annotation);
-    return chapterNumber !== null && chapterScope.has(chapterNumber);
+    return (
+      chapterScope.size > 0 &&
+      chapterNumber !== null &&
+      chapterScope.has(chapterNumber)
+    );
   };
-  const activeQuestions = captures.filter(
+  const taskCaptures = captures.filter(isRelevantToTask);
+  const activeQuestions = taskCaptures.filter(
     (capture) =>
-      isRelevantToTask(capture) &&
       ["question", "todo"].includes(capture.annotation.kind) &&
       capture.annotation.status === "open",
   );
   const [open, setOpen] = useState(false);
   const [questionsOnly, setQuestionsOnly] = useState(false);
   const showingQuestionsOnly = questionsOnly && activeQuestions.length > 0;
-  const importedCaptures = captures.filter(({ annotation }) =>
+  const importedCaptures = taskCaptures.filter(({ annotation }) =>
     ["drawboard_cloud", "drawboard_cloud_ink", "pdf_import"].includes(
       annotation.origin,
     ),
   );
-  const visibleCaptures = showingQuestionsOnly ? activeQuestions : captures;
+  const visibleCaptures = showingQuestionsOnly ? activeQuestions : taskCaptures;
   const manualQuestions = visibleCaptures.filter(
     ({ annotation, resource }) =>
       (resource.kind !== "book" || chapterScope.size === 0) &&
@@ -628,7 +640,7 @@ function TaskCapturePanel({
           {!activeQuestions.length && !importedCaptures.length ? (
             <strong className="capture">
               <Archive size={12} />
-              {captures.length} capture{captures.length === 1 ? "" : "s"}
+              {taskCaptures.length} capture{taskCaptures.length === 1 ? "" : "s"}
             </strong>
           ) : null}
         </span>

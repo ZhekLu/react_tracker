@@ -168,6 +168,7 @@ export function App() {
       quote?: string;
       sectionTitle?: string;
       discussionMessageId?: string;
+      metadata?: Record<string, unknown>;
     };
   } | null>(null);
   const [questionExtractionDraft, setQuestionExtractionDraft] = useState<{
@@ -825,6 +826,7 @@ export function App() {
           sectionTitle,
           metadata: {
             captureSource: "lecture_reader",
+            createdDayId: activeDay?.id,
             contextImageUrl: ["question", "todo"].includes(kind)
               ? pdfReaderPageUrl(resourceId, pageNumber)
               : undefined,
@@ -859,6 +861,7 @@ export function App() {
           anchorType: "text_quote",
           quote,
           sectionTitle,
+          metadata: { createdDayId: activeDay?.id },
         },
         contextLabel: resource?.title ?? "selected passage",
         resourceId,
@@ -871,6 +874,7 @@ export function App() {
           anchorType: "text_quote",
           quote,
           sectionTitle,
+          metadata: { createdDayId: activeDay?.id },
         },
         kind,
         origin: "reader_selection",
@@ -902,7 +906,10 @@ export function App() {
     initialText?: string,
   ) {
     setQuestionDraft({
-      anchor: { anchorType: "resource" },
+      anchor: {
+        anchorType: "resource",
+        metadata: { createdDayId: activeDay?.id },
+      },
       contextLabel: label,
       initialText,
       resourceId,
@@ -918,7 +925,10 @@ export function App() {
         anchor: {
           anchorType: "resource",
           color: input.color,
-          metadata: { captureSource: "resource_inline" },
+          metadata: {
+            captureSource: "resource_inline",
+            createdDayId: activeDay?.id,
+          },
         },
         kind: input.kind,
         markdown: input.markdown,
@@ -942,7 +952,15 @@ export function App() {
     setQuestionDraft(null);
     void runMutation(async () => {
       await createAnnotation({
-        anchor: draft.anchor,
+        anchor: draft.anchor
+          ? {
+              ...draft.anchor,
+              metadata: {
+                ...draft.anchor.metadata,
+                createdDayId: draft.anchor.metadata?.createdDayId ?? activeDay?.id,
+              },
+            }
+          : undefined,
         kind: "question",
         markdown: input.markdown,
         origin: "manual",
@@ -966,7 +984,10 @@ export function App() {
       return;
     }
     void runMutation(async () => {
-      const imported = await collectResourcePdfAnnotations(resourceId);
+      const imported = await collectResourcePdfAnnotations(
+        resourceId,
+        activeDay?.id,
+      );
       const kindLabels = [
         imported.kindCounts.question
           ? `${imported.kindCounts.question} question${

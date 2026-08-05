@@ -70,9 +70,9 @@ function dayScopedAnnotations(course: Course, day: StudyDay): Annotation[] {
         chapters: new Set<number>(),
         unrestricted: false,
       };
-      if (resource?.kind !== "book" || task.chapterNumbers.length === 0) {
+      if (resource?.kind !== "book") {
         current.unrestricted = true;
-      } else {
+      } else if (task.chapterNumbers.length > 0) {
         task.chapterNumbers.forEach((chapter) => current.chapters.add(chapter));
       }
       resourceScopes.set(resourceId, current);
@@ -83,6 +83,8 @@ function dayScopedAnnotations(course: Course, day: StudyDay): Annotation[] {
     const scope = resourceScopes.get(annotation.resourceId);
     if (!scope) return false;
     if (scope.unrestricted) return true;
+    const createdDayId = annotationMetadata(annotation).createdDayId;
+    if (createdDayId === day.id) return true;
     const chapter = annotationChapterNumber(annotation);
     return chapter !== null && scope.chapters.has(chapter);
   });
