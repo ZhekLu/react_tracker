@@ -72,6 +72,7 @@ class Annotation(StrictModel):
     resource_id: str
     kind: AnnotationKind
     status: AnnotationStatus
+    postponed: bool = False
     priority: Literal["low", "normal", "high"]
     origin: str
     revision: int
@@ -412,6 +413,7 @@ class ExamStatusCommand(RevisionCommand):
 class AnnotationCommand(RevisionCommand):
     kind: AnnotationKind | None = None
     status: AnnotationStatus | None = None
+    postponed: bool | None = None
     priority: Literal["low", "normal", "high"] | None = None
     markdown: str | None = None
     plain_text: str | None = None

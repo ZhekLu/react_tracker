@@ -41,6 +41,7 @@ type NotesViewProps = {
     changes: {
       kind?: AnnotationKind;
       status?: AnnotationStatus;
+      postponed?: boolean;
       priority?: Annotation["priority"];
       markdown?: string;
       plainText?: string;
@@ -166,8 +167,12 @@ function AnnotationSummaryCard({
             {editable ? "question" : annotation.kind}
           </span>
           {editable ? (
-            <span className={`annotationKind ${answered ? "answered" : "open"}`}>
-              {answered ? "answered" : "open"}
+            <span
+              className={`annotationKind ${
+                answered ? "answered" : annotation.postponed ? "later" : "open"
+              }`}
+            >
+              {answered ? "answered" : annotation.postponed ? "later" : "open"}
             </span>
           ) : null}
         </div>
@@ -288,6 +293,20 @@ function AnnotationSummaryCard({
           )}
           {annotation.status === "answered" ? "Reopen" : "Answered"}
         </button>
+        {annotation.status === "open" ? (
+          <button
+            className={annotation.postponed ? "active" : ""}
+            onClick={() =>
+              onAnnotationChange(annotation, {
+                postponed: !annotation.postponed,
+              })
+            }
+            type="button"
+          >
+            <Clock3 size={13} />
+            {annotation.postponed ? "Make active" : "Later"}
+          </button>
+        ) : null}
         <button
           onClick={() =>
             onAnnotationChange(annotation, { status: "archived" })
@@ -325,7 +344,7 @@ export function NotesView({
     useState("all");
   const [questionDayFilter, setQuestionDayFilter] = useState("all");
   const [questionStatusFilter, setQuestionStatusFilter] =
-    useState<"open" | "all">("open");
+    useState<"open" | "later" | "all">("open");
   const meetingNote = course.notes.find((note) => note.kind === "meeting");
   const professorDiscussions = course.discussions.filter(
     (discussion) => discussion.attention === "professor",
@@ -468,25 +487,31 @@ export function NotesView({
     ],
   );
   const openQuestionCount = questionItems.filter(
-    (item) => item.annotation.status === "open",
+    (item) =>
+      item.annotation.status === "open" && !item.annotation.postponed,
   ).length;
+  const postponedQuestionCount = questionItems.filter(
+    (item) => item.annotation.status === "open" && item.annotation.postponed,
+  ).length;
+  const questionStatusItems = questionItems.filter((item) => {
+    if (questionStatusFilter === "open") {
+      return item.annotation.status === "open" && !item.annotation.postponed;
+    }
+    if (questionStatusFilter === "later") {
+      return item.annotation.status === "open" && item.annotation.postponed;
+    }
+    return true;
+  });
   const questionDays = course.days
     .map((day) => ({
       day,
-      count: questionItems.filter(
+      count: questionStatusItems.filter(
         (item) =>
-          item.annotation.status === "open" &&
           item.days.some((linkedDay) => linkedDay.id === day.id),
       ).length,
     }))
     .filter((item) => item.count > 0);
-  const visibleQuestionItems = questionItems.filter((item) => {
-    if (
-      questionStatusFilter === "open" &&
-      item.annotation.status !== "open"
-    ) {
-      return false;
-    }
+  const visibleQuestionItems = questionStatusItems.filter((item) => {
     if (
       questionDayFilter !== "all" &&
       !item.days.some((day) => day.id === questionDayFilter)
@@ -572,6 +597,15 @@ export function NotesView({
   const visibleLaterTasks = laterTasks.filter(({ task }) =>
     !normalizedQuery || task.title.toLowerCase().includes(normalizedQuery),
   );
+  const visibleLaterQuestions = questionItems.filter(
+    ({ annotation, resource }) =>
+      annotation.status === "open" &&
+      annotation.postponed &&
+      (!normalizedQuery ||
+        `${resource?.title ?? ""} ${annotation.anchor?.quote ?? ""} ${annotation.body?.plainText ?? ""}`
+          .toLowerCase()
+          .includes(normalizedQuery)),
+  );
 
   return (
     <div className="notesLayout">
@@ -634,7 +668,7 @@ export function NotesView({
                         ({ note }) => note.attention === "professor",
                       ).length + professorDiscussions.length
                     }`
-                  : "Do later"}
+                  : `Do later · ${visibleLaterTasks.length + postponedQuestionCount}`}
           </button>
         ))}
       </div>
@@ -652,17 +686,33 @@ export function NotesView({
             <div className="questionStatusToggle">
               <button
                 className={questionStatusFilter === "open" ? "active" : ""}
-                onClick={() => setQuestionStatusFilter("open")}
+                onClick={() => {
+                  setQuestionStatusFilter("open");
+                  setQuestionDayFilter("all");
+                }}
                 type="button"
               >
                 Open
               </button>
               <button
-                className={questionStatusFilter === "all" ? "active" : ""}
-                onClick={() => setQuestionStatusFilter("all")}
+                className={questionStatusFilter === "later" ? "active" : ""}
+                onClick={() => {
+                  setQuestionStatusFilter("later");
+                  setQuestionDayFilter("all");
+                }}
                 type="button"
               >
-                Open + answered
+                Later · {postponedQuestionCount}
+              </button>
+              <button
+                className={questionStatusFilter === "all" ? "active" : ""}
+                onClick={() => {
+                  setQuestionStatusFilter("all");
+                  setQuestionDayFilter("all");
+                }}
+                type="button"
+              >
+                All
               </button>
             </div>
           </header>
@@ -672,8 +722,14 @@ export function NotesView({
               onClick={() => setQuestionDayFilter("all")}
               type="button"
             >
-              <strong>{openQuestionCount}</strong>
-              <span>All open</span>
+              <strong>{questionStatusItems.length}</strong>
+              <span>
+                {questionStatusFilter === "open"
+                  ? "All active"
+                  : questionStatusFilter === "later"
+                    ? "All later"
+                    : "All questions"}
+              </span>
             </button>
             {questionDays.map(({ day, count }) => (
               <button
@@ -941,6 +997,23 @@ export function NotesView({
 
       {filter === "later" ? (
         <section className="noteCollection">
+          <header className="collectionHeader">
+            <h2>Questions for later</h2>
+            <span>{visibleLaterQuestions.length}</span>
+          </header>
+          {visibleLaterQuestions.map(({ annotation, days, resource }) => (
+            <AnnotationSummaryCard
+              annotation={annotation}
+              days={days}
+              key={`${annotation.id}:${annotation.revision}`}
+              onAnnotationChange={onAnnotationChange}
+              onCopyAnnotation={onCopyAnnotation}
+              onOpenDay={onOpenDay}
+              onOpenDiscussion={onOpenDiscussion}
+              onOpenResource={onOpenResource}
+              resource={resource}
+            />
+          ))}
           <header className="collectionHeader">
             <h2>Deferred tasks</h2>
             <span>{visibleLaterTasks.length}</span>

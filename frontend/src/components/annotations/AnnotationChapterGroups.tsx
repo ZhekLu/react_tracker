@@ -22,7 +22,7 @@ type AnnotationChapterGroupsProps = {
   initiallyExpandCaptures?: boolean;
   onAnnotationChange: (
     annotation: Annotation,
-    changes: { status?: AnnotationStatus },
+    changes: { status?: AnnotationStatus; postponed?: boolean },
   ) => void;
   onDiscuss?: (annotation: Annotation) => void;
   onNoteSave?: (input: EntityNoteSaveInput) => void;

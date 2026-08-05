@@ -5686,6 +5686,12 @@ button.taskMetaBadge:disabled {
   color: var(--green-deep);
 }
 
+.annotationKind.later {
+  border-color: color-mix(in srgb, #765bd4 30%, var(--line));
+  background: #fff;
+  color: #6547bd;
+}
+
 /* Richer but brief completion feedback */
 
 .completionBurst.task {

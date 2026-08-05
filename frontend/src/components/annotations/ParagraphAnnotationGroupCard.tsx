@@ -1,4 +1,4 @@
-import { CircleHelp, Layers3 } from "lucide-react";
+import { CircleHelp, Clock3, Layers3 } from "lucide-react";
 import { type CSSProperties, type ReactNode } from "react";
 import type {
   Annotation,
@@ -18,7 +18,7 @@ type ParagraphAnnotationGroupCardProps = {
   annotations: Annotation[];
   onAnnotationChange: (
     annotation: Annotation,
-    changes: { status?: AnnotationStatus },
+    changes: { status?: AnnotationStatus; postponed?: boolean },
   ) => void;
   onDiscuss?: (annotation: Annotation) => void;
   onNoteSave?: (input: EntityNoteSaveInput) => void;
@@ -203,8 +203,20 @@ export function ParagraphAnnotationGroupCard({
   const activeQuestions = annotations.filter(
     (annotation) =>
       ["question", "todo"].includes(annotation.kind) &&
-      annotation.status === "open",
+      annotation.status === "open" &&
+      !annotation.postponed,
   ).length;
+  const postponableQuestions = annotations.filter(
+    (annotation) =>
+      ["question", "todo"].includes(annotation.kind) &&
+      annotation.status === "open",
+  );
+  const postponedQuestions = postponableQuestions.filter(
+    (annotation) => annotation.postponed,
+  ).length;
+  const wholeGroupPostponed =
+    postponableQuestions.length > 0 &&
+    postponedQuestions === postponableQuestions.length;
   const pageLabel =
     pageRange.start && pageRange.end && pageRange.start !== pageRange.end
       ? `pp. ${pageRange.start}–${pageRange.end}`
@@ -227,6 +239,41 @@ export function ParagraphAnnotationGroupCard({
             <strong className="question">
               <CircleHelp size={12} /> {activeQuestions}
             </strong>
+          ) : null}
+          {postponedQuestions ? (
+            <strong className="later">
+              <Clock3 size={12} /> {postponedQuestions}
+            </strong>
+          ) : null}
+          {postponableQuestions.length > 1 ? (
+            <button
+              aria-label={
+                wholeGroupPostponed
+                  ? "Return question group to active review"
+                  : "Review question group later"
+              }
+              className={wholeGroupPostponed ? "groupLater active" : "groupLater"}
+              onClick={() =>
+                postponableQuestions
+                  .filter(
+                    (annotation) =>
+                      annotation.postponed === wholeGroupPostponed,
+                  )
+                  .forEach((annotation) =>
+                    onAnnotationChange(annotation, {
+                      postponed: !wholeGroupPostponed,
+                    }),
+                  )
+              }
+              title={
+                wholeGroupPostponed
+                  ? "Make unresolved questions in this group active"
+                  : "Review unresolved questions in this group later"
+              }
+              type="button"
+            >
+              <Clock3 size={12} /> Group
+            </button>
           ) : null}
           {pageLabel ? <em>{pageLabel}</em> : null}
         </span>

@@ -16,6 +16,7 @@ function annotation(
     kind: "question",
     notes: [],
     origin: "drawboard_cloud",
+    postponed: false,
     priority: "normal",
     resourceId: "book",
     revision: 1,

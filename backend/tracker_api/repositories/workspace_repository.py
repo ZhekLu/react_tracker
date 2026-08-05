@@ -376,7 +376,7 @@ def _annotations(
         """
         SELECT
           a.id, a.resource_id, a.body_document_id, a.kind, a.status, a.priority,
-          a.origin, a.created_at, a.updated_at, a.revision,
+          a.origin, a.postponed_at, a.created_at, a.updated_at, a.revision,
           aa.anchor_type, aa.quote, aa.section_title, aa.source_line_start,
           aa.source_line_end, aa.page_number, aa.rect_json, aa.color,
           aa.discussion_message_id, aa.selector_json, aa.rgb_json
@@ -415,6 +415,7 @@ def _annotations(
             resource_id=str(row["resource_id"]),
             kind=cast(Any, row["kind"]),
             status=cast(Any, row["status"]),
+            postponed=row["postponed_at"] is not None,
             priority=cast(Any, row["priority"]),
             origin=str(row["origin"]),
             revision=int(row["revision"]),
@@ -435,6 +436,7 @@ def _open_question_count(annotations: Iterable[Annotation]) -> int:
         if (
             annotation.kind not in {"question", "todo"}
             or annotation.status != "open"
+            or annotation.postponed
         ):
             continue
         metadata = annotation.anchor.metadata if annotation.anchor else {}
@@ -623,7 +625,9 @@ def list_courses(connection: Connection) -> CourseListResponse:
                 r.course_id,
                 COUNT(
                   DISTINCT CASE
-                    WHEN a.kind IN ('question', 'todo') AND a.status = 'open'
+                    WHEN a.kind IN ('question', 'todo')
+                      AND a.status = 'open'
+                      AND a.postponed_at IS NULL
                     THEN r.id || ':' || COALESCE(
                       json_extract(aa.selector_json, '$.contextGroupId'),
                       a.id
@@ -1741,7 +1745,7 @@ def update_annotation(
     annotation = _one_or_none(
         connection,
         """
-        SELECT id, body_document_id
+        SELECT id, body_document_id, kind, status
         FROM annotations
         WHERE id = :id AND deleted_at IS NULL
         """,
@@ -1749,12 +1753,28 @@ def update_annotation(
     )
     if annotation is None:
         raise EntityNotFoundError(f"Annotation does not exist: {annotation_id}")
+    effective_kind = command.kind or str(annotation["kind"])
+    effective_status = command.status or str(annotation["status"])
+    if command.postponed and (
+        effective_kind not in {"question", "todo"}
+        or effective_status != "open"
+    ):
+        raise WorkspaceRepositoryError(
+            "Only open questions and todos can be postponed."
+        )
     assignments = [
         "kind = COALESCE(:kind, kind)",
         "status = COALESCE(:status, status)",
         "priority = COALESCE(:priority, priority)",
         "answered_at = CASE WHEN :status = 'answered' THEN :now ELSE answered_at END",
         "archived_at = CASE WHEN :status = 'archived' THEN :now ELSE archived_at END",
+        """postponed_at = CASE
+          WHEN :status IN ('answered', 'archived') THEN NULL
+          WHEN :kind IS NOT NULL AND :kind NOT IN ('question', 'todo') THEN NULL
+          WHEN :postponed IS NULL THEN postponed_at
+          WHEN :postponed = 1 THEN :now
+          ELSE NULL
+        END""",
     ]
     response = _update_with_revision(
         connection,
@@ -1766,6 +1786,7 @@ def update_annotation(
             "kind": command.kind,
             "status": command.status,
             "priority": command.priority,
+            "postponed": command.postponed,
             "now": _now(),
         },
     )
@@ -3936,6 +3957,7 @@ def _set_discussion_message_annotation(
         UPDATE annotations
         SET status = :status,
             answered_at = CASE WHEN :status = 'answered' THEN :timestamp ELSE NULL END,
+            postponed_at = CASE WHEN :status = 'answered' THEN NULL ELSE postponed_at END,
             updated_at = :timestamp,
             revision = revision + 1
         WHERE id = :annotation_id AND deleted_at IS NULL

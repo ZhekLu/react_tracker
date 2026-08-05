@@ -57,6 +57,7 @@ type DiscussionQaReviewProps = {
     changes: {
       kind?: AnnotationKind;
       status?: AnnotationStatus;
+      postponed?: boolean;
       priority?: Annotation["priority"];
       markdown?: string;
       plainText?: string;
@@ -307,7 +308,10 @@ export function DiscussionQaReview({
     () =>
       openQuestionsOnly
         ? allItems.filter((item) =>
-            item.questions.some((question) => question.status === "open"),
+            item.questions.some(
+              (question) =>
+                question.status === "open" && !question.postponed,
+            ),
           )
         : allItems,
     [allItems, openQuestionsOnly],

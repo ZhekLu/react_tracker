@@ -75,6 +75,7 @@ type DiscussionsViewProps = {
     changes: {
       kind?: AnnotationKind;
       status?: AnnotationStatus;
+      postponed?: boolean;
       priority?: Annotation["priority"];
       markdown?: string;
       plainText?: string;
@@ -424,7 +425,10 @@ function DiscussionMessageContent({
             key={section.label}
             open={
               sectionEditing ||
-              questions.some((question) => question.status === "open") ||
+              questions.some(
+                (question) =>
+                  question.status === "open" && !question.postponed,
+              ) ||
               undefined
             }
           >
@@ -449,8 +453,14 @@ function DiscussionMessageContent({
                 </button>
               ) : (
                 <span>
-                  {questions.filter((question) => question.status === "open").length
-                    ? `${questions.filter((question) => question.status === "open").length} open`
+                  {questions.filter(
+                    (question) =>
+                      question.status === "open" && !question.postponed,
+                  ).length
+                    ? `${questions.filter(
+                        (question) =>
+                          question.status === "open" && !question.postponed,
+                      ).length} open`
                     : questions.length
                       ? "answered"
                       : "section"}
@@ -612,7 +622,9 @@ function DiscussionWorkshopPanel({
 }: DiscussionWorkshopPanelProps) {
   const [openQuestionsOnly, setOpenQuestionsOnly] = useState(true);
   const visibleCoverageQuestions = openQuestionsOnly
-    ? coverageQuestions.filter((question) => question.status === "open")
+    ? coverageQuestions.filter(
+        (question) => question.status === "open" && !question.postponed,
+      )
     : coverageQuestions;
   return (
     <aside className="discussionQuestionPanel discussionWorkshopPanel">
@@ -865,9 +877,13 @@ export function DiscussionsView({
     .filter((annotation) => annotation.status !== "archived")
     .sort((left, right) => {
       const leftOpenQuestion =
-        ["question", "todo"].includes(left.kind) && left.status === "open";
+        ["question", "todo"].includes(left.kind) &&
+        left.status === "open" &&
+        !left.postponed;
       const rightOpenQuestion =
-        ["question", "todo"].includes(right.kind) && right.status === "open";
+        ["question", "todo"].includes(right.kind) &&
+        right.status === "open" &&
+        !right.postponed;
       if (leftOpenQuestion !== rightOpenQuestion) {
         return leftOpenQuestion ? -1 : 1;
       }

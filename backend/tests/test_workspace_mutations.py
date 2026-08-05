@@ -1317,6 +1317,68 @@ Stop when: both chapter scopes are reviewed. {#day01-stop}
     assert len(book.annotations) == 2
 
 
+def test_postponed_question_groups_leave_active_counts_without_losing_state(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        questions = [
+            create_annotation(
+                connection,
+                AnnotationCreateCommand(
+                    resource_id=resource_id,
+                    kind="question",
+                    markdown=f"Question {index}",
+                    anchor=AnnotationAnchorCreate(
+                        anchor_type="text_quote",
+                        metadata={"contextGroupId": "shared-paragraph"},
+                    ),
+                ),
+            )
+            for index in (1, 2)
+        ]
+        initial = get_workspace(connection, course_id)
+        assert initial.days[0].open_question_count == 1
+
+        for question in questions:
+            update_annotation(
+                connection,
+                question.id,
+                AnnotationCommand(revision=question.revision, postponed=True),
+            )
+        postponed = get_workspace(connection, course_id)
+
+        postponed_questions = [
+            annotation
+            for annotation in postponed.annotations
+            if annotation.id in {question.id for question in questions}
+        ]
+        assert all(annotation.postponed for annotation in postponed_questions)
+        assert postponed.days[0].open_question_count == 0
+        postponed_resource = next(
+            resource for resource in postponed.resources if resource.id == resource_id
+        )
+        assert postponed_resource.open_question_count == 0
+
+        first = next(
+            annotation
+            for annotation in postponed_questions
+            if annotation.id == questions[0].id
+        )
+        update_annotation(
+            connection,
+            first.id,
+            AnnotationCommand(revision=first.revision, status="answered"),
+        )
+        answered = get_workspace(connection, course_id)
+
+    answered_first = next(
+        annotation for annotation in answered.annotations if annotation.id == first.id
+    )
+    assert answered_first.status == "answered"
+    assert answered_first.postponed is False
+
+
 def test_generic_book_tasks_only_inherit_questions_from_their_study_day(
     tmp_path: Path,
 ) -> None:

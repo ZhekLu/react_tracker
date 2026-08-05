@@ -94,7 +94,8 @@ function activeQuestions(annotations: Annotation[]): Annotation[] {
   return annotations.filter(
     (annotation) =>
       ["question", "todo"].includes(annotation.kind) &&
-      annotation.status === "open",
+      annotation.status === "open" &&
+      !annotation.postponed,
   );
 }
 

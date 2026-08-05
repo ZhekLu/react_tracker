@@ -278,6 +278,7 @@ export function discussionFollowups(
       (annotation) =>
         ["question", "todo"].includes(annotation.kind) &&
         annotation.status === "open" &&
+        !annotation.postponed &&
         annotation.anchor?.discussionMessageId &&
         messageById.has(annotation.anchor.discussionMessageId),
     )

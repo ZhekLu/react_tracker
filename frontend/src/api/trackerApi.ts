@@ -106,6 +106,7 @@ type ApiAnnotation = {
   resource_id: string;
   kind: AnnotationKind;
   status: AnnotationStatus;
+  postponed: boolean;
   priority: "low" | "normal" | "high";
   origin: string;
   revision: number;
@@ -608,6 +609,7 @@ function annotation(api: ApiAnnotation): Annotation {
     resourceId: api.resource_id,
     kind: api.kind,
     status: api.status,
+    postponed: api.postponed,
     priority: api.priority,
     origin: api.origin,
     revision: api.revision,
@@ -1013,6 +1015,7 @@ export async function updateAnnotation(
   changes: {
     kind?: AnnotationKind;
     status?: AnnotationStatus;
+    postponed?: boolean;
     priority?: "low" | "normal" | "high";
     markdown?: string;
     plainText?: string;
@@ -1024,6 +1027,7 @@ export async function updateAnnotation(
       revision,
       kind: changes.kind,
       status: changes.status,
+      postponed: changes.postponed,
       priority: changes.priority,
       markdown: changes.markdown,
       plain_text: changes.plainText,

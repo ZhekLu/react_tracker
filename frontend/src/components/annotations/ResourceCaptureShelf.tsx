@@ -14,7 +14,7 @@ import { AnnotationChapterGroups } from "./AnnotationChapterGroups";
 type ResourceCaptureShelfProps = {
   onAnnotationChange: (
     annotation: Annotation,
-    changes: { status?: AnnotationStatus },
+    changes: { status?: AnnotationStatus; postponed?: boolean },
   ) => void;
   onCopyQuestions: (resource: Resource) => void;
   onCreateRequest: () => void;
@@ -41,7 +41,8 @@ export function ResourceCaptureShelf({
   const activeCount = captures.filter(
     (annotation) =>
       ["question", "todo"].includes(annotation.kind) &&
-      annotation.status === "open",
+      annotation.status === "open" &&
+      !annotation.postponed,
   ).length;
 
   return (

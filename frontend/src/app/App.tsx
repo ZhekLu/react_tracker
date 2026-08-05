@@ -898,6 +898,7 @@ export function App() {
     changes: {
       kind?: Course["annotations"][number]["kind"];
       status?: Course["annotations"][number]["status"];
+      postponed?: boolean;
       priority?: Course["annotations"][number]["priority"];
       markdown?: string;
       plainText?: string;

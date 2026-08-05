@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Circle,
+  Clock3,
   MessageSquareText,
 } from "lucide-react";
 import { useState, type CSSProperties } from "react";
@@ -25,7 +26,7 @@ type CompactAnnotationCardProps = {
   annotation: Annotation;
   onAnnotationChange: (
     annotation: Annotation,
-    changes: { status?: AnnotationStatus },
+    changes: { status?: AnnotationStatus; postponed?: boolean },
   ) => void;
   onDiscuss?: (annotation: Annotation) => void;
   onNoteSave?: (input: EntityNoteSaveInput) => void;
@@ -52,13 +53,14 @@ export function CompactAnnotationCard({
   const displayText = annotationDisplayText(annotation);
   const canAnswer =
     annotation.kind === "question" || annotation.kind === "todo";
+  const canPostpone = canAnswer && annotation.status === "open";
   const hasContext =
     showExtendedContext && annotationHasExtendedContext(annotation);
   const canExpand = hasContext || Boolean(onNoteSave);
 
   return (
     <article
-      className={`compactCaptureCard kind-${annotation.kind} status-${annotation.status} color-${color} ${expanded ? "expanded" : ""}`}
+      className={`compactCaptureCard kind-${annotation.kind} status-${annotation.status} color-${color} ${annotation.postponed ? "postponed" : ""} ${expanded ? "expanded" : ""}`}
       style={
         rgb
           ? ({ "--capture-color": rgb } as CSSProperties)
@@ -111,6 +113,25 @@ export function CompactAnnotationCard({
             ) : (
               <CheckCircle2 size={12} />
             )}
+          </button>
+        ) : null}
+        {canPostpone ? (
+          <button
+            aria-label={
+              annotation.postponed
+                ? "Return capture to active questions"
+                : "Review capture later"
+            }
+            className={annotation.postponed ? "later active" : "later"}
+            onClick={() =>
+              onAnnotationChange(annotation, {
+                postponed: !annotation.postponed,
+              })
+            }
+            title={annotation.postponed ? "Make active" : "Review later"}
+            type="button"
+          >
+            <Clock3 size={12} />
           </button>
         ) : null}
         {onDiscuss ? (

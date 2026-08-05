@@ -38,6 +38,7 @@ import { PetCelebration } from "../../components/rewards/PetCelebration";
 import { AnnotationChapterGroups } from "../../components/annotations/AnnotationChapterGroups";
 import {
   annotationChapterNumber,
+  annotationContextGroupId,
   annotationMetadata,
 } from "../../components/annotations/annotationDisplay";
 import {
@@ -82,7 +83,11 @@ type RoadmapViewProps = {
   onActiveDayChange: (dayId: string) => void;
   onAnnotationChange: (
     annotation: Annotation,
-    changes: { kind?: AnnotationKind; status?: AnnotationStatus },
+    changes: {
+      kind?: AnnotationKind;
+      status?: AnnotationStatus;
+      postponed?: boolean;
+    },
   ) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
   onCreateCapture: (resourceId: string, input: ResourceCaptureInput) => void;
@@ -196,10 +201,12 @@ function TaskRow({
     .sort((left, right) => {
       const leftQuestion =
         ["question", "todo"].includes(left.annotation.kind) &&
-        left.annotation.status === "open";
+        left.annotation.status === "open" &&
+        !left.annotation.postponed;
       const rightQuestion =
         ["question", "todo"].includes(right.annotation.kind) &&
-        right.annotation.status === "open";
+        right.annotation.status === "open" &&
+        !right.annotation.postponed;
       if (leftQuestion !== rightQuestion) return leftQuestion ? -1 : 1;
       return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
     });
@@ -558,17 +565,42 @@ function TaskCapturePanel({
   const activeQuestions = taskCaptures.filter(
     (capture) =>
       ["question", "todo"].includes(capture.annotation.kind) &&
-      capture.annotation.status === "open",
+      capture.annotation.status === "open" &&
+      !capture.annotation.postponed,
   );
+  const postponedQuestions = taskCaptures.filter(
+    ({ annotation }) =>
+      ["question", "todo"].includes(annotation.kind) &&
+      annotation.status === "open" &&
+      annotation.postponed,
+  );
+  const logicalQuestionCount = (
+    questions: Array<{ annotation: Annotation; resource: Resource }>,
+  ) =>
+    new Set(
+      questions.map(({ annotation, resource }) => {
+        const groupId = annotationContextGroupId(annotation);
+        return groupId ? `${resource.id}:${groupId}` : annotation.id;
+      }),
+    ).size;
+  const activeQuestionCount = logicalQuestionCount(activeQuestions);
+  const postponedQuestionCount = logicalQuestionCount(postponedQuestions);
   const [open, setOpen] = useState(false);
-  const [questionsOnly, setQuestionsOnly] = useState(false);
-  const showingQuestionsOnly = questionsOnly && activeQuestions.length > 0;
+  const [captureFilter, setCaptureFilter] = useState<"all" | "active" | "later">("all");
+  const showingQuestionsOnly =
+    captureFilter === "active" && activeQuestions.length > 0;
+  const showingPostponedOnly =
+    captureFilter === "later" && postponedQuestions.length > 0;
   const importedCaptures = taskCaptures.filter(({ annotation }) =>
     ["drawboard_cloud", "drawboard_cloud_ink", "pdf_import"].includes(
       annotation.origin,
     ),
   );
-  const visibleCaptures = showingQuestionsOnly ? activeQuestions : taskCaptures;
+  const visibleCaptures = showingQuestionsOnly
+    ? activeQuestions
+    : showingPostponedOnly
+      ? postponedQuestions
+      : taskCaptures;
   const manualQuestions = visibleCaptures.filter(
     ({ annotation, resource }) =>
       (resource.kind !== "book" || chapterScope.size === 0) &&
@@ -614,20 +646,39 @@ function TaskCapturePanel({
     <section className="taskCapturePanel">
       <div className="taskCaptureToggle">
         <span>
-          {activeQuestions.length ? (
+          {activeQuestionCount ? (
             <button
               aria-pressed={showingQuestionsOnly}
               className={`question ${showingQuestionsOnly ? "active" : ""}`}
               onClick={() => {
-                setQuestionsOnly((current) => !current);
+                setCaptureFilter((current) =>
+                  current === "active" ? "all" : "active",
+                );
                 setOpen(true);
               }}
               title="Show only open questions and expand them"
               type="button"
             >
               <CircleHelp size={12} />
-              {activeQuestions.length} active question
-              {activeQuestions.length === 1 ? "" : "s"}
+              {activeQuestionCount} active question
+              {activeQuestionCount === 1 ? "" : "s"}
+            </button>
+          ) : null}
+          {postponedQuestionCount ? (
+            <button
+              aria-pressed={showingPostponedOnly}
+              className={`later ${showingPostponedOnly ? "active" : ""}`}
+              onClick={() => {
+                setCaptureFilter((current) =>
+                  current === "later" ? "all" : "later",
+                );
+                setOpen(true);
+              }}
+              title="Show only questions saved for later"
+              type="button"
+            >
+              <Clock3 size={12} />
+              {postponedQuestionCount} later
             </button>
           ) : null}
           {importedCaptures.length ? (
@@ -637,7 +688,9 @@ function TaskCapturePanel({
               {importedCaptures.length === 1 ? "" : "s"}
             </strong>
           ) : null}
-          {!activeQuestions.length && !importedCaptures.length ? (
+          {!activeQuestionCount &&
+          !postponedQuestionCount &&
+          !importedCaptures.length ? (
             <strong className="capture">
               <Archive size={12} />
               {taskCaptures.length} capture{taskCaptures.length === 1 ? "" : "s"}
@@ -662,7 +715,7 @@ function TaskCapturePanel({
               initiallyOpen={showingQuestionsOnly || annotations.some(
                 (annotation) => annotation.status === "open",
               )}
-              key={`${resource.id}:${showingQuestionsOnly}`}
+              key={`${resource.id}:${captureFilter}`}
               onAnnotationChange={onAnnotationChange}
               onDiscuss={() => onOpenDiscussion(resource.id)}
               onNoteSave={onNoteSave}
@@ -675,7 +728,8 @@ function TaskCapturePanel({
               (annotation) =>
                 isRelevantToTask({ annotation, resource }) &&
                 ["question", "todo"].includes(annotation.kind) &&
-                annotation.status === "open",
+                annotation.status === "open" &&
+                !annotation.postponed,
             ).length;
             return (
             <section className="taskCaptureResourceGroup" key={resource.id}>
@@ -694,8 +748,8 @@ function TaskCapturePanel({
               </header>
               <AnnotationChapterGroups
                 annotations={annotations}
-                initiallyExpandCaptures={showingQuestionsOnly}
-                initiallyOpenAll={showingQuestionsOnly}
+                initiallyExpandCaptures={showingQuestionsOnly || showingPostponedOnly}
+                initiallyOpenAll={showingQuestionsOnly || showingPostponedOnly}
                 preferredChapterNumbers={
                   resource.kind === "book" ? chapterNumbers : []
                 }

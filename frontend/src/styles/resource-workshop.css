@@ -3708,6 +3708,38 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #de5b69 18%, transparent);
 }
 
+.taskCaptureToggle > span > button.later,
+.paragraphCaptureGroup > header .later,
+.paragraphCaptureGroup > header .groupLater,
+.compactCaptureActions button.later.active {
+  border-color: color-mix(in srgb, #765bd4 28%, var(--line));
+  background: color-mix(in srgb, #eee9ff 72%, #fff);
+  color: #6547bd;
+}
+
+.taskCaptureToggle > span > button.later.active,
+.paragraphCaptureGroup > header .groupLater.active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #765bd4 24%, transparent);
+}
+
+.paragraphCaptureGroup > header .later,
+.paragraphCaptureGroup > header .groupLater {
+  min-height: 18px;
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, #765bd4 24%, var(--line));
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 780;
+}
+
+.compactCaptureCard.postponed {
+  opacity: 0.82;
+}
+
 .taskCaptureExpand {
   width: 25px;
   height: 25px;

@@ -110,6 +110,7 @@ export type Annotation = {
   resourceId: string;
   kind: AnnotationKind;
   status: AnnotationStatus;
+  postponed: boolean;
   priority: "low" | "normal" | "high";
   origin: string;
   revision: number;
