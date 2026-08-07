@@ -14,6 +14,7 @@ from tracker_api.services import drawboard_service, pdf_annotation_service
 from tracker_api.services.drawboard_service import (
     DrawboardCapture,
     DrawboardExtraction,
+    _annotation_color,
     drawboard_deep_link,
     extract_drawboard_annotations,
     is_drawboard_cloud_url,
@@ -63,6 +64,19 @@ def test_drawboard_url_and_native_deep_link() -> None:
         == f"com.drawboard.drawboardpdf://open/documents/{DOCUMENT_ID}"
     )
     assert not is_drawboard_cloud_url("https://example.com/book.pdf")
+
+
+def test_drawboard_dark_red_pen_is_still_a_question_color() -> None:
+    color, rgb = _annotation_color({"fillColor": "D9AF0001"})
+
+    assert color == "red"
+    assert rgb == pytest.approx([175 / 255, 0, 1 / 255])
+
+
+def test_drawboard_grey_pen_is_not_a_question_color() -> None:
+    color, _rgb = _annotation_color({"fillColor": "D9575761"})
+
+    assert color == "custom"
 
 
 def test_cloud_extraction_pages_batches_and_reuses_credentials(

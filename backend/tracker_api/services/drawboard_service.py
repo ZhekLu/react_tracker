@@ -388,7 +388,16 @@ def _annotation_appearance(
     rgb = [int(raw[index : index + 2], 16) / 255 for index in (0, 2, 4)]
     red, green, blue = rgb
     color = "custom"
-    if red >= 0.75 and green <= 0.55 and blue <= 0.65:
+    # Drawboard's current dark-red pen is #AF0001 (before alpha), while its
+    # older red/pink presets are much brighter. Hue dominance is stable across
+    # those palette changes; an absolute red >= .75 threshold is not. Keep the
+    # separation deliberately wide enough that grey and blue handwriting can
+    # never become questions merely because their red channel is non-zero.
+    if (
+        red >= 0.45
+        and red - green >= 0.25
+        and red - blue >= 0.20
+    ):
         color = "red"
     elif red >= 0.85 and green >= 0.75 and blue <= 0.55:
         color = "yellow"
