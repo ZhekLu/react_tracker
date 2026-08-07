@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pymupdf
+from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from ..repositories import workspace_repository
@@ -18,6 +19,7 @@ from ..schemas.workspace import (
     AnnotationCreateCommand,
     AnnotationKind,
 )
+from .chapter_scope_service import referenced_chapter_numbers
 from .drawboard_service import (
     DrawboardCapture,
     DrawboardError,
@@ -81,6 +83,46 @@ class PdfCollection:
     @property
     def ignored_count(self) -> int:
         return sum(self.ignored.values())
+
+
+def _chapter_study_days(
+    connection: Connection,
+    resource_id: str,
+) -> dict[int, str]:
+    """Map a book chapter to its first explicit study-plan day."""
+
+    rows = connection.execute(
+        text(
+            """
+            SELECT d.id AS day_id, d.number AS day_number, t.title
+            FROM study_days d
+            JOIN tasks t ON t.day_id = d.id
+            JOIN task_resources tr ON tr.task_id = t.id
+            JOIN resources r ON r.id = tr.resource_id
+            WHERE tr.resource_id = :resource_id
+              AND r.kind = 'book'
+              AND d.deleted_at IS NULL
+              AND t.deleted_at IS NULL
+            ORDER BY d.number, t.order_index
+            """
+        ),
+        {"resource_id": resource_id},
+    ).mappings()
+    study_days: dict[int, str] = {}
+    for row in rows:
+        for chapter in referenced_chapter_numbers(str(row["title"])):
+            study_days.setdefault(chapter, str(row["day_id"]))
+    return study_days
+
+
+def _capture_study_day(
+    context: PdfAnnotationContext | None,
+    chapter_study_days: dict[int, str],
+    fallback_day_id: str | None,
+) -> str | None:
+    if context is not None and context.chapter_number is not None:
+        return chapter_study_days.get(context.chapter_number, fallback_day_id)
+    return fallback_day_id
 
 
 def _utc_now_iso() -> str:
@@ -547,11 +589,18 @@ def collect_resource_pdf_annotations(
                 annotated_page_urls = {}
         counts = {"created": 0, "existing": 0, "updated": 0}
         cloud_kind_counts: dict[str, int] = {}
+        chapter_study_days = _chapter_study_days(connection, resource_id)
         for cloud_capture in cloud_extraction.captures:
             context = contexts.get(cloud_capture.fingerprint)
+            capture_day_id = _capture_study_day(
+                context,
+                chapter_study_days,
+                source_day_id,
+            )
             sync_revision = (
                 f"{cloud_capture.source_revision}:"
-                f"{'pdf-paragraph-context-v2' if context else 'plain-v1'}"
+                f"{'pdf-paragraph-context-v2' if context else 'plain-v1'}:"
+                f"study-day-v1:{capture_day_id or '-'}"
             )
             command = _drawboard_annotation_command(
                 resource_id,
@@ -561,7 +610,7 @@ def collect_resource_pdf_annotations(
                 context,
                 annotated_page_urls.get(cloud_capture.page),
                 sync_revision,
-                source_day_id,
+                capture_day_id,
             )
             cloud_kind_counts[command.kind] = (
                 cloud_kind_counts.get(command.kind, 0) + 1
@@ -574,10 +623,15 @@ def collect_resource_pdf_annotations(
             counts[outcome] += 1
         for ink in cloud_extraction.red_ink:
             context = contexts.get(ink.fingerprint)
+            capture_day_id = _capture_study_day(
+                context,
+                chapter_study_days,
+                source_day_id,
+            )
             sync_revision = (
                 f"{ink.source_revision}:"
                 f"{'ink-paragraph-context-v3' if context else 'ink-plain-v4'}:"
-                f"{INK_RENDERER_VERSION}"
+                f"{INK_RENDERER_VERSION}:study-day-v1:{capture_day_id or '-'}"
             )
             command = _drawboard_ink_command(
                 resource_id,
@@ -588,7 +642,7 @@ def collect_resource_pdf_annotations(
                 image_urls.get(ink.fingerprint),
                 annotated_page_urls.get(ink.page),
                 sync_revision,
-                source_day_id,
+                capture_day_id,
             )
             cloud_kind_counts["question"] = (
                 cloud_kind_counts.get("question", 0) + 1
@@ -644,11 +698,18 @@ def collect_resource_pdf_annotations(
 
     counts = {"created": 0, "existing": 0, "updated": 0}
     kind_counts: dict[str, int] = {}
+    chapter_study_days = _chapter_study_days(connection, resource_id)
     for local_capture in local_extraction.captures:
         context = contexts.get(local_capture.fingerprint)
+        capture_day_id = _capture_study_day(
+            context,
+            chapter_study_days,
+            source_day_id,
+        )
         sync_revision = (
             f"{source_version}:"
-            f"{'pdf-paragraph-context-v1' if context else 'local-plain-v1'}"
+            f"{'pdf-paragraph-context-v1' if context else 'local-plain-v1'}:"
+            f"study-day-v1:{capture_day_id or '-'}"
         )
         command = _annotation_command(
             resource_id,
@@ -656,7 +717,7 @@ def collect_resource_pdf_annotations(
             local_capture,
             context,
             sync_revision,
-            source_day_id,
+            capture_day_id,
         )
         kind_counts[command.kind] = kind_counts.get(command.kind, 0) + 1
         outcome = workspace_repository.upsert_imported_annotation(

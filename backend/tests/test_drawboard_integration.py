@@ -20,6 +20,7 @@ from tracker_api.services.drawboard_service import (
     is_drawboard_cloud_url,
 )
 from tracker_api.services.pdf_annotation_service import (
+    _chapter_study_days,
     collect_resource_pdf_annotations,
 )
 from tracker_api.services.resource_open_service import open_resource
@@ -47,6 +48,10 @@ def isolated_settings(
     monkeypatch.setenv(
         "TRACKER_DRAWBOARD_STATE_PATH",
         str(tmp_path / "drawboard_state.json"),
+    )
+    monkeypatch.setenv(
+        "TRACKER_ANNOTATION_IMAGE_DIR",
+        str(tmp_path / "annotation-images"),
     )
     get_settings.cache_clear()
     get_engine.cache_clear()
@@ -361,6 +366,78 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
     assert active_after_removal == 0
     assert revived.updated_count == 1
     assert active_count == 1
+
+
+def test_book_chapters_map_to_their_explicit_study_days(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "book.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4")
+    plan_path = tmp_path / "chapter-plan.md"
+    plan_path.write_text(
+        f"""
++++
+format = "study-plan/v1"
+id = "chapter_study_days"
+title = "Chapter Study Days"
+mode = "full"
+
+[resources.book]
+title = "RL Book"
+path = "{pdf_path}"
+kind = "book"
++++
+
+# Chapter Study Days
+
+### Day 1: Chapter two {{#day-01}}
+
+#### Reading
+
+- [ ] Read Sections 2.1-2.4. {{#read-two resources=book}}
+
+Stop when: chapter two is read. {{#day01-stop}}
+
+### Day 2: Chapter three {{#day-02}}
+
+#### Reading
+
+- [ ] Read Sections 3.1-3.6. {{#read-three resources=book}}
+
+Stop when: chapter three is read. {{#day02-stop}}
+""".lstrip(),
+        encoding="utf-8",
+    )
+    result = sync_study_plan(plan_path)
+
+    with transaction() as connection:
+        resource_id = str(
+            connection.execute(
+                text(
+                    """
+                    SELECT entity_id
+                    FROM source_bindings
+                    WHERE entity_type = 'resource'
+                      AND source_key = 'chapter_study_days:book'
+                    """
+                )
+            ).scalar_one()
+        )
+        days = {
+            int(row["number"]): str(row["id"])
+            for row in connection.execute(
+                text(
+                    """
+                    SELECT id, number
+                    FROM study_days
+                    WHERE course_id = :course_id
+                    ORDER BY number
+                    """
+                ),
+                {"course_id": result.course_id},
+            ).mappings()
+        }
+        mapping = _chapter_study_days(connection, resource_id)
+
+    assert mapping == {2: days[1], 3: days[2]}
 
 
 def test_cloud_resource_open_uses_native_document_before_local_copy(
