@@ -1022,6 +1022,95 @@ def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_questi
     )
 
 
+def test_day_prompt_attaches_only_the_book_chapter_and_reuses_it(
+    tmp_path: Path,
+) -> None:
+    book_path = tmp_path / "book.pdf"
+    document = pymupdf.open()
+    for page_number in range(1, 9):
+        page = document.new_page()
+        page.insert_text((72, 72), f"Book page {page_number}")
+    document.set_toc(
+        [
+            [1, "Introduction", 1],
+            [1, "I Tabular Methods", 3],
+            [2, "Multi-armed Bandits", 3],
+            [3, "2.1 Action values", 3],
+            [2, "Finite Markov Decision Processes", 6],
+        ]
+    )
+    document.save(book_path)
+    document.close()
+    plan_path = tmp_path / "book-plan.md"
+    plan_path.write_text(
+        """
++++
+format = "study-plan/v1"
+id = "chapter_prompt"
+title = "Chapter Prompt"
+mode = "full"
+
+[resources.book]
+title = "RL Book"
+path = "book.pdf"
+kind = "book"
++++
+
+# Chapter Prompt
+
+### Day 1: 2026-07-01 - Bandits {#day-01}
+
+#### Reading
+
+- [ ] Read Sections 2.1-2.3. {#read-book resources=book}
+
+Stop when: chapter 2 is understood. {#day01-stop}
+""".lstrip(),
+        encoding="utf-8",
+    )
+    result = sync_study_plan(plan_path)
+
+    with transaction() as connection:
+        day_id = connection.execute(
+            text("SELECT id FROM study_days WHERE course_id = :course_id"),
+            {"course_id": result.course_id},
+        ).scalar_one()
+        first = create_prompt_batch_with_attachments(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=result.course_id,
+                title="Bandits day",
+                source_scope="day",
+                source_day_id=str(day_id),
+                markdown="# Day 1",
+            ),
+        )
+
+    resource = next(item for item in first.attachments if item.kind == "resource")
+    assert "chapters-2" in resource.name
+    with pymupdf.open(resource.path) as prepared:
+        assert prepared.page_count == 3
+        assert "Book page 3" in prepared[0].get_text()
+        assert "Book page 5" in prepared[-1].get_text()
+    first_mtime = Path(resource.path).stat().st_mtime_ns
+
+    with transaction() as connection:
+        second = create_prompt_batch_with_attachments(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=result.course_id,
+                title="Bandits day again",
+                source_scope="day",
+                source_day_id=str(day_id),
+                markdown="# Day 1",
+            ),
+        )
+
+    reused = next(item for item in second.attachments if item.kind == "resource")
+    assert reused.path == resource.path
+    assert Path(reused.path).stat().st_mtime_ns == first_mtime
+
+
 def test_reader_screen_marker_adds_slide_png_to_prompt_bundle(
     tmp_path: Path,
 ) -> None:

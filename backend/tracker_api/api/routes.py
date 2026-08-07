@@ -38,6 +38,7 @@ from ..schemas.workspace import (
     PdfReaderPage,
     PromptBatchCreateCommand,
     PromptBatchCreateResponse,
+    PromptBatchJobResponse,
     ResourceChapterProgressCommand,
     ResourceContentResponse,
     ResourceOpenResponse,
@@ -70,6 +71,10 @@ from ..services.pdf_reader_service import (
     render_pdf_page,
 )
 from ..services.prompt_attachment_service import PromptAttachmentError
+from ..services.prompt_batch_job_service import (
+    get_prompt_batch_job,
+    start_prompt_batch_job,
+)
 from ..services.prompt_batch_service import (
     create_prompt_batch as create_prompt_batch_with_attachments,
 )
@@ -645,6 +650,42 @@ def create_prompt_batch(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(error),
         ) from error
+
+
+def _prompt_job_response(job: Any) -> PromptBatchJobResponse:
+    return PromptBatchJobResponse(
+        job_id=job.id,
+        status=job.status,
+        progress=job.progress,
+        stage=job.stage,
+        result=job.result,
+        error=job.error,
+    )
+
+
+@router.post(
+    "/prompt-batches/jobs",
+    response_model=PromptBatchJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_prompt_batch_preparation(
+    command: PromptBatchCreateCommand,
+) -> PromptBatchJobResponse:
+    return _prompt_job_response(start_prompt_batch_job(command))
+
+
+@router.get(
+    "/prompt-batches/jobs/{job_id}",
+    response_model=PromptBatchJobResponse,
+)
+def prompt_batch_preparation_status(job_id: str) -> PromptBatchJobResponse:
+    job = get_prompt_batch_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Prompt preparation job not found.",
+        )
+    return _prompt_job_response(job)
 
 
 @router.post("/discussions", response_model=MutationResponse)

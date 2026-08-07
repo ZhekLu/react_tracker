@@ -567,6 +567,15 @@ class PromptBatchCreateResponse(MutationResponse):
     warnings: list[str] = Field(default_factory=list)
 
 
+class PromptBatchJobResponse(StrictModel):
+    job_id: str
+    status: Literal["queued", "running", "completed", "failed"]
+    progress: int = Field(ge=0, le=100)
+    stage: str
+    result: PromptBatchCreateResponse | None = None
+    error: str | None = None
+
+
 class ExerciseScreenshotItem(StrictModel):
     exercise: str
     name: str

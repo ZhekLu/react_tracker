@@ -1302,6 +1302,46 @@
   line-height: 1;
 }
 
+.promptProgressToast {
+  width: min(420px, calc(100vw - 44px));
+  align-items: stretch;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.promptProgressCopy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.promptProgressCopy strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.promptProgressCopy span {
+  color: var(--green-deep);
+  font-variant-numeric: tabular-nums;
+}
+
+.promptProgressTrack {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--green) 12%, #fff);
+}
+
+.promptProgressTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #36c98f, #69bff1 55%, #d975d4);
+  box-shadow: 0 0 12px color-mix(in srgb, #69bff1 45%, transparent);
+  transition: width 220ms ease;
+}
+
 .inlineCaptureEditor {
   padding: 12px;
   border: 1px solid color-mix(in srgb, var(--blue) 25%, var(--line));

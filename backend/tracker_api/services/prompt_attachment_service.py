@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
 import threading
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -14,6 +15,8 @@ from sqlalchemy.engine import Connection, RowMapping
 
 from ..config import get_settings
 from ..schemas.workspace import PromptBatchCreateCommand
+from .chapter_scope_service import annotation_chapter_number, referenced_chapter_numbers
+from .pdf_chapter_service import PdfChapterError, prepare_chapter_pdf
 from .pdf_ink_image_service import annotation_image_path
 from .pdf_reader_service import PdfReaderError, render_pdf_page
 from .resource_open_service import ResourceOpenError, safe_local_resource_path
@@ -24,6 +27,7 @@ class PromptAttachmentError(RuntimeError):
 
 
 ATTACHMENT_LOCK = threading.Lock()
+ProgressCallback = Callable[[int, str], None]
 _SAFE_FILENAME = re.compile(r"[^A-Za-z0-9._ -]+")
 _WHITESPACE = re.compile(r"\s+")
 _WINDOWS_RESERVED = {
@@ -123,10 +127,71 @@ def _copy_file(
     name = _unique_name(preferred_name, used_names)
     target = destination_dir / name
     try:
+        source_stat = source.stat()
+        if target.is_file():
+            target_stat = target.stat()
+            if (
+                target_stat.st_size == source_stat.st_size
+                and target_stat.st_mtime_ns == source_stat.st_mtime_ns
+            ):
+                return target
+        for candidate in destination_dir.iterdir():
+            if (
+                candidate == target
+                or not candidate.is_file()
+                or candidate.name.casefold() in used_names
+            ):
+                continue
+            candidate_stat = candidate.stat()
+            if (
+                candidate_stat.st_size == source_stat.st_size
+                and candidate_stat.st_mtime_ns == source_stat.st_mtime_ns
+            ):
+                candidate.replace(target)
+                return target
+    except OSError:
+        pass
+    try:
         shutil.copy2(source, target)
     except OSError as error:
         raise PromptAttachmentError(
             f"Could not copy prompt attachment {source} to {target}."
+        ) from error
+    return target
+
+
+def _write_bytes(
+    payload: bytes,
+    destination_dir: Path,
+    preferred_name: str,
+    used_names: set[str],
+) -> Path:
+    name = _unique_name(preferred_name, used_names)
+    target = destination_dir / name
+    digest = hashlib.sha256(payload).digest()
+
+    def matches(path: Path) -> bool:
+        try:
+            return path.is_file() and hashlib.sha256(path.read_bytes()).digest() == digest
+        except OSError:
+            return False
+
+    if matches(target):
+        return target
+    try:
+        for candidate in destination_dir.iterdir():
+            if (
+                candidate == target
+                or candidate.name.casefold() in used_names
+                or not matches(candidate)
+            ):
+                continue
+            candidate.replace(target)
+            return target
+        target.write_bytes(payload)
+    except OSError as error:
+        raise PromptAttachmentError(
+            f"Could not write prompt attachment to {target}."
         ) from error
     return target
 
@@ -253,6 +318,7 @@ def _resource_file_rows(
         SELECT
           r.id AS resource_id,
           r.title AS resource_title,
+          r.kind AS resource_kind,
           r.metadata_json,
           rv.local_path AS current_local_path,
           rv.file_name AS current_file_name
@@ -291,6 +357,118 @@ def _resource_paths(row: RowMapping) -> list[Path]:
         seen.add(key)
         paths.append(path)
     return paths
+
+
+def _annotation_chapters(
+    connection: Connection,
+    resource_id: str,
+    *,
+    annotation_ids: list[str],
+    source_day_id: str | None,
+) -> list[int]:
+    clauses = ["a.resource_id = :resource_id", "a.deleted_at IS NULL"]
+    params: dict[str, object] = {"resource_id": resource_id}
+    if annotation_ids:
+        clauses.append("a.id IN :annotation_ids")
+        params["annotation_ids"] = annotation_ids
+    elif source_day_id:
+        clauses.append("json_extract(aa.selector_json, '$.createdDayId') = :source_day_id")
+        params["source_day_id"] = source_day_id
+    else:
+        return []
+    statement = text(
+        f"""
+        SELECT aa.section_title, aa.selector_json
+        FROM annotations a
+        JOIN annotation_anchors aa ON aa.annotation_id = a.id
+        WHERE {' AND '.join(clauses)}
+        """
+    )
+    if annotation_ids:
+        statement = statement.bindparams(bindparam("annotation_ids", expanding=True))
+
+    chapters: set[int] = set()
+    for row in connection.execute(statement, params).mappings():
+        metadata = _json_object(row["selector_json"])
+        number = annotation_chapter_number(
+            chapter_number=metadata.get("chapterNumber"),
+            chapter_title=metadata.get("chapterTitle"),
+            chapter_label=metadata.get("chapterLabel"),
+            subchapter_title=metadata.get("subchapterTitle"),
+            section_title=row["section_title"],
+        )
+        if number is not None:
+            chapters.add(number)
+    return sorted(chapters)
+
+
+def _task_chapters(
+    connection: Connection,
+    resource_id: str,
+    command: PromptBatchCreateCommand,
+) -> list[int]:
+    if command.source_task_id:
+        rows = _rows(
+            connection,
+            """
+            SELECT t.title
+            FROM tasks t
+            JOIN task_resources tr ON tr.task_id = t.id
+            WHERE t.id = :task_id
+              AND tr.resource_id = :resource_id
+              AND t.deleted_at IS NULL
+            """,
+            {"task_id": command.source_task_id, "resource_id": resource_id},
+        )
+    elif command.source_day_id:
+        rows = _rows(
+            connection,
+            """
+            SELECT t.title
+            FROM tasks t
+            JOIN task_resources tr ON tr.task_id = t.id
+            WHERE t.day_id = :day_id
+              AND tr.resource_id = :resource_id
+              AND t.deleted_at IS NULL
+            ORDER BY t.order_index
+            """,
+            {"day_id": command.source_day_id, "resource_id": resource_id},
+        )
+    else:
+        return []
+    return sorted(
+        {
+            chapter
+            for row in rows
+            for chapter in referenced_chapter_numbers(str(row["title"]))
+        }
+    )
+
+
+def _book_chapters(
+    connection: Connection,
+    resource_id: str,
+    command: PromptBatchCreateCommand,
+) -> list[int]:
+    chapters = set(_task_chapters(connection, resource_id, command))
+    chapters.update(
+        _annotation_chapters(
+            connection,
+            resource_id,
+            annotation_ids=command.annotation_ids,
+            source_day_id=None,
+        )
+    )
+    if command.source_day_id:
+        chapters.update(
+            _annotation_chapters(
+                connection,
+                resource_id,
+                annotation_ids=[],
+                source_day_id=command.source_day_id,
+            )
+        )
+    return sorted(chapters)
 
 
 def _question_rows(
@@ -390,6 +568,17 @@ def _resource_attachment_name(
     return f"R-{ordinal:02d}__{stem}{suffix}"
 
 
+def _chapter_attachment_name(
+    *,
+    ordinal: int,
+    resource_title: str,
+    chapter_numbers: list[int],
+) -> str:
+    title = _sanitize_stem(resource_title, fallback="book")
+    chapter_label = "-".join(str(number) for number in chapter_numbers)
+    return f"R-{ordinal:02d}__{title}__chapters-{chapter_label}.pdf"
+
+
 def _question_attachment_name(
     *,
     question_label: str,
@@ -458,14 +647,13 @@ def _append_attachment_section(
 def prepare_prompt_attachments(
     connection: Connection,
     command: PromptBatchCreateCommand,
+    progress: ProgressCallback | None = None,
 ) -> PreparedPromptBundle:
-    """Rebuild the single-use ChatGPT attachment folder for a prompt copy.
+    """Prepare one reusable ChatGPT attachment folder for a prompt copy."""
 
-    The folder is intentionally ephemeral: every prompt preparation removes the
-    previous contents. Source files come from the prompt's day/task/resource and
-    from resources owning the selected questions. Red-ink screenshots are named
-    after the exact Q-xxx labels used by the prompt batch.
-    """
+    def notify(percent: int, stage: str) -> None:
+        if progress is not None:
+            progress(percent, stage)
 
     destination = get_settings().chatgpt_attachment_dir.expanduser().resolve()
     attachments: list[PreparedPromptAttachment] = []
@@ -473,18 +661,12 @@ def prepare_prompt_attachments(
     used_names: set[str] = set()
 
     with ATTACHMENT_LOCK:
+        notify(3, "Inspecting the day and selected questions")
         try:
-            if destination.exists():
-                for child in destination.iterdir():
-                    if child.is_dir() and not child.is_symlink():
-                        shutil.rmtree(child)
-                    else:
-                        child.unlink()
-            else:
-                destination.mkdir(parents=True, exist_ok=True)
+            destination.mkdir(parents=True, exist_ok=True)
         except OSError as error:
             raise PromptAttachmentError(
-                f"Could not reset ChatGPT attachment folder: {destination}"
+                f"Could not prepare ChatGPT attachment folder: {destination}"
             ) from error
 
         resource_ids = _expand_parent_resources(
@@ -493,7 +675,11 @@ def prepare_prompt_attachments(
         )
         resource_ordinal = 0
         copied_source_paths: set[str] = set()
-        for row in _resource_file_rows(connection, resource_ids):
+        resource_rows = _resource_file_rows(connection, resource_ids)
+        question_rows = _question_rows(connection, command.annotation_ids)
+        total_work = max(1, len(resource_rows) + len(question_rows))
+        completed_work = 0
+        for row in resource_rows:
             paths = _resource_paths(row)
             if not paths:
                 metadata = _json_object(row["metadata_json"])
@@ -505,7 +691,58 @@ def prepare_prompt_attachments(
                         f"{row['resource_title']}: configured local file is missing "
                         "or outside the allowed resource roots."
                     )
+                completed_work += 1
                 continue
+
+            if str(row["resource_kind"]).casefold() == "book":
+                chapter_numbers = _book_chapters(
+                    connection,
+                    str(row["resource_id"]),
+                    command,
+                )
+                source = next(
+                    (path for path in paths if path.suffix.casefold() == ".pdf"),
+                    None,
+                )
+                if source is None:
+                    warnings.append(
+                        f"{row['resource_title']}: no local PDF is available for "
+                        "a chapter-only attachment."
+                    )
+                elif not chapter_numbers:
+                    warnings.append(
+                        f"{row['resource_title']}: no chapter could be inferred from "
+                        "this study day, so the full book was intentionally not copied."
+                    )
+                else:
+                    resource_ordinal += 1
+                    preferred_name = _chapter_attachment_name(
+                        ordinal=resource_ordinal,
+                        resource_title=str(row["resource_title"]),
+                        chapter_numbers=chapter_numbers,
+                    )
+                    target = destination / _unique_name(preferred_name, used_names)
+                    try:
+                        prepare_chapter_pdf(source, target, chapter_numbers)
+                    except PdfChapterError as error:
+                        warnings.append(f"{row['resource_title']}: {error}")
+                        used_names.discard(target.name.casefold())
+                    else:
+                        attachments.append(
+                            PreparedPromptAttachment(
+                                name=target.name,
+                                kind="resource",
+                                path=str(target),
+                                resource_id=str(row["resource_id"]),
+                            )
+                        )
+                completed_work += 1
+                notify(
+                    10 + round(75 * completed_work / total_work),
+                    "Preparing chapter PDFs and source files",
+                )
+                continue
+
             for source in paths:
                 source_key = str(source).casefold()
                 if source_key in copied_source_paths:
@@ -526,13 +763,19 @@ def prepare_prompt_attachments(
                         resource_id=str(row["resource_id"]),
                     )
                 )
+            completed_work += 1
+            notify(
+                10 + round(75 * completed_work / total_work),
+                "Preparing chapter PDFs and source files",
+            )
 
         for index, row in enumerate(
-            _question_rows(connection, command.annotation_ids),
+            question_rows,
             start=1,
         ):
             image_bytes = _question_image_bytes(row)
             if image_bytes is None:
+                completed_work += 1
                 continue
             question_label = f"Q-{index:03d}"
             preferred_name = _question_attachment_name(
@@ -544,13 +787,12 @@ def prepare_prompt_attachments(
                     else None
                 ),
             )
-            target = destination / _unique_name(preferred_name, used_names)
-            try:
-                target.write_bytes(image_bytes)
-            except OSError as error:
-                raise PromptAttachmentError(
-                    f"Could not write question screenshot to {target}."
-                ) from error
+            target = _write_bytes(
+                image_bytes,
+                destination,
+                preferred_name,
+                used_names,
+            )
             attachments.append(
                 PreparedPromptAttachment(
                     name=target.name,
@@ -561,7 +803,13 @@ def prepare_prompt_attachments(
                     question_label=question_label,
                 )
             )
+            completed_work += 1
+            notify(
+                10 + round(75 * completed_work / total_work),
+                "Reusing or preparing question screenshots",
+            )
 
+        notify(90, "Writing the attachment manifest")
         manifest_path = destination / "README.md"
         try:
             manifest_path.write_text(
@@ -579,8 +827,24 @@ def prepare_prompt_attachments(
                 path=str(manifest_path),
             )
         )
+        used_names.add(manifest_path.name.casefold())
+
+        notify(94, "Removing files not used by this prompt")
+        try:
+            for child in destination.iterdir():
+                if child.name.casefold() in used_names:
+                    continue
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
+        except OSError as error:
+            raise PromptAttachmentError(
+                f"Could not clean unused prompt attachments in {destination}."
+            ) from error
 
     prompt_attachments = [item for item in attachments if item.kind != "manifest"]
+    notify(97, "Saving the copied prompt")
     return PreparedPromptBundle(
         markdown=_append_attachment_section(command.markdown, prompt_attachments),
         directory=str(destination),

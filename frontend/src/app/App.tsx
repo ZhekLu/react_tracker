@@ -157,6 +157,10 @@ export function App() {
   const [readerPage, setReaderPage] = useState(initialNavigation.readerPage);
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [promptProgress, setPromptProgress] = useState<{
+    progress: number;
+    stage: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
   const [questionDraft, setQuestionDraft] = useState<{
@@ -549,6 +553,11 @@ export function App() {
   ): Promise<string | null> {
     if (!workspace) return null;
     setError(null);
+    setActionMessage(null);
+    setPromptProgress({
+      progress: 0,
+      stage: "Starting prompt preparation",
+    });
 
     let batch: Awaited<ReturnType<typeof createPromptBatch>>;
     try {
@@ -561,8 +570,9 @@ export function App() {
         sourceScope: payload.sourceScope,
         sourceTaskId: payload.sourceTaskId,
         title: payload.title,
-      });
+      }, setPromptProgress);
     } catch (caught) {
+      setPromptProgress(null);
       try {
         await writeClipboard(payload.markdown);
         setActionMessage(`${label} No attachment folder was prepared.`);
@@ -581,6 +591,7 @@ export function App() {
     try {
       await writeClipboard(batch.markdown);
     } catch {
+      setPromptProgress(null);
       setError(
         "The prompt batch and attachment folder were prepared, but clipboard access failed. Check browser permissions and copy the prompt again.",
       );
@@ -596,6 +607,7 @@ export function App() {
     const warningMessage = batch.warnings.length
       ? ` ${batch.warnings.length} file warning${batch.warnings.length === 1 ? "" : "s"}.`
       : "";
+    setPromptProgress(null);
     setActionMessage(`${label}${attachmentMessage}${warningMessage}`);
     return batch.id;
   }
@@ -1365,6 +1377,24 @@ export function App() {
       view={view}
     >
       {error ? <div className="inlineError">{error}</div> : null}
+      {promptProgress ? (
+        <div
+          aria-live="polite"
+          aria-valuemax={100}
+          aria-valuemin={0}
+          aria-valuenow={promptProgress.progress}
+          className="actionToast promptProgressToast"
+          role="progressbar"
+        >
+          <div className="promptProgressCopy">
+            <strong>{promptProgress.stage}</strong>
+            <span>{promptProgress.progress}%</span>
+          </div>
+          <div className="promptProgressTrack">
+            <span style={{ width: `${promptProgress.progress}%` }} />
+          </div>
+        </div>
+      ) : null}
       {actionMessage ? (
         <div aria-live="polite" className="actionToast" role="status">
           <span>{actionMessage}</span>

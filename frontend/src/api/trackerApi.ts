@@ -467,6 +467,37 @@ export type PromptBatchResult = MutationResponse & {
   warnings: string[];
 };
 
+export type PromptBatchProgress = {
+  progress: number;
+  stage: string;
+};
+
+type ApiPromptBatchResult = {
+  id: string;
+  revision: number;
+  updated_at: string;
+  markdown: string;
+  attachment_directory: string;
+  attachments: {
+    name: string;
+    kind: "resource" | "question_image" | "manifest";
+    path: string;
+    resource_id?: string | null;
+    annotation_id?: string | null;
+    question_label?: string | null;
+  }[];
+  warnings: string[];
+};
+
+type ApiPromptBatchJob = {
+  job_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  progress: number;
+  stage: string;
+  result?: ApiPromptBatchResult | null;
+  error?: string | null;
+};
+
 export type ResourceContentResult = {
   resourceId: string;
   versionId?: string | null;
@@ -1073,36 +1104,38 @@ export async function createAnnotation(
 
 export async function createPromptBatch(
   input: PromptBatchInput,
+  onProgress?: (progress: PromptBatchProgress) => void,
 ): Promise<PromptBatchResult> {
-  const result = await requestJson<{
-    id: string;
-    revision: number;
-    updated_at: string;
-    markdown: string;
-    attachment_directory: string;
-    attachments: {
-      name: string;
-      kind: "resource" | "question_image" | "manifest";
-      path: string;
-      resource_id?: string | null;
-      annotation_id?: string | null;
-      question_label?: string | null;
-    }[];
-    warnings: string[];
-  }>("/prompt-batches", {
-    body: JSON.stringify({
-      course_id: input.courseId,
-      title: input.title,
-      source_scope: input.sourceScope,
-      markdown: input.markdown,
-      plain_text: input.plainText ?? input.markdown,
-      source_resource_id: input.sourceResourceId,
-      source_day_id: input.sourceDayId,
-      source_task_id: input.sourceTaskId,
-      annotation_ids: input.annotationIds ?? [],
-    }),
+  const command = {
+    annotation_ids: input.annotationIds ?? [],
+    course_id: input.courseId,
+    markdown: input.markdown,
+    plain_text: input.plainText ?? input.markdown,
+    source_day_id: input.sourceDayId,
+    source_resource_id: input.sourceResourceId,
+    source_scope: input.sourceScope,
+    source_task_id: input.sourceTaskId,
+    title: input.title,
+  };
+  let job = await requestJson<ApiPromptBatchJob>("/prompt-batches/jobs", {
+    body: JSON.stringify(command),
     method: "POST",
   });
+  onProgress?.({ progress: job.progress, stage: job.stage });
+  while (job.status === "queued" || job.status === "running") {
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
+    job = await requestJson<ApiPromptBatchJob>(
+      `/prompt-batches/jobs/${job.job_id}`,
+    );
+    onProgress?.({ progress: job.progress, stage: job.stage });
+  }
+  if (job.status === "failed") {
+    throw new Error(job.error || "Prompt attachment preparation failed.");
+  }
+  if (!job.result) {
+    throw new Error("Prompt preparation finished without a result.");
+  }
+  const result = job.result;
   return {
     id: result.id,
     revision: result.revision,

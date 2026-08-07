@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from sqlalchemy.engine import Connection
 
 from ..repositories import workspace_repository
@@ -14,10 +16,11 @@ from .prompt_attachment_service import prepare_prompt_attachments
 def create_prompt_batch(
     connection: Connection,
     command: PromptBatchCreateCommand,
+    progress: Callable[[int, str], None] | None = None,
 ) -> PromptBatchCreateResponse:
     """Prepare ephemeral files, persist the exact copied prompt, and return both."""
 
-    bundle = prepare_prompt_attachments(connection, command)
+    bundle = prepare_prompt_attachments(connection, command, progress)
     persisted_command = command.model_copy(
         update={
             "markdown": bundle.markdown,
@@ -25,7 +28,7 @@ def create_prompt_batch(
         }
     )
     result = workspace_repository.create_prompt_batch(connection, persisted_command)
-    return PromptBatchCreateResponse(
+    response = PromptBatchCreateResponse(
         id=result.id,
         revision=result.revision,
         updated_at=result.updated_at,
@@ -44,3 +47,6 @@ def create_prompt_batch(
         ],
         warnings=bundle.warnings,
     )
+    if progress is not None:
+        progress(100, "Prompt and attachments are ready")
+    return response
