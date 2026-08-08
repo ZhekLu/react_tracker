@@ -311,6 +311,10 @@ export type NoteUpsertInput = {
   markdown: string;
   editorJson?: Record<string, unknown> | null;
   plainText: string;
+  relatedLinks?: {
+    entityType: string;
+    entityId: string;
+  }[];
 };
 
 export type DiscussionMessageInput = {
@@ -375,6 +379,19 @@ export type PdfAnnotationCollectionResult = {
   ignoredCount: number;
   ignored: Record<string, number>;
   kindCounts: Partial<Record<AnnotationKind, number>>;
+  colorPalette: DrawboardColorPaletteEntry[];
+  requiresColorRoles: boolean;
+};
+
+export type DrawboardColorRole = "question" | "regular";
+
+export type DrawboardColorPaletteEntry = {
+  key: string;
+  rgb: number[];
+  count: number;
+  annotationKinds: string[];
+  role: DrawboardColorRole | null;
+  suggestedRole: DrawboardColorRole;
 };
 
 export type TogglStatus = {
@@ -1220,6 +1237,15 @@ export async function collectResourcePdfAnnotations(
     ignored_count: number;
     ignored: Record<string, number>;
     kind_counts: Partial<Record<AnnotationKind, number>>;
+    color_palette: Array<{
+      key: string;
+      rgb: number[];
+      count: number;
+      annotation_kinds: string[];
+      role: DrawboardColorRole | null;
+      suggested_role: DrawboardColorRole;
+    }>;
+    requires_color_roles: boolean;
   }>(`/resources/${resourceId}/pdf-annotations/collect${
     sourceDayId ? `?source_day_id=${encodeURIComponent(sourceDayId)}` : ""
   }`, {
@@ -1234,9 +1260,32 @@ export async function collectResourcePdfAnnotations(
     ignored: result.ignored,
     ignoredCount: result.ignored_count,
     kindCounts: result.kind_counts,
+    colorPalette: result.color_palette.map((entry) => ({
+      key: entry.key,
+      rgb: entry.rgb,
+      count: entry.count,
+      annotationKinds: entry.annotation_kinds,
+      role: entry.role,
+      suggestedRole: entry.suggested_role,
+    })),
+    requiresColorRoles: result.requires_color_roles,
     path: result.path,
     resourceId: result.resource_id,
   };
+}
+
+export async function saveDrawboardColorRoles(
+  resourceId: string,
+  roles: Record<string, DrawboardColorRole>,
+): Promise<Record<string, DrawboardColorRole>> {
+  const result = await requestJson<{
+    resource_id: string;
+    roles: Record<string, DrawboardColorRole>;
+  }>(`/resources/${resourceId}/pdf-annotations/color-roles`, {
+    method: "PUT",
+    body: JSON.stringify({ roles }),
+  });
+  return result.roles;
 }
 
 export async function fetchTogglStatus(force = false): Promise<TogglStatus> {
@@ -1307,6 +1356,10 @@ export async function upsertNote(input: NoteUpsertInput): Promise<MutationRespon
       markdown: input.markdown,
       editor_json: input.editorJson,
       plain_text: input.plainText,
+      related_links: (input.relatedLinks ?? []).map((link) => ({
+        entity_type: link.entityType,
+        entity_id: link.entityId,
+      })),
     }),
     method: "POST",
   });

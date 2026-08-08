@@ -658,23 +658,29 @@
 .qaSourcePages {
   min-height: 0;
   padding: 8px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: y proximity;
   background:
     linear-gradient(45deg, rgba(35, 81, 67, 0.035) 25%, transparent 25%),
     linear-gradient(-45deg, rgba(35, 81, 67, 0.035) 25%, transparent 25%),
     #eef2f0;
   background-position: 0 0, 8px 8px;
   background-size: 16px 16px;
-  display: grid;
-  grid-template-rows: 72px minmax(0, 1fr) 72px;
-  gap: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
 }
 
 .qaSourcePage {
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: 140px;
   position: relative;
   display: grid;
   place-items: center;
+  scroll-margin-top: 8px;
+  scroll-snap-align: start;
 }
 
 .qaSourcePage > span {
@@ -692,28 +698,29 @@
 }
 
 .qaSourcePage.neighbor {
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--line);
   border-radius: 7px;
-  opacity: 0.7;
+  opacity: 0.82;
 }
 
 .qaSourcePage.current {
-  overflow: auto;
+  border: 1px solid color-mix(in srgb, #744ed4 24%, var(--line));
+  border-radius: 8px;
+  box-shadow: 0 8px 25px rgba(78, 54, 135, 0.09);
 }
 
 .qaSourcePageFrame {
   position: relative;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
   display: inline-grid;
   place-items: center;
 }
 
 .qaSourcePageFrame img {
   grid-area: 1 / 1;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: auto;
   border-radius: 5px;
   background: #fff;
   box-shadow: 0 7px 24px rgba(20, 42, 34, 0.14);
@@ -721,8 +728,7 @@
 }
 
 .qaSourcePage.neighbor .qaSourcePageFrame {
-  height: 220px;
-  transform: translateY(6%);
+  transform: none;
 }
 
 .qaSourceFocus {
@@ -866,6 +872,87 @@
   color: var(--ink);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.qaExerciseMapper {
+  margin: -3px 0 11px;
+}
+
+.qaExerciseMapButton {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, #7653c8 28%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, #efe8ff 64%, #fff);
+  color: #6540b6;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.qaExerciseMapButton.mapped {
+  border-color: color-mix(in srgb, var(--green) 35%, var(--line));
+  background: var(--green-soft);
+  color: var(--green-deep);
+}
+
+.qaExerciseMapForm {
+  margin-top: 7px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, #7653c8 20%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, #f6f1ff 48%, #fff);
+  display: grid;
+  grid-template-columns: minmax(120px, 0.45fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 7px;
+}
+
+.qaExerciseMapForm label,
+.qaExerciseMapForm label > span {
+  display: block;
+}
+
+.qaExerciseMapForm label > span {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.qaExerciseMapForm input,
+.qaExerciseMapForm select,
+.qaExerciseMapForm > button {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 10px;
+}
+
+.qaExerciseMapForm input,
+.qaExerciseMapForm select {
+  padding: 5px 7px;
+}
+
+.qaExerciseMapForm > button {
+  padding: 5px 9px;
+  background: #7653c8;
+  color: #fff;
+  font-weight: 800;
+}
+
+.qaExerciseMapForm > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--faint);
+  font-size: 8px;
 }
 
 .qaAnswerEditor.discussionMarkdownSurface.isEditing {

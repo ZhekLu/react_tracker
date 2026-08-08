@@ -20,6 +20,7 @@ import {
   pdfReaderPageUrl,
   prepareExerciseScreenshots,
   reviewDiscussionMessage,
+  saveDrawboardColorRoles,
   updateAnnotation,
   updateDayStatus,
   updateDiscussionAttention,
@@ -40,6 +41,7 @@ import { DiscussionsView } from "../features/discussions/DiscussionsView";
 import { ExamsView } from "../features/exams/ExamsView";
 import { NotesView } from "../features/notes/NotesView";
 import { ResourcesView } from "../features/resources/ResourcesView";
+import { DrawboardColorPaletteDialog } from "../features/resources/DrawboardColorPaletteDialog";
 import { ResourceReader } from "../features/reader/ResourceReader";
 import { RoadmapView } from "../features/roadmap/RoadmapView";
 import { SkillsView } from "../features/skills/SkillsView";
@@ -73,6 +75,7 @@ import type {
   ExamQuestion,
   ExamStatus,
   DiscussionQuestionRelation,
+  ExerciseSolutionMappingInput,
   Note,
   ResourceStatus,
   ResourceChapterStatus,
@@ -81,6 +84,11 @@ import type {
   TrackerView,
 } from "../types/tracker";
 import type { DiscussionMessageInput } from "../api/trackerApi";
+import type {
+  DrawboardColorPaletteEntry,
+  DrawboardColorRole,
+  PdfAnnotationCollectionResult,
+} from "../api/trackerApi";
 
 const trackerViews = new Set<TrackerView>([
   "roadmap",
@@ -138,6 +146,52 @@ function resetWorkspaceScroll() {
   document.querySelector<HTMLElement>(".workspaceSidebar")?.scrollTo({ top: 0 });
 }
 
+function pdfAnnotationCollectionMessage(imported: PdfAnnotationCollectionResult) {
+  const kindLabels = [
+    imported.kindCounts.question
+      ? `${imported.kindCounts.question} question${
+          imported.kindCounts.question === 1 ? "" : "s"
+        }`
+      : "",
+    imported.kindCounts.highlight
+      ? `${imported.kindCounts.highlight} highlight${
+          imported.kindCounts.highlight === 1 ? "" : "s"
+        }`
+      : "",
+    imported.kindCounts.note
+      ? `${imported.kindCounts.note} note${
+          imported.kindCounts.note === 1 ? "" : "s"
+        }`
+      : "",
+  ].filter(Boolean);
+  const saved = [
+    imported.createdCount ? `${imported.createdCount} newly saved` : "",
+    imported.updatedCount ? `${imported.updatedCount} refreshed` : "",
+    imported.existingCount
+      ? `${imported.existingCount} already current`
+      : "",
+    imported.removedCount
+      ? `${imported.removedCount} removed from the cloud source`
+      : "",
+  ].filter(Boolean);
+  const ignored = Object.entries(imported.ignored)
+    .filter(([, count]) => count > 0)
+    .map(([kind, count]) => `${count} ${kind}`)
+    .join(", ");
+  return (
+    `Found ${imported.extractedCount} PDF capture${
+      imported.extractedCount === 1 ? "" : "s"
+    }${kindLabels.length ? ` (${kindLabels.join(", ")})` : ""}; ${
+      saved.join(", ") || "nothing changed"
+    }` +
+    (imported.ignoredCount
+      ? `; skipped ${imported.ignoredCount} unsupported graphical mark${
+          imported.ignoredCount === 1 ? "" : "s"
+        }${ignored ? ` (${ignored})` : ""}.`
+      : ".")
+  );
+}
+
 export function App() {
   const initialNavigation = useMemo(navigationFromUrl, []);
   const [courses, setCourses] = useState<CourseSummary[]>([]);
@@ -180,6 +234,12 @@ export function App() {
     contextLabel: string;
     discussionResourceId: string;
     messageId: string;
+  } | null>(null);
+  const [drawboardPaletteDraft, setDrawboardPaletteDraft] = useState<{
+    resourceId: string;
+    resourceTitle: string;
+    sourceDayId?: string;
+    entries: DrawboardColorPaletteEntry[];
   } | null>(null);
   const broadcastRef = useRef<BroadcastChannel | null>(null);
   const navigationIntentRef = useRef<"push" | "replace">("replace");
@@ -1010,53 +1070,36 @@ export function App() {
         resourceId,
         activeDay?.id,
       );
-      const kindLabels = [
-        imported.kindCounts.question
-          ? `${imported.kindCounts.question} question${
-              imported.kindCounts.question === 1 ? "" : "s"
-            }`
-          : "",
-        imported.kindCounts.highlight
-          ? `${imported.kindCounts.highlight} highlight${
-              imported.kindCounts.highlight === 1 ? "" : "s"
-            }`
-          : "",
-        imported.kindCounts.note
-          ? `${imported.kindCounts.note} note${
-              imported.kindCounts.note === 1 ? "" : "s"
-            }`
-          : "",
-      ].filter(Boolean);
-      const saved = [
-        imported.createdCount
-          ? `${imported.createdCount} newly saved`
-          : "",
-        imported.updatedCount
-          ? `${imported.updatedCount} refreshed`
-          : "",
-        imported.existingCount
-          ? `${imported.existingCount} already current`
-          : "",
-        imported.removedCount
-          ? `${imported.removedCount} removed from the cloud source`
-          : "",
-      ].filter(Boolean);
-      const ignored = Object.entries(imported.ignored)
-        .filter(([, count]) => count > 0)
-        .map(([kind, count]) => `${count} ${kind}`)
-        .join(", ");
-      setActionMessage(
-        `Found ${imported.extractedCount} PDF capture${
-          imported.extractedCount === 1 ? "" : "s"
-        }${kindLabels.length ? ` (${kindLabels.join(", ")})` : ""}; ${
-          saved.join(", ") || "nothing changed"
-        }` +
-          (imported.ignoredCount
-            ? `; skipped ${imported.ignoredCount} unsupported graphical mark${
-                imported.ignoredCount === 1 ? "" : "s"
-              }${ignored ? ` (${ignored})` : ""}.`
-            : "."),
+      if (imported.requiresColorRoles) {
+        setDrawboardPaletteDraft({
+          resourceId,
+          resourceTitle: resource.title,
+          sourceDayId: activeDay?.id,
+          entries: imported.colorPalette,
+        });
+        return;
+      }
+      setActionMessage(pdfAnnotationCollectionMessage(imported));
+    });
+  }
+
+  function handleSaveDrawboardColorRoles(
+    roles: Record<string, DrawboardColorRole>,
+  ) {
+    if (!drawboardPaletteDraft) return;
+    const draft = drawboardPaletteDraft;
+    setDrawboardPaletteDraft(null);
+    void runMutation(async () => {
+      await saveDrawboardColorRoles(draft.resourceId, roles);
+      const imported = await collectResourcePdfAnnotations(
+        draft.resourceId,
+        draft.sourceDayId,
       );
+      if (imported.requiresColorRoles) {
+        setDrawboardPaletteDraft({ ...draft, entries: imported.colorPalette });
+        return;
+      }
+      setActionMessage(pdfAnnotationCollectionMessage(imported));
     });
   }
 
@@ -1166,6 +1209,33 @@ export function App() {
           plainText: markdown,
         });
       }
+    });
+  }
+
+  function handleMapExerciseSolution(input: ExerciseSolutionMappingInput) {
+    if (!workspace) return;
+    void runMutation(async () => {
+      await upsertNote({
+        courseId: workspace.id,
+        entityId: input.taskId,
+        entityType: "task",
+        kind: "exercise_solution",
+        markdown: input.markdown,
+        plainText: input.markdown,
+        relatedLinks: [
+          {
+            entityId: input.sourceMessageId,
+            entityType: "discussion_message",
+          },
+          ...input.questionIds.map((questionId) => ({
+            entityId: questionId,
+            entityType: "annotation",
+          })),
+        ],
+      });
+      setActionMessage(
+        `${input.exerciseLabel} and its formulas were added to the exercise task.`,
+      );
     });
   }
 
@@ -1542,6 +1612,7 @@ export function App() {
           onImportClipboard={(resourceId) =>
             void handleImportDiscussionFromClipboard(resourceId)
           }
+          onMapExerciseSolution={handleMapExerciseSolution}
           onNoteSave={handleNoteSave}
           onCopy={(text, label) => void handleCopy(text, label)}
           onFocusResource={handleFocusDiscussionResource}
@@ -1601,6 +1672,14 @@ export function App() {
           contextLabel={questionExtractionDraft.contextLabel}
           onClose={() => setQuestionExtractionDraft(null)}
           onSubmit={handleQuestionExtractionSubmit}
+        />
+      ) : null}
+      {drawboardPaletteDraft ? (
+        <DrawboardColorPaletteDialog
+          entries={drawboardPaletteDraft.entries}
+          onClose={() => setDrawboardPaletteDraft(null)}
+          onSave={handleSaveDrawboardColorRoles}
+          resourceTitle={drawboardPaletteDraft.resourceTitle}
         />
       ) : null}
     </>

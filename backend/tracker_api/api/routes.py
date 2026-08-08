@@ -28,6 +28,8 @@ from ..schemas.workspace import (
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
+    DrawboardColorRolesCommand,
+    DrawboardColorRolesResponse,
     ExamStatusCommand,
     ExerciseScreenshotItem,
     ExerciseScreenshotResponse,
@@ -60,6 +62,7 @@ from ..services.exercise_solution_service import (
 from ..services.pdf_annotation_service import (
     PdfAnnotationError,
     collect_resource_pdf_annotations,
+    save_drawboard_color_roles,
 )
 from ..services.pdf_ink_image_service import (
     PdfInkImageError,
@@ -399,6 +402,46 @@ def collect_resource_annotations(
             ignored_count=result.ignored_count,
             ignored=result.ignored,
             kind_counts=result.kind_counts,
+            color_palette=[
+                {
+                    "key": entry.key,
+                    "rgb": entry.rgb,
+                    "count": entry.count,
+                    "annotation_kinds": list(entry.annotation_kinds),
+                    "role": entry.role,
+                    "suggested_role": entry.suggested_role,
+                }
+                for entry in result.color_palette
+            ],
+            requires_color_roles=result.requires_color_roles,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+    except PdfAnnotationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.put(
+    "/resources/{resource_id}/pdf-annotations/color-roles",
+    response_model=DrawboardColorRolesResponse,
+)
+def update_resource_drawboard_color_roles(
+    resource_id: str,
+    command: DrawboardColorRolesCommand,
+    connection: Database,
+) -> DrawboardColorRolesResponse:
+    try:
+        roles = save_drawboard_color_roles(
+            connection,
+            resource_id,
+            dict(command.roles),
+        )
+        return DrawboardColorRolesResponse(
+            resource_id=resource_id,
+            roles=roles,
         )
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error

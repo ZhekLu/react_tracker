@@ -289,6 +289,27 @@ class ResourceContentResponse(StrictModel):
     source_path: str
 
 
+DrawboardColorRole = Literal["question", "regular"]
+
+
+class DrawboardColorPaletteEntryResponse(StrictModel):
+    key: str
+    rgb: list[float]
+    count: int
+    annotation_kinds: list[str]
+    role: DrawboardColorRole | None = None
+    suggested_role: DrawboardColorRole
+
+
+class DrawboardColorRolesCommand(StrictModel):
+    roles: dict[str, DrawboardColorRole]
+
+
+class DrawboardColorRolesResponse(StrictModel):
+    resource_id: str
+    roles: dict[str, DrawboardColorRole]
+
+
 class PdfAnnotationCollectionResponse(StrictModel):
     resource_id: str
     path: str
@@ -300,6 +321,10 @@ class PdfAnnotationCollectionResponse(StrictModel):
     ignored_count: int
     ignored: dict[str, int]
     kind_counts: dict[str, int]
+    color_palette: list[DrawboardColorPaletteEntryResponse] = Field(
+        default_factory=list
+    )
+    requires_color_roles: bool = False
 
 
 class PdfReaderPage(StrictModel):
@@ -448,6 +473,11 @@ class AnnotationCreateCommand(StrictModel):
     anchor: AnnotationAnchorCreate | None = None
 
 
+class NoteRelatedLinkInput(StrictModel):
+    entity_type: str
+    entity_id: str
+
+
 class NoteUpsertCommand(StrictModel):
     course_id: str
     note_id: str | None = None
@@ -460,6 +490,7 @@ class NoteUpsertCommand(StrictModel):
     markdown: str = ""
     editor_json: dict[str, Any] | None = None
     plain_text: str = ""
+    related_links: list[NoteRelatedLinkInput] = Field(default_factory=list)
 
 
 class DiscussionCreateCommand(StrictModel):

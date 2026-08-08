@@ -159,7 +159,7 @@ def test_cloud_extraction_pages_batches_and_reuses_credentials(
                             "revision": 2,
                             "annotation": {
                                 "annotationId": "highlight-1",
-                                "content": "Exploration matters.",
+                                "content": "What advantages?",
                                 "created": "2026-07-01T10:00:00Z",
                                 "fillColor": "80FFE557",
                                 "pageId": "page-b",
@@ -241,6 +241,7 @@ def test_cloud_extraction_pages_batches_and_reuses_credentials(
         if capture.annotation_kind == "TextHighlight"
     )
     assert highlight.opacity == pytest.approx(128 / 255)
+    assert highlight.is_question is False
     assert first.ignored == {"Ink": 1, "Rectangle": 1}
     assert second.captures == first.captures
     state_path = get_settings().drawboard_state_path
@@ -329,6 +330,12 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
         lambda _source_url: current,
     )
     with transaction() as connection:
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection,
+            resource_id,
+            {"#FF0000": "question"},
+        )
+    with transaction() as connection:
         first = collect_resource_pdf_annotations(connection, resource_id)
     with transaction() as connection:
         second = collect_resource_pdf_annotations(connection, resource_id)
@@ -397,6 +404,78 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
     assert active_after_removal == 0
     assert revived.updated_count == 1
     assert active_count == 1
+
+
+def test_cloud_collection_prompts_for_new_exact_colors_and_reclassifies(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resource_id = _seed_cloud_resource(tmp_path)
+    extraction = DrawboardExtraction(
+        source_url=SHARE_URL,
+        document_id=DOCUMENT_ID,
+        captures=[
+            DrawboardCapture(
+                fingerprint=f"drawboard-{DOCUMENT_ID}-green-highlight",
+                source_revision="1",
+                page=11,
+                annotation_kind="TextHighlight",
+                color="custom",
+                rgb=[0.2, 0.8, 0.3],
+                quote="Can this converge?",
+                comment="",
+                is_question=True,
+                created_at="2026-07-01T10:00:00Z",
+                rect=[4.0, 8.0, 25.0, 12.0],
+            )
+        ],
+        red_ink=[],
+        ignored={},
+    )
+    monkeypatch.setattr(
+        pdf_annotation_service,
+        "extract_drawboard_annotations",
+        lambda _source_url: extraction,
+    )
+
+    with transaction() as connection:
+        prompted = collect_resource_pdf_annotations(connection, resource_id)
+        annotation_count = connection.execute(
+            text("SELECT COUNT(*) FROM annotations")
+        ).scalar_one()
+
+    assert prompted.requires_color_roles is True
+    assert prompted.created_count == 0
+    assert prompted.color_palette[0].key == "#33CC4C"
+    assert prompted.color_palette[0].role is None
+    assert annotation_count == 0
+
+    with transaction() as connection:
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection,
+            resource_id,
+            {"#33CC4C": "question"},
+        )
+        created = collect_resource_pdf_annotations(connection, resource_id)
+        first_kind = connection.execute(
+            text("SELECT kind FROM annotations")
+        ).scalar_one()
+
+    with transaction() as connection:
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection,
+            resource_id,
+            {"#33CC4C": "regular"},
+        )
+        updated = collect_resource_pdf_annotations(connection, resource_id)
+        final_kind = connection.execute(
+            text("SELECT kind FROM annotations")
+        ).scalar_one()
+
+    assert created.created_count == 1
+    assert first_kind == "question"
+    assert updated.updated_count == 1
+    assert final_kind == "highlight"
 
 
 def test_book_chapters_map_to_their_explicit_study_days(tmp_path: Path) -> None:

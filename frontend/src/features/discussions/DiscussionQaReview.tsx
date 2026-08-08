@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   ArrowRight,
+  BookMarked,
   BookOpen,
   CheckCircle2,
   Circle,
@@ -10,8 +11,11 @@ import {
   X,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -43,10 +47,12 @@ import type {
   DiscussionMessage,
   DiscussionQuestionRelation,
   Resource,
+  ExerciseSolutionMappingInput,
 } from "../../types/tracker";
 import {
   qaReviewItems,
   sourceQuestionForReview,
+  type QaReviewItem,
 } from "./discussionQaReviewModel";
 
 type DiscussionQaReviewProps = {
@@ -70,6 +76,7 @@ type DiscussionQaReviewProps = {
     annotationId: string,
     relation: DiscussionQuestionRelation,
   ) => void;
+  onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;
   onUpdateMessage: (
     message: DiscussionMessage,
     markdown: string,
@@ -77,18 +84,183 @@ type DiscussionQaReviewProps = {
   ) => void;
 };
 
+type ExerciseTaskOption = {
+  dayNumber: number;
+  dayTitle: string;
+  task: Course["days"][number]["sections"][number]["tasks"][number];
+};
+
+function inferredExerciseLabel(item: QaReviewItem): string {
+  const candidates = [
+    item.section?.title ?? "",
+    ...item.questions.flatMap((question) => [
+      annotationDisplayText(question),
+      question.anchor?.sectionTitle ?? "",
+      metadataText(question, "contextParagraph"),
+    ]),
+  ];
+  for (const candidate of candidates) {
+    const match = candidate.match(/\bExercise\s+(\d+(?:\.\d+)+)\b/i);
+    if (match) return `Exercise ${match[1]}`;
+  }
+  return "Exercise";
+}
+
+function exerciseTaskOptions(
+  course: Course,
+  item: QaReviewItem,
+  exerciseLabel: string,
+): ExerciseTaskOption[] {
+  const resourceIds = new Set(item.questions.map((question) => question.resourceId));
+  const createdDayIds = new Set(
+    item.questions
+      .map((question) => metadataText(question, "createdDayId"))
+      .filter(Boolean),
+  );
+  const sourceDayNumber = course.days.find((day) => createdDayIds.has(day.id))?.number;
+  const chapter = Number(exerciseLabel.match(/(\d+)\./)?.[1] ?? 0);
+  const all = course.days.flatMap((day) =>
+    day.sections.flatMap((section) =>
+      section.tasks
+        .filter((task) => task.resourceIds.some((id) => resourceIds.has(id)))
+        .map((task) => ({ dayNumber: day.number, dayTitle: day.title, task })),
+    ),
+  );
+  const exerciseTasks = all.filter(
+    ({ task }) =>
+      /\b(?:exercise|problem|solve|practice)\b/i.test(task.title) ||
+      task.taskType === "solve",
+  );
+  const candidates = exerciseTasks.length ? exerciseTasks : all;
+  return candidates.sort((first, second) => {
+    const firstFuture = sourceDayNumber === undefined || first.dayNumber >= sourceDayNumber;
+    const secondFuture = sourceDayNumber === undefined || second.dayNumber >= sourceDayNumber;
+    if (firstFuture !== secondFuture) return firstFuture ? -1 : 1;
+    const firstChapter = !chapter || first.task.chapterNumbers.includes(chapter);
+    const secondChapter = !chapter || second.task.chapterNumbers.includes(chapter);
+    if (firstChapter !== secondChapter) return firstChapter ? -1 : 1;
+    const firstOpen = !["done", "skipped"].includes(first.task.status);
+    const secondOpen = !["done", "skipped"].includes(second.task.status);
+    if (firstOpen !== secondOpen) return firstOpen ? -1 : 1;
+    return first.dayNumber - second.dayNumber || first.task.orderIndex - second.task.orderIndex;
+  });
+}
+
+function ExerciseSolutionMapper({
+  course,
+  discussion,
+  item,
+  onMap,
+}: {
+  course: Course;
+  discussion: Discussion;
+  item: QaReviewItem;
+  onMap: (input: ExerciseSolutionMappingInput) => void;
+}) {
+  const initialLabel = inferredExerciseLabel(item);
+  const [open, setOpen] = useState(false);
+  const [exerciseLabel, setExerciseLabel] = useState(initialLabel);
+  const options = exerciseTaskOptions(course, item, exerciseLabel);
+  const [taskId, setTaskId] = useState(options[0]?.task.id ?? "");
+  const mappedOption = options.find(({ task }) =>
+    task.notes.some(
+      (note) =>
+        note.kind === "exercise_solution" &&
+        note.links.some(
+          (link) =>
+            link.entityType === "annotation" &&
+            item.questions.some((question) => question.id === link.entityId),
+        ),
+    ),
+  );
+
+  if (!item.section || !item.questions.length || !options.length) return null;
+
+  function save() {
+    const label = exerciseLabel.trim() || "Exercise";
+    const questionText = item.questions
+      .filter(
+        (question) =>
+          !annotationDisplayText(question).startsWith("Screenshot ·"),
+      )
+      .map((question) => annotationDisplayText(question))
+      .join("\n\n");
+    const markdown = [
+      `# ${label} — tutor material`,
+      `_From “${discussion.title}”, response #${item.section!.messageSequenceNumber}_`,
+      questionText ? `## Question context\n\n${questionText}` : "",
+      `## Tutor explanation\n\n${item.section!.bodyMarkdown}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    onMap({
+      exerciseLabel: label,
+      markdown,
+      questionIds: item.questions.map((question) => question.id),
+      sourceMessageId: item.section!.messageId,
+      taskId,
+    });
+    setOpen(false);
+  }
+
+  return (
+    <section className="qaExerciseMapper">
+      <button
+        className={mappedOption ? "qaExerciseMapButton mapped" : "qaExerciseMapButton"}
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        {mappedOption ? <CheckCircle2 size={14} /> : <BookMarked size={14} />}
+        <span>
+          {mappedOption
+            ? `Sent to Day ${mappedOption.dayNumber} exercises`
+            : "Send to exercise task"}
+        </span>
+      </button>
+      {open ? (
+        <div className="qaExerciseMapForm">
+          <label>
+            <span>Exercise</span>
+            <input
+              onChange={(event) => setExerciseLabel(event.target.value)}
+              placeholder="Exercise 6.1"
+              value={exerciseLabel}
+            />
+          </label>
+          <label>
+            <span>Study task</span>
+            <select onChange={(event) => setTaskId(event.target.value)} value={taskId}>
+              {options.map((option) => (
+                <option key={option.task.id} value={option.task.id}>
+                  Day {option.dayNumber} · {option.task.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button disabled={!taskId} onClick={save} type="button">
+            Save rich answer
+          </button>
+          <p>The exact Markdown and formulas will appear inside that task.</p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function SourcePageImage({
   annotated,
   focusQuestions = [],
   pageNumber,
   primaryPageNumber,
   resourceId,
+  onLoad,
 }: {
   annotated: boolean;
   focusQuestions?: Annotation[];
   pageNumber: number;
   primaryPageNumber: number;
   resourceId: string;
+  onLoad?: () => void;
 }) {
   const [useCleanPage, setUseCleanPage] = useState(!annotated);
   const representative = focusQuestions[0];
@@ -130,6 +302,7 @@ function SourcePageImage({
         onError={() => {
           if (!useCleanPage) setUseCleanPage(true);
         }}
+        onLoad={onLoad}
         src={useCleanPage ? cleanUrl : annotatedUrl}
       />
       {focusRects.length && pageWidth && pageHeight ? (
@@ -162,6 +335,8 @@ function SourcePreview({
   questions: Annotation[];
   resource?: Resource;
 }) {
+  const pagesRef = useRef<HTMLDivElement>(null);
+  const currentPageRef = useRef<HTMLDivElement>(null);
   const question = sourceQuestionForReview(questions);
   const pageNumber = question?.anchor?.pageNumber ?? null;
   const pageCount =
@@ -176,6 +351,24 @@ function SourcePreview({
         (page) => page >= 1 && (!pageCount || page <= pageCount),
       )
     : [];
+
+  const focusCurrentPage = useCallback(() => {
+    const pages = pagesRef.current;
+    const current = currentPageRef.current;
+    if (!pages || !current) return;
+    window.requestAnimationFrame(() => {
+      const pagesTop = pages.getBoundingClientRect().top;
+      const currentTop = current.getBoundingClientRect().top;
+      pages.scrollTop = Math.max(
+        0,
+        pages.scrollTop + currentTop - pagesTop - 8,
+      );
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    focusCurrentPage();
+  }, [focusCurrentPage, pageNumber]);
 
   if (!question) {
     return (
@@ -196,7 +389,7 @@ function SourcePreview({
         </strong>
       </header>
       {pageNumber ? (
-        <div className="qaSourcePages">
+        <div className="qaSourcePages" ref={pagesRef}>
           {neighboringPages.map((sourcePage) => (
             <div
               className={
@@ -205,6 +398,7 @@ function SourcePreview({
                   : "qaSourcePage neighbor"
               }
               key={sourcePage}
+              ref={sourcePage === pageNumber ? currentPageRef : undefined}
             >
               <span>
                 {sourcePage === pageNumber
@@ -220,6 +414,9 @@ function SourcePreview({
                 pageNumber={sourcePage}
                 primaryPageNumber={pageNumber}
                 resourceId={question.resourceId}
+                onLoad={
+                  sourcePage === pageNumber ? focusCurrentPage : undefined
+                }
               />
             </div>
           ))}
@@ -247,6 +444,7 @@ export function DiscussionQaReview({
   discussion,
   onAnnotationChange,
   onClose,
+  onMapExerciseSolution,
   onQuestionLink,
   onUpdateMessage,
 }: DiscussionQaReviewProps) {
@@ -470,7 +668,7 @@ export function DiscussionQaReview({
             <div>
               <p>{discussion.title}</p>
               <strong>
-                {answeredUnits}/{reviewUnits.length} answer groups understood
+                {answeredUnits} of {reviewUnits.length} answer groups understood
               </strong>
             </div>
           </div>
@@ -478,10 +676,10 @@ export function DiscussionQaReview({
             <div className="qaReviewProgressLabels">
               <span>
                 {visibleItems.length
-                  ? `${boundedActiveIndex + 1} of ${visibleItems.length}`
+                  ? `Reviewing ${openQuestionsOnly ? "open " : ""}group ${boundedActiveIndex + 1} of ${visibleItems.length}`
                   : "All clear"}
               </span>
-              <strong>{Math.round(completionRatio * 100)}%</strong>
+              <strong>{Math.round(completionRatio * 100)}% complete</strong>
             </div>
             <div
               aria-label="Questions understood"
@@ -624,6 +822,13 @@ export function DiscussionQaReview({
                   ))}
                 </section>
               ) : null}
+              <ExerciseSolutionMapper
+                course={course}
+                discussion={discussion}
+                item={activeItem}
+                key={`exercise:${activeItem.id}`}
+                onMap={onMapExerciseSolution}
+              />
               {activeItem.section ? (
                 <DiscussionMarkdownSurface
                   className="qaAnswerEditor"

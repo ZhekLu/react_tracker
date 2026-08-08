@@ -43,6 +43,7 @@ import type {
   DiscussionMessage,
   DiscussionQuestionRelation,
   EntityNoteSaveInput,
+  ExerciseSolutionMappingInput,
   Resource,
 } from "../../types/tracker";
 import {
@@ -112,6 +113,7 @@ type DiscussionsViewProps = {
     annotationId: string,
     relation: DiscussionQuestionRelation,
   ) => void;
+  onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;
 };
 
 function messageRoleLabel(role: Discussion["messages"][number]["role"]): string {
@@ -819,6 +821,7 @@ export function DiscussionsView({
   onExtractQuestions,
   onFocusResource,
   onImportClipboard,
+  onMapExerciseSolution,
   onNoteSave,
   onCopy,
   onOpenResource,
@@ -1407,6 +1410,7 @@ export function DiscussionsView({
           discussion={discussion}
           onAnnotationChange={onAnnotationChange}
           onClose={() => setQaReviewDiscussionId("")}
+          onMapExerciseSolution={onMapExerciseSolution}
           onQuestionLink={onQuestionLink}
           onUpdateMessage={onUpdateMessage}
         />

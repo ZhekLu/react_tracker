@@ -2224,6 +2224,15 @@ def upsert_imported_annotation(
         or previous_metadata.get("sourceRevision")
         or ""
     )
+    next_metadata = command.anchor.metadata if command.anchor else {}
+    next_color_role_revision = str(
+        next_metadata.get("colorRoleRevision") or ""
+    )
+    reclassify = bool(
+        next_color_role_revision
+        and previous_metadata.get("colorRoleRevision")
+        != next_color_role_revision
+    )
     if (
         existing["deleted_at"] is None
         and previous_sync_revision == source_revision
@@ -2250,8 +2259,15 @@ def upsert_imported_annotation(
             """
             UPDATE annotations
             SET external_id = :external_id,
-                kind = CASE WHEN :revive THEN :kind ELSE kind END,
-                status = CASE WHEN :revive THEN 'open' ELSE status END,
+                kind = CASE
+                  WHEN :revive OR :reclassify THEN :kind
+                  ELSE kind
+                END,
+                status = CASE
+                  WHEN :revive OR (:reclassify AND :kind = 'question')
+                    THEN 'open'
+                  ELSE status
+                END,
                 priority = CASE WHEN :revive THEN :priority ELSE priority END,
                 origin = CASE WHEN :revive THEN :origin ELSE origin END,
                 deleted_at = NULL,
@@ -2267,6 +2283,7 @@ def upsert_imported_annotation(
             "origin": command.origin,
             "priority": command.priority,
             "revive": existing["deleted_at"] is not None,
+            "reclassify": reclassify,
             "now": now,
         },
     )
@@ -2801,6 +2818,25 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
                 "created_at": now,
             },
         )
+        for link in command.related_links:
+            connection.execute(
+                text(
+                    """
+                    INSERT OR IGNORE INTO note_links (
+                      note_id, entity_type, entity_id, relation, created_at
+                    )
+                    VALUES (
+                      :note_id, :entity_type, :entity_id, 'related', :created_at
+                    )
+                    """
+                ),
+                {
+                    "note_id": note_id,
+                    "entity_type": link.entity_type,
+                    "entity_id": link.entity_id,
+                    "created_at": now,
+                },
+            )
         _sync_note_marker_annotations(
             connection,
             note_id=note_id,

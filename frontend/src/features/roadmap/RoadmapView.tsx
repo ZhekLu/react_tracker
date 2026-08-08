@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   Archive,
+  BookMarked,
   BookOpen,
   Check,
   CheckCircle2,
@@ -211,6 +212,10 @@ function TaskRow({
       return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
     });
   const taskOpenQuestionCount = task.openQuestionCount;
+  const taskNote = task.notes.find((note) => note.kind === "task");
+  const exerciseSolutionNotes = task.notes.filter(
+    (note) => note.kind === "exercise_solution",
+  );
   const exerciseNumbers =
     task.title.toLowerCase().includes("exercise")
       ? [...task.title.matchAll(/\b(\d+\.\d+)\b/g)].map((match) => match[1])
@@ -479,10 +484,36 @@ function TaskRow({
             onOpenResource={onOpenResource}
           />
         ) : null}
+        {exerciseSolutionNotes.length ? (
+          <details className="taskExerciseSolutions">
+            <summary>
+              <BookMarked size={14} />
+              <span>Tutor exercise material</span>
+              <strong>{exerciseSolutionNotes.length}</strong>
+            </summary>
+            <div className="taskExerciseSolutionList">
+              {exerciseSolutionNotes.map((note) => {
+                const markdown =
+                  note.document.markdown ?? note.document.plainText;
+                const label =
+                  markdown.match(/^#\s+(.+)$/m)?.[1] ?? "Exercise material";
+                return (
+                  <details className="taskExerciseSolution" key={note.id}>
+                    <summary>
+                      <span>{label}</span>
+                      <small>From QA</small>
+                    </summary>
+                    <MarkdownMath>{markdown}</MarkdownMath>
+                  </details>
+                );
+              })}
+            </div>
+          </details>
+        ) : null}
         <EntityNoteEditor
-          key={`${task.notes[0]?.id ?? task.id}:${task.notes[0]?.revision ?? 0}`}
+          key={`${taskNote?.id ?? task.id}:${taskNote?.revision ?? 0}`}
           label="Task note"
-          note={task.notes[0]}
+          note={taskNote}
           onAttentionChange={onNoteAttentionChange}
           onSave={(html) =>
             onNoteSave({
@@ -490,7 +521,7 @@ function TaskRow({
               entityType: "task",
               html,
               kind: "task",
-              note: task.notes[0],
+              note: taskNote,
             })
           }
           placeholder="Question, answer, implementation detail, or reminder..."

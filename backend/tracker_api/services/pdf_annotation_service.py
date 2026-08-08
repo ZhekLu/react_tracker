@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -23,8 +23,10 @@ from .chapter_scope_service import referenced_chapter_numbers
 from .drawboard_service import (
     DrawboardCapture,
     DrawboardError,
+    DrawboardExtraction,
     DrawboardInk,
     extract_drawboard_annotations,
+    group_red_ink_annotations,
     is_drawboard_cloud_url,
 )
 from .pdf_context_service import (
@@ -41,6 +43,8 @@ from .pdf_ink_image_service import (
 from .resource_open_service import ResourceOpenError, safe_local_resource_path
 
 MARKUP_KINDS = {"Highlight", "Underline", "Squiggly", "StrikeOut"}
+DRAWBOARD_COLOR_ROLE_PREFIX = "drawboard_color_roles"
+DRAWBOARD_COLOR_ROLE_VERSION = "drawboard-color-role-v1"
 
 
 class PdfAnnotationError(RuntimeError):
@@ -69,6 +73,16 @@ class PdfExtraction:
 
 
 @dataclass(frozen=True, slots=True)
+class DrawboardColorPaletteEntry:
+    key: str
+    rgb: list[float]
+    count: int
+    annotation_kinds: tuple[str, ...]
+    role: str | None
+    suggested_role: str
+
+
+@dataclass(frozen=True, slots=True)
 class PdfCollection:
     resource_id: str
     path: str
@@ -79,10 +93,164 @@ class PdfCollection:
     removed_count: int
     ignored: dict[str, int]
     kind_counts: dict[str, int]
+    color_palette: list[DrawboardColorPaletteEntry] = field(default_factory=list)
+    requires_color_roles: bool = False
 
     @property
     def ignored_count(self) -> int:
         return sum(self.ignored.values())
+
+
+def drawboard_color_key(rgb: Iterable[float]) -> str:
+    channels = list(rgb)[:3]
+    if len(channels) < 3:
+        return ""
+    values = [max(0, min(255, round(channel * 255))) for channel in channels]
+    return "#" + "".join(f"{value:02X}" for value in values)
+
+
+def _drawboard_role_preference_key(connection: Connection, resource_id: str) -> str:
+    course_id = connection.execute(
+        text(
+            """
+            SELECT course_id
+            FROM resources
+            WHERE id = :resource_id AND deleted_at IS NULL
+            """
+        ),
+        {"resource_id": resource_id},
+    ).scalar_one_or_none()
+    if course_id is None:
+        raise workspace_repository.EntityNotFoundError(
+            f"Resource does not exist: {resource_id}"
+        )
+    return f"{DRAWBOARD_COLOR_ROLE_PREFIX}:{course_id}"
+
+
+def drawboard_color_roles(
+    connection: Connection,
+    resource_id: str,
+) -> dict[str, str]:
+    key = _drawboard_role_preference_key(connection, resource_id)
+    raw = connection.execute(
+        text("SELECT value_json FROM app_preferences WHERE key = :key"),
+        {"key": key},
+    ).scalar_one_or_none()
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(str(raw))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        str(color).upper(): str(role)
+        for color, role in payload.items()
+        if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(color))
+        and role in {"question", "regular"}
+    }
+
+
+def save_drawboard_color_roles(
+    connection: Connection,
+    resource_id: str,
+    roles: dict[str, str],
+) -> dict[str, str]:
+    preference_key = _drawboard_role_preference_key(connection, resource_id)
+    current = drawboard_color_roles(connection, resource_id)
+    for raw_color, role in roles.items():
+        color = raw_color.upper()
+        if not re.fullmatch(r"#[0-9A-F]{6}", color):
+            raise PdfAnnotationError(f"Invalid Drawboard color: {raw_color}")
+        if role not in {"question", "regular"}:
+            raise PdfAnnotationError(f"Invalid Drawboard color role: {role}")
+        current[color] = role
+    now = _utc_now_iso()
+    connection.execute(
+        text(
+            """
+            INSERT INTO app_preferences (key, value_json, updated_at)
+            VALUES (:key, :value_json, :updated_at)
+            ON CONFLICT(key) DO UPDATE SET
+              value_json = excluded.value_json,
+              updated_at = excluded.updated_at
+            """
+        ),
+        {
+            "key": preference_key,
+            "value_json": json.dumps(current, sort_keys=True),
+            "updated_at": now,
+        },
+    )
+    return current
+
+
+def _drawboard_palette(
+    extraction: DrawboardExtraction,
+    roles: dict[str, str],
+) -> list[DrawboardColorPaletteEntry]:
+    items: dict[str, dict[str, Any]] = {}
+    for capture in extraction.captures:
+        key = drawboard_color_key(capture.rgb)
+        if not key:
+            continue
+        entry = items.setdefault(
+            key,
+            {"rgb": capture.rgb, "count": 0, "kinds": set(), "red": False},
+        )
+        entry["count"] += 1
+        entry["kinds"].add(capture.annotation_kind)
+        entry["red"] = entry["red"] or capture.color == "red"
+    for ink in extraction.all_ink:
+        key = drawboard_color_key(ink.rgb)
+        if not key:
+            continue
+        entry = items.setdefault(
+            key,
+            {"rgb": ink.rgb, "count": 0, "kinds": set(), "red": False},
+        )
+        entry["count"] += 1
+        entry["kinds"].add("Ink")
+        entry["red"] = entry["red"] or ink.color == "red"
+    return [
+        DrawboardColorPaletteEntry(
+            key=key,
+            rgb=list(entry["rgb"]),
+            count=int(entry["count"]),
+            annotation_kinds=tuple(sorted(entry["kinds"])),
+            role=roles.get(key),
+            suggested_role="question" if entry["red"] else "regular",
+        )
+        for key, entry in sorted(items.items())
+    ]
+
+
+def _classify_drawboard_extraction(
+    extraction: DrawboardExtraction,
+    roles: dict[str, str],
+) -> DrawboardExtraction:
+    captures = []
+    for capture in extraction.captures:
+        source_text = capture.comment or capture.quote
+        explicit_marker = "??" in source_text or "todo!" in source_text.casefold()
+        captures.append(
+            replace(
+                capture,
+                is_question=(
+                    roles.get(drawboard_color_key(capture.rgb)) == "question"
+                    or explicit_marker
+                ),
+            )
+        )
+    question_ink = group_red_ink_annotations(
+        [
+            ink
+            for ink in extraction.all_ink
+            if roles.get(drawboard_color_key(ink.rgb)) == "question"
+        ]
+    )
+    return replace(extraction, captures=captures, red_ink=question_ink)
 
 
 def _chapter_study_days(
@@ -354,6 +522,7 @@ def _drawboard_annotation_command(
     annotated_page_url: str | None,
     sync_revision: str,
     source_day_id: str | None = None,
+    color_role_revision: str | None = None,
 ) -> AnnotationCreateCommand:
     kind: AnnotationKind = (
         "question"
@@ -372,6 +541,8 @@ def _drawboard_annotation_command(
         "sourceRevision": capture.source_revision,
         "syncRevision": sync_revision,
     }
+    if color_role_revision:
+        metadata["colorRoleRevision"] = color_role_revision
     if context is not None:
         metadata.update(
             {
@@ -452,6 +623,7 @@ def _drawboard_ink_command(
     annotated_page_url: str | None,
     sync_revision: str,
     source_day_id: str | None = None,
+    color_role_revision: str | None = None,
 ) -> AnnotationCreateCommand:
     context_text = " ".join(
         part
@@ -488,6 +660,8 @@ def _drawboard_ink_command(
         "syncRevision": sync_revision,
         **_context_metadata(context),
     }
+    if color_role_revision:
+        metadata["colorRoleRevision"] = color_role_revision
     if image_url:
         metadata["contextImageUrl"] = image_url
     if annotated_page_url:
@@ -530,6 +704,28 @@ def collect_resource_pdf_annotations(
             cloud_extraction = extract_drawboard_annotations(source_url)
         except DrawboardError as error:
             raise PdfAnnotationError(str(error)) from error
+        color_roles = drawboard_color_roles(connection, resource_id)
+        color_palette = _drawboard_palette(cloud_extraction, color_roles)
+        if any(entry.role is None for entry in color_palette):
+            return PdfCollection(
+                resource_id=resource_id,
+                path=cloud_extraction.source_url,
+                extracted_count=(
+                    len(cloud_extraction.captures) + len(cloud_extraction.all_ink)
+                ),
+                created_count=0,
+                updated_count=0,
+                existing_count=0,
+                removed_count=0,
+                ignored=cloud_extraction.ignored,
+                kind_counts={},
+                color_palette=color_palette,
+                requires_color_roles=True,
+            )
+        cloud_extraction = _classify_drawboard_extraction(
+            cloud_extraction,
+            color_roles,
+        )
         contexts: dict[str, PdfAnnotationContext] = {}
         image_urls: dict[str, str] = {}
         annotated_page_urls: dict[int, str] = {}
@@ -597,10 +793,16 @@ def collect_resource_pdf_annotations(
                 chapter_study_days,
                 source_day_id,
             )
+            color_key = drawboard_color_key(cloud_capture.rgb)
+            color_role = color_roles.get(color_key, "regular")
+            color_role_revision = (
+                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:{color_role}"
+            )
             sync_revision = (
                 f"{cloud_capture.source_revision}:"
                 f"{'pdf-paragraph-context-v2' if context else 'plain-v1'}:"
-                f"study-day-v1:{capture_day_id or '-'}"
+                f"study-day-v1:{capture_day_id or '-'}:"
+                f"{color_role_revision}"
             )
             command = _drawboard_annotation_command(
                 resource_id,
@@ -611,6 +813,7 @@ def collect_resource_pdf_annotations(
                 annotated_page_urls.get(cloud_capture.page),
                 sync_revision,
                 capture_day_id,
+                color_role_revision,
             )
             cloud_kind_counts[command.kind] = (
                 cloud_kind_counts.get(command.kind, 0) + 1
@@ -628,10 +831,15 @@ def collect_resource_pdf_annotations(
                 chapter_study_days,
                 source_day_id,
             )
+            color_key = drawboard_color_key(ink.rgb)
+            color_role_revision = (
+                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:question"
+            )
             sync_revision = (
                 f"{ink.source_revision}:"
                 f"{'ink-paragraph-context-v3' if context else 'ink-plain-v4'}:"
-                f"{INK_RENDERER_VERSION}:study-day-v1:{capture_day_id or '-'}"
+                f"{INK_RENDERER_VERSION}:study-day-v1:{capture_day_id or '-'}:"
+                f"{color_role_revision}"
             )
             command = _drawboard_ink_command(
                 resource_id,
@@ -643,6 +851,7 @@ def collect_resource_pdf_annotations(
                 annotated_page_urls.get(ink.page),
                 sync_revision,
                 capture_day_id,
+                color_role_revision,
             )
             cloud_kind_counts["question"] = (
                 cloud_kind_counts.get("question", 0) + 1
@@ -675,6 +884,7 @@ def collect_resource_pdf_annotations(
             removed_count=removed_count,
             ignored=cloud_extraction.ignored,
             kind_counts=cloud_kind_counts,
+            color_palette=color_palette,
         )
 
     if not local_path:

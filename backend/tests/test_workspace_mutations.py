@@ -863,6 +863,9 @@ def test_annotation_can_have_a_separate_linked_note(tmp_path: Path) -> None:
                 entity_id=created.id,
                 markdown="<p>My interpretation of this passage.</p>",
                 plain_text="My interpretation of this passage.",
+                related_links=[
+                    {"entity_type": "resource", "entity_id": resource_id}
+                ],
             ),
         )
         workspace = get_workspace(connection, course_id)
@@ -872,6 +875,14 @@ def test_annotation_can_have_a_separate_linked_note(tmp_path: Path) -> None:
     assert annotation.body.plain_text == "Imported source text stays intact."
     assert [item.id for item in annotation.notes] == [note.id]
     assert annotation.notes[0].document.plain_text == "My interpretation of this passage."
+    saved_note = next(item for item in workspace.notes if item.id == note.id)
+    assert {
+        (link.entity_type, link.entity_id, link.relation)
+        for link in saved_note.links
+    } == {
+        ("annotation", created.id, "primary"),
+        ("resource", resource_id, "related"),
+    }
 
 
 def test_question_body_can_be_edited_with_document_revision(tmp_path: Path) -> None:

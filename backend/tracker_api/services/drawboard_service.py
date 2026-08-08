@@ -477,7 +477,6 @@ def _capture(
     is_markup = annotation_kind in TEXT_MARKUP_TYPES
     is_question = (
         color == "red"
-        or content.rstrip().endswith("?")
         or "??" in content
         or "todo!" in content.casefold()
     )

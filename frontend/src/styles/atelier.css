@@ -4723,6 +4723,127 @@ button.taskMetaBadge:disabled {
   background: var(--surface);
 }
 
+.drawboardPaletteDialog {
+  width: min(820px, calc(100vw - 32px));
+  max-height: min(780px, calc(100vh - 32px));
+}
+
+.drawboardPaletteList {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.drawboardPaletteItem {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 44px minmax(150px, 1fr) auto auto;
+  padding: 11px 13px;
+}
+
+.drawboardPaletteItem.isNew {
+  background: color-mix(in srgb, var(--amber) 7%, var(--surface));
+  border-color: color-mix(in srgb, var(--amber) 35%, var(--line));
+}
+
+.drawboardColorSwatch {
+  border: 5px solid color-mix(in srgb, white 75%, transparent);
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent),
+    0 5px 13px color-mix(in srgb, var(--ink) 10%, transparent);
+  height: 38px;
+  width: 38px;
+}
+
+.drawboardColorDetails {
+  display: grid;
+  gap: 2px;
+}
+
+.drawboardColorDetails strong {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.drawboardColorDetails span,
+.drawboardRoleState {
+  color: var(--muted);
+  font-size: 0.73rem;
+}
+
+.drawboardRoleChoice {
+  display: flex;
+  gap: 6px;
+}
+
+.drawboardRoleChoice button {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--muted-strong);
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.77rem;
+  font-weight: 800;
+  gap: 5px;
+  padding: 8px 10px;
+}
+
+.drawboardRoleChoice button.isActive.question {
+  background: color-mix(in srgb, var(--red) 12%, white);
+  border-color: color-mix(in srgb, var(--red) 45%, var(--line));
+  color: var(--red);
+}
+
+.drawboardRoleChoice button.isActive.regular {
+  background: color-mix(in srgb, var(--blue) 10%, white);
+  border-color: color-mix(in srgb, var(--blue) 38%, var(--line));
+  color: var(--blue-deep);
+}
+
+.drawboardRoleState {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-weight: 850;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.drawboardPaletteHint {
+  align-items: center;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 0.75rem;
+  gap: 6px;
+  margin-right: auto;
+}
+
+@media (max-width: 700px) {
+  .drawboardPaletteItem {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+  }
+
+  .drawboardRoleChoice {
+    grid-column: 1 / -1;
+  }
+
+  .drawboardRoleChoice button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .drawboardRoleState {
+    display: none;
+  }
+}
+
 .questionEditBody {
   display: grid;
   gap: 10px;
@@ -5339,6 +5460,80 @@ button.taskMetaBadge:disabled {
 .taskBody > .entityNoteEditor {
   width: 100%;
   margin-top: 9px;
+}
+
+.taskExerciseSolutions {
+  width: 100%;
+  margin-top: 9px;
+  border: 1px solid color-mix(in srgb, #7653c8 22%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, #f4efff 42%, #fff);
+}
+
+.taskExerciseSolutions > summary,
+.taskExerciseSolution > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.taskExerciseSolutions > summary::-webkit-details-marker,
+.taskExerciseSolution > summary::-webkit-details-marker {
+  display: none;
+}
+
+.taskExerciseSolutions > summary {
+  min-height: 36px;
+  padding: 7px 10px;
+  color: #6744b4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.taskExerciseSolutions > summary strong {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(118, 83, 200, 0.12);
+}
+
+.taskExerciseSolutionList {
+  padding: 0 8px 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.taskExerciseSolution {
+  border: 1px solid color-mix(in srgb, #7653c8 17%, var(--line));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.taskExerciseSolution > summary {
+  padding: 7px 9px;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+  font-weight: 760;
+}
+
+.taskExerciseSolution > summary small {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.taskExerciseSolution > .markdownMath {
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 .entityNoteEditor {
