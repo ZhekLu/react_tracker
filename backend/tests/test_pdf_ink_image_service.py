@@ -17,6 +17,7 @@ from tracker_api.services.pdf_ink_image_service import (
     _blend_opacities,
     _ink_coordinate_paths,
     _ink_outline_paths,
+    _render_drawboard_outlines,
     render_annotated_page_images,
     render_ink_context_images,
 )
@@ -190,6 +191,33 @@ def test_drawboard_filled_outline_preserves_bezier_command_order() -> None:
     )
 
 
+def test_compound_ink_outline_keeps_an_enclosed_hole() -> None:
+    document = pymupdf.open()
+    page = document.new_page(width=100, height=100)
+    rendered = _render_drawboard_outlines(
+        page,
+        [
+            [[20, 20], [80, 20, 80, 80, 20, 80, 20, 20]],
+            [[35, 35], [65, 35, 65, 65, 35, 65, 35, 35]],
+        ],
+        page_height=100,
+        color=(0.8, 0.0, 0.0),
+        opacity=1.0,
+        blend_mode="Normal",
+    )
+
+    assert rendered is True
+    pixmap = page.get_pixmap(alpha=False, colorspace=pymupdf.csRGB)
+
+    def pixel(x: int, y: int) -> tuple[int, int, int]:
+        start = (y * pixmap.width + x) * pixmap.n
+        return tuple(pixmap.samples[start : start + 3])  # type: ignore[return-value]
+
+    assert pixel(25, 50)[0] > pixel(25, 50)[1] + 100
+    assert all(channel > 245 for channel in pixel(50, 50))
+    document.close()
+
+
 def test_vertical_guides_prevent_transitive_question_merges() -> None:
     first_guide = _ink("guide-1", [4.0, 10.0, 7.0, 60.0])
     second_guide = _ink("guide-2", [4.0, 65.0, 7.0, 115.0])
@@ -352,4 +380,59 @@ def test_complete_annotated_page_preserves_highlight_and_ink(
         red > 210 and green > 190 and blue < 245
         for red, green, blue in pixels
     )
+    get_settings.cache_clear()
+
+
+def test_multiline_highlight_does_not_fill_between_its_quads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_path = tmp_path / "source.pdf"
+    document = pymupdf.open()
+    document.new_page(width=100, height=100)
+    document.save(source_path)
+    document.close()
+
+    monkeypatch.setenv(
+        "TRACKER_ANNOTATION_IMAGE_DIR",
+        str(tmp_path / "annotation-images"),
+    )
+    get_settings.cache_clear()
+    highlight = DrawboardCapture(
+        fingerprint="two-fragments",
+        source_revision="capture-2",
+        page=1,
+        annotation_kind="TextHighlight",
+        color="blue",
+        rgb=[0.2, 0.5, 1.0],
+        quote="two fragments",
+        comment="",
+        is_question=False,
+        created_at="2026-07-10T10:00:00Z",
+        rect=[10.0, 70.0, 90.0, 80.0],
+        opacity=0.5,
+        rects=((10.0, 70.0, 30.0, 80.0), (70.0, 70.0, 90.0, 80.0)),
+    )
+
+    render_annotated_page_images(
+        source_path,
+        "resource-1",
+        [1],
+        captures=[highlight],
+        scale=2,
+    )
+    output = (
+        tmp_path
+        / "annotation-images"
+        / "resource-1"
+        / "drawboard-page-1.png"
+    )
+    pixmap = pymupdf.Pixmap(output)
+
+    def pixel(x: int, y: int) -> tuple[int, int, int]:
+        start = (y * pixmap.width + x) * pixmap.n
+        return tuple(pixmap.samples[start : start + 3])  # type: ignore[return-value]
+
+    assert pixel(40, 50)[2] > pixel(40, 50)[0]
+    assert all(channel > 245 for channel in pixel(100, 50))
     get_settings.cache_clear()

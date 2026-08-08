@@ -55,6 +55,7 @@ class DrawboardCapture:
     rect: list[float]
     opacity: float = 1.0
     blend_mode: str = "Normal"
+    rects: tuple[tuple[float, float, float, float], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,6 +372,30 @@ def _annotation_rect(annotation: dict[str, Any]) -> list[float]:
     return [min(xs), min(ys), max(xs), max(ys)]
 
 
+def _annotation_rects(
+    annotation: dict[str, Any],
+) -> tuple[tuple[float, float, float, float], ...]:
+    """Preserve every Drawboard text-markup quad as an independent region.
+
+    A multi-line highlight is stored as consecutive groups of four points.
+    Collapsing those groups into one bounding rectangle paints the whitespace
+    and unrelated text between the first and last fragment.
+    """
+
+    vertices = _flatten_numbers(annotation.get("vertices"))
+    if len(vertices) < 8 or len(vertices) % 8 != 0:
+        return ()
+    rects: list[tuple[float, float, float, float]] = []
+    for index in range(0, len(vertices), 8):
+        quad = vertices[index : index + 8]
+        xs = quad[0::2]
+        ys = quad[1::2]
+        rect = (min(xs), min(ys), max(xs), max(ys))
+        if rect[2] > rect[0] and rect[3] > rect[1]:
+            rects.append(rect)
+    return tuple(rects)
+
+
 def _annotation_appearance(
     annotation: dict[str, Any],
 ) -> tuple[str, list[float], float, str]:
@@ -482,6 +507,7 @@ def _capture(
         rect=_annotation_rect(annotation),
         opacity=opacity,
         blend_mode=blend_mode,
+        rects=_annotation_rects(annotation) if is_markup else (),
     )
 
 

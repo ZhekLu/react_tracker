@@ -14,7 +14,7 @@ from ..config import get_settings
 from .drawboard_service import DrawboardCapture, DrawboardInk
 
 SAFE_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
-INK_RENDERER_VERSION = "ink-render-v7"
+INK_RENDERER_VERSION = "ink-render-v8"
 INK_VECTOR_EMBOLDEN_WIDTH = 0.22
 PDF_BLEND_MODES = {
     "darken": "Darken",
@@ -282,9 +282,10 @@ def _render_drawboard_outlines(
         stroke_opacity=opacity,
         blend_mode=blend_mode,
     )
+    shape = page.new_shape()
     for outline in outlines:
-        shape = page.new_shape()
         current = _pdf_point(outline.start, page_height)
+        start = current
         for segment in outline.segments:
             if isinstance(segment, InkLine):
                 end = _pdf_point(segment.end, page_height)
@@ -298,18 +299,83 @@ def _render_drawboard_outlines(
                     end,
                 )
             current = end
-        shape.finish(
-            width=INK_VECTOR_EMBOLDEN_WIDTH,
-            color=color,
-            fill=color,
-            lineCap=1,
-            lineJoin=1,
-            closePath=True,
-            fill_opacity=fill_opacity,
-            stroke_opacity=stroke_opacity,
-        )
-        shape.commit(overlay=True)
+        if current != start:
+            shape.draw_line(current, start)
+    shape.finish(
+        width=INK_VECTOR_EMBOLDEN_WIDTH,
+        color=color,
+        fill=color,
+        lineCap=1,
+        lineJoin=1,
+        even_odd=True,
+        closePath=False,
+        fill_opacity=fill_opacity,
+        stroke_opacity=stroke_opacity,
+    )
+    shape.commit(overlay=True)
     return True
+
+
+def _capture_rects(
+    capture: DrawboardCapture,
+    page_height: float,
+) -> list[pymupdf.Rect]:
+    raw_rects: Iterable[Iterable[float]] = capture.rects or (capture.rect,)
+    result: list[pymupdf.Rect] = []
+    for rect in raw_rects:
+        values = list(rect)
+        if len(values) != 4:
+            continue
+        result.append(
+            pymupdf.Rect(  # type: ignore[no-untyped-call]
+                drawboard_rect_to_pdf(values, page_height)
+            )
+        )
+    return result
+
+
+def _render_capture(
+    page: Any,
+    capture: DrawboardCapture,
+    *,
+    page_height: float,
+    clip: pymupdf.Rect | None = None,
+) -> None:
+    if len(capture.rgb) < 3:
+        return
+    color = tuple(capture.rgb[:3])
+    for capture_rect in _capture_rects(capture, page_height):
+        if clip is not None and not capture_rect.intersects(clip):
+            continue
+        if capture.annotation_kind == "TextUnderline":
+            page.draw_line(
+                capture_rect.bottom_left,
+                capture_rect.bottom_right,
+                color=color,
+                width=1.1,
+                overlay=True,
+            )
+        elif capture.annotation_kind == "TextHighlight":
+            fill_opacity, _stroke_opacity = _blend_opacities(
+                page,
+                fill_opacity=capture.opacity,
+                stroke_opacity=1.0,
+                blend_mode=capture.blend_mode,
+            )
+            page.draw_rect(
+                capture_rect,
+                color=None,
+                fill=color,
+                fill_opacity=fill_opacity,
+                overlay=True,
+            )
+        else:
+            page.draw_rect(
+                capture_rect,
+                color=color,
+                width=0.8,
+                overlay=True,
+            )
 
 
 def _blend_opacities(
@@ -392,46 +458,14 @@ def _render_ink(
         )
 
         for capture in captures:
-            if capture.page != ink.page or len(capture.rect) != 4:
+            if capture.page != ink.page:
                 continue
-            capture_rect = pymupdf.Rect(  # type: ignore[no-untyped-call]
-                drawboard_rect_to_pdf(capture.rect, source_page.rect.height)
+            _render_capture(
+                overlay_page,
+                capture,
+                page_height=source_page.rect.height,
+                clip=clip,
             )
-            if (
-                not capture_rect.intersects(clip)  # type: ignore[no-untyped-call]
-                or len(capture.rgb) < 3
-            ):
-                continue
-            color = tuple(capture.rgb[:3])
-            if capture.annotation_kind == "TextUnderline":
-                overlay_page.draw_line(
-                    capture_rect.bottom_left,
-                    capture_rect.bottom_right,
-                    color=color,
-                    width=1.1,
-                    overlay=True,
-                )
-            elif capture.annotation_kind == "TextHighlight":
-                fill_opacity, _stroke_opacity = _blend_opacities(
-                    overlay_page,
-                    fill_opacity=capture.opacity,
-                    stroke_opacity=1.0,
-                    blend_mode=capture.blend_mode,
-                )
-                overlay_page.draw_rect(
-                    capture_rect,
-                    color=None,
-                    fill=color,
-                    fill_opacity=fill_opacity,
-                    overlay=True,
-                )
-            else:
-                overlay_page.draw_rect(
-                    capture_rect,
-                    color=color,
-                    width=0.8,
-                    overlay=True,
-                )
 
         visible_inks = [
             item
@@ -506,43 +540,13 @@ def _render_annotated_page(
             page_number - 1,
         )
         for capture in captures:
-            if capture.page != page_number or len(capture.rect) != 4:
+            if capture.page != page_number:
                 continue
-            capture_rect = pymupdf.Rect(  # type: ignore[no-untyped-call]
-                drawboard_rect_to_pdf(capture.rect, source_page.rect.height)
+            _render_capture(
+                overlay_page,
+                capture,
+                page_height=source_page.rect.height,
             )
-            if len(capture.rgb) < 3:
-                continue
-            color = tuple(capture.rgb[:3])
-            if capture.annotation_kind == "TextUnderline":
-                overlay_page.draw_line(
-                    capture_rect.bottom_left,
-                    capture_rect.bottom_right,
-                    color=color,
-                    width=1.1,
-                    overlay=True,
-                )
-            elif capture.annotation_kind == "TextHighlight":
-                fill_opacity, _stroke_opacity = _blend_opacities(
-                    overlay_page,
-                    fill_opacity=capture.opacity,
-                    stroke_opacity=1.0,
-                    blend_mode=capture.blend_mode,
-                )
-                overlay_page.draw_rect(
-                    capture_rect,
-                    color=None,
-                    fill=color,
-                    fill_opacity=fill_opacity,
-                    overlay=True,
-                )
-            else:
-                overlay_page.draw_rect(
-                    capture_rect,
-                    color=color,
-                    width=0.8,
-                    overlay=True,
-                )
         for ink in page_inks:
             if ink.page != page_number:
                 continue

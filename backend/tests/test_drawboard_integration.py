@@ -15,6 +15,7 @@ from tracker_api.services.drawboard_service import (
     DrawboardCapture,
     DrawboardExtraction,
     _annotation_color,
+    _annotation_rects,
     drawboard_deep_link,
     extract_drawboard_annotations,
     is_drawboard_cloud_url,
@@ -82,6 +83,36 @@ def test_drawboard_grey_pen_is_not_a_question_color() -> None:
     color, _rgb = _annotation_color({"fillColor": "D9575761"})
 
     assert color == "custom"
+
+
+def test_multiline_drawboard_highlight_preserves_each_quad() -> None:
+    rects = _annotation_rects(
+        {
+            "vertices": [
+                424.73,
+                184.06,
+                381.23,
+                184.06,
+                381.23,
+                193.13,
+                424.73,
+                193.13,
+                111.74,
+                172.11,
+                43.46,
+                172.11,
+                43.46,
+                181.17,
+                111.74,
+                181.17,
+            ]
+        }
+    )
+
+    assert rects == (
+        (381.23, 184.06, 424.73, 193.13),
+        (43.46, 172.11, 111.74, 181.17),
+    )
 
 
 def test_cloud_extraction_pages_batches_and_reuses_credentials(
