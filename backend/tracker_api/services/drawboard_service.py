@@ -25,6 +25,7 @@ INK_VERTICAL_OVERLAP_TOLERANCE = 2.0
 INK_VERTICAL_GUIDE_MIN_HEIGHT = 36.0
 INK_VERTICAL_GUIDE_ASPECT_RATIO = 3.0
 INK_GROUP_CONTAINMENT_THRESHOLD = 0.9
+INK_GROUP_VERTICAL_DUPLICATE_THRESHOLD = 0.82
 _STATE_LOCK = threading.Lock()
 
 
@@ -796,12 +797,25 @@ def _groups_are_near_duplicates(
     if first.page != second.page:
         return False
     smaller_area = min(_rect_area(first.rect), _rect_area(second.rect))
-    if smaller_area <= 0:
-        return False
-    return (
-        _rect_intersection_area(first.rect, second.rect) / smaller_area
+    area_containment = (
+        smaller_area > 0
+        and _rect_intersection_area(first.rect, second.rect) / smaller_area
         >= INK_GROUP_CONTAINMENT_THRESHOLD
     )
+    first_bounds = _ink_vertical_bounds(first)
+    second_bounds = _ink_vertical_bounds(second)
+    if first_bounds is None or second_bounds is None:
+        return area_containment
+    shorter_height = min(
+        first_bounds[1] - first_bounds[0],
+        second_bounds[1] - second_bounds[0],
+    )
+    vertical_duplicate = (
+        shorter_height > 0
+        and _vertical_overlap_amount(first_bounds, second_bounds) / shorter_height
+        >= INK_GROUP_VERTICAL_DUPLICATE_THRESHOLD
+    )
+    return area_containment or vertical_duplicate
 
 
 def _merge_contained_ink_groups(groups: list[DrawboardInk]) -> list[DrawboardInk]:

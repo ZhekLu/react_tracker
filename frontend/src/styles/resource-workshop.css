@@ -816,6 +816,13 @@
   min-width: 0;
 }
 
+.qaAnswerActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .qaAnswerHeading span {
   color: #7653c8;
   font-size: 9px;
@@ -848,6 +855,25 @@
   border-color: color-mix(in srgb, var(--green) 38%, var(--line));
   background: var(--green-soft);
   color: var(--green-deep);
+}
+
+.qaDeleteAnswer {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--red) 28%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--red-soft) 58%, #fff);
+  color: var(--red);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.qaDeleteAnswer:disabled {
+  cursor: default;
+  opacity: 0.42;
 }
 
 .qaQuestionPrompt {
@@ -1103,7 +1129,13 @@
     align-items: flex-start;
   }
 
-  .qaAnsweredToggle {
+  .qaAnswerActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .qaAnsweredToggle,
+  .qaDeleteAnswer {
     width: 34px;
     padding: 0;
     justify-content: center;

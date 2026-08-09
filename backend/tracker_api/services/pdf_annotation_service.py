@@ -44,7 +44,7 @@ from .resource_open_service import ResourceOpenError, safe_local_resource_path
 
 MARKUP_KINDS = {"Highlight", "Underline", "Squiggly", "StrikeOut"}
 DRAWBOARD_COLOR_ROLE_PREFIX = "drawboard_color_roles"
-DRAWBOARD_COLOR_ROLE_VERSION = "drawboard-color-role-v1"
+DRAWBOARD_COLOR_ROLE_VERSION = "drawboard-color-role-v2"
 
 
 class PdfAnnotationError(RuntimeError):
@@ -230,19 +230,6 @@ def _classify_drawboard_extraction(
     extraction: DrawboardExtraction,
     roles: dict[str, str],
 ) -> DrawboardExtraction:
-    captures = []
-    for capture in extraction.captures:
-        source_text = capture.comment or capture.quote
-        explicit_marker = "??" in source_text or "todo!" in source_text.casefold()
-        captures.append(
-            replace(
-                capture,
-                is_question=(
-                    roles.get(drawboard_color_key(capture.rgb)) == "question"
-                    or explicit_marker
-                ),
-            )
-        )
     question_ink = group_red_ink_annotations(
         [
             ink
@@ -250,6 +237,27 @@ def _classify_drawboard_extraction(
             if roles.get(drawboard_color_key(ink.rgb)) == "question"
         ]
     )
+    captures = []
+    for capture in extraction.captures:
+        source_text = capture.comment or capture.quote
+        explicit_marker = "??" in source_text or "todo!" in source_text.casefold()
+        color_question = (
+            roles.get(drawboard_color_key(capture.rgb)) == "question"
+        )
+        merged_with_ink = color_question and not explicit_marker and any(
+            capture.page == ink.page
+            and len(capture.rect) == 4
+            and len(ink.rect) == 4
+            and capture.rect[1] <= ink.rect[3] + 6.0
+            and ink.rect[1] <= capture.rect[3] + 6.0
+            for ink in question_ink
+        )
+        captures.append(
+            replace(
+                capture,
+                is_question=explicit_marker or (color_question and not merged_with_ink),
+            )
+        )
     return replace(extraction, captures=captures, red_ink=question_ink)
 
 
@@ -651,7 +659,7 @@ def _drawboard_ink_command(
         "createdAt": ink.created_at,
         "drawboardDocumentId": document_id,
         "inkGroupSize": len(ink.member_fingerprints),
-        "inkGrouping": "guide-bands-v2",
+        "inkGrouping": "guide-bands-v3",
         "inkMemberFingerprints": list(ink.member_fingerprints),
         "sourceContent": "",
         "sourceLabel": "Drawboard cloud PDF",
@@ -795,8 +803,16 @@ def collect_resource_pdf_annotations(
             )
             color_key = drawboard_color_key(cloud_capture.rgb)
             color_role = color_roles.get(color_key, "regular")
+            classification = (
+                "standalone-question"
+                if cloud_capture.is_question
+                else "merged-with-ink"
+                if color_role == "question"
+                else "regular"
+            )
             color_role_revision = (
-                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:{color_role}"
+                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:{color_role}:"
+                f"{classification}"
             )
             sync_revision = (
                 f"{cloud_capture.source_revision}:"
@@ -833,7 +849,7 @@ def collect_resource_pdf_annotations(
             )
             color_key = drawboard_color_key(ink.rgb)
             color_role_revision = (
-                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:question"
+                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:question:ink-group"
             )
             sync_revision = (
                 f"{ink.source_revision}:"

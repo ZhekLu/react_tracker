@@ -254,6 +254,25 @@ def test_contained_guide_groups_become_one_screenshot() -> None:
     }
 
 
+def test_overlapping_vertical_crop_bands_become_one_screenshot() -> None:
+    left_guide = _ink("guide-left", [5.0, 20.0, 8.0, 120.0])
+    left_note = _ink("note-left", [10.0, 28.0, 120.0, 108.0])
+    right_guide = _ink("guide-right", [280.0, 24.0, 283.0, 116.0])
+    right_note = _ink("note-right", [300.0, 30.0, 420.0, 110.0])
+
+    groups = group_red_ink_annotations(
+        [left_guide, left_note, right_guide, right_note]
+    )
+
+    assert len(groups) == 1
+    assert set(groups[0].member_fingerprints) == {
+        "guide-left",
+        "note-left",
+        "guide-right",
+        "note-right",
+    }
+
+
 def test_handwriting_image_contains_nearby_ink_and_highlights(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

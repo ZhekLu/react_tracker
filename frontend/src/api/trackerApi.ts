@@ -354,6 +354,10 @@ export type DiscussionMessageReviewInput = DiscussionMessageUpdateInput & {
   reviewItems: DiscussionReviewItemInput[];
 };
 
+export type DiscussionAnswerDeleteInput = DiscussionMessageUpdateInput & {
+  questionIds: string[];
+};
+
 export type DiscussionCreateInput = {
   courseId: string;
   sourceResourceId?: string;
@@ -1453,6 +1457,26 @@ export async function reviewDiscussionMessage(
         })),
       }),
       method: "POST",
+    },
+  );
+}
+
+export async function deleteDiscussionAnswer(
+  messageId: string,
+  input: DiscussionAnswerDeleteInput,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(
+    `/discussion-messages/${messageId}/answer`,
+    {
+      body: JSON.stringify({
+        revision: input.revision,
+        document_revision: input.documentRevision,
+        markdown: input.markdown,
+        editor_json: input.editorJson,
+        plain_text: input.plainText ?? input.markdown,
+        question_ids: input.questionIds,
+      }),
+      method: "DELETE",
     },
   );
 }

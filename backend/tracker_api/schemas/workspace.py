@@ -541,6 +541,10 @@ class DiscussionMessageReviewCommand(DiscussionMessageUpdateCommand):
     review_items: list[DiscussionReviewItem] = Field(default_factory=list)
 
 
+class DiscussionAnswerDeleteCommand(DiscussionMessageUpdateCommand):
+    question_ids: list[str] = Field(default_factory=list)
+
+
 class DiscussionQuestionLinkCommand(StrictModel):
     relation: DiscussionQuestionRelation
 

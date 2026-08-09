@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Annotation, Discussion } from "../../types/tracker";
 import type { DiscussionQaSection } from "../../lib/discussionQa";
 import {
+  inferredExerciseLabels,
   qaReviewItems,
   sourceQuestionForReview,
 } from "./discussionQaReviewModel";
@@ -119,5 +120,22 @@ describe("focused discussion QA review units", () => {
     });
 
     expect(sourceQuestionForReview([screenshot, textQuestion])?.id).toBe("text");
+  });
+
+  it("detects every exercise answered inside one tutor section", () => {
+    const item = {
+      id: "answer-two-exercises",
+      questions: [annotation("exercise-question")],
+      section: {
+        bodyMarkdown:
+          "### Exercise 6.2\n\nFirst answer.\n\n### Exercise 6.6\n\nSecond answer.",
+        title: "Exercises 6.2 and 6.6",
+      } as DiscussionQaSection,
+    };
+
+    expect(inferredExerciseLabels(item)).toEqual([
+      "Exercise 6.2",
+      "Exercise 6.6",
+    ]);
   });
 });

@@ -14,6 +14,32 @@ export type QaReviewItem = {
   section?: DiscussionQaSection;
 };
 
+export function inferredExerciseLabels(item: QaReviewItem): string[] {
+  const candidates = [
+    item.section?.title ?? "",
+    item.section?.bodyMarkdown ?? "",
+    ...item.questions.flatMap((question) => [
+      annotationDisplayText(question),
+      question.anchor?.sectionTitle ?? "",
+      metadataText(question, "contextParagraph"),
+    ]),
+  ];
+  const labels: string[] = [];
+  for (const candidate of candidates) {
+    for (const match of candidate.matchAll(/\bExercise\s+(\d+(?:\.\d+)+)\b/gi)) {
+      const label = `Exercise ${match[1]}`;
+      if (!labels.includes(label)) labels.push(label);
+    }
+    for (const group of candidate.matchAll(/\bExercises?\s+([^\n]+)/gi)) {
+      for (const match of group[1].matchAll(/\d+(?:\.\d+)+/g)) {
+        const label = `Exercise ${match[0]}`;
+        if (!labels.includes(label)) labels.push(label);
+      }
+    }
+  }
+  return labels.length ? labels : ["Exercise"];
+}
+
 export function sourceQuestionForReview(
   questions: Annotation[],
 ): Annotation | undefined {

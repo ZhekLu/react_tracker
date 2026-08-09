@@ -26,6 +26,7 @@ from ..schemas.workspace import (
     DaySection,
     DayStatusCommand,
     Discussion,
+    DiscussionAnswerDeleteCommand,
     DiscussionAttentionCommand,
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
@@ -3927,6 +3928,74 @@ def review_discussion_message(
                 timestamp=now,
                 update_question_status=False,
             )
+    return result
+
+
+def delete_discussion_answer(
+    connection: Connection,
+    message_id: str,
+    command: DiscussionAnswerDeleteCommand,
+) -> MutationResponse:
+    """Remove one parsed answer while returning its questions to the open queue."""
+
+    scope = _one_or_none(
+        connection,
+        """
+        SELECT dt.course_id
+        FROM discussion_messages dm
+        JOIN discussion_threads dt ON dt.id = dm.thread_id
+        WHERE dm.id = :message_id
+          AND dm.deleted_at IS NULL
+          AND dt.deleted_at IS NULL
+        """,
+        {"message_id": message_id},
+    )
+    if scope is None:
+        raise EntityNotFoundError(
+            f"Discussion message does not exist: {message_id}"
+        )
+
+    result = update_discussion_message(connection, message_id, command)
+    now = _now()
+    for annotation_id in dict.fromkeys(command.question_ids):
+        removed = connection.execute(
+            text(
+                """
+                DELETE FROM discussion_message_annotations
+                WHERE message_id = :message_id
+                  AND annotation_id = :annotation_id
+                """
+            ),
+            {
+                "message_id": message_id,
+                "annotation_id": annotation_id,
+            },
+        )
+        if not removed.rowcount:
+            continue
+        connection.execute(
+            text(
+                """
+                UPDATE annotations
+                SET status = 'open',
+                    answered_at = NULL,
+                    updated_at = :updated_at,
+                    revision = revision + 1
+                WHERE id = :annotation_id
+                  AND deleted_at IS NULL
+                  AND resource_id IN (
+                    SELECT id
+                    FROM resources
+                    WHERE course_id = :course_id
+                  )
+                """
+            ),
+            {
+                "annotation_id": annotation_id,
+                "course_id": str(scope["course_id"]),
+                "updated_at": now,
+            },
+        )
     return result
 
 

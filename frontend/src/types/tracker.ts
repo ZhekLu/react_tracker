@@ -319,7 +319,7 @@ export type EntityNoteSaveInput = {
 
 export type ExerciseSolutionMappingInput = {
   taskId: string;
-  exerciseLabel: string;
+  exerciseLabels: string[];
   markdown: string;
   sourceMessageId: string;
   questionIds: string[];

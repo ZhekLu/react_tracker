@@ -169,6 +169,7 @@ def test_red_ink_context_image_uses_full_page_width(
     )
     assert output.read_bytes().startswith(b"\x89PNG")
     assert pixmap.width == round(page_width * 5)
+    assert pixmap.height == ((30 + 2 * 12) * 5)
     assert pixmap.width > pixmap.height
     get_settings.cache_clear()
 

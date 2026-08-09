@@ -16,6 +16,7 @@ from tracker_api.repositories.workspace_repository import (
     create_discussion_message,
     create_prompt_batch,
     delete_discussion,
+    delete_discussion_answer,
     get_workspace,
     link_discussion_question,
     reconcile_toggl_entries,
@@ -34,6 +35,7 @@ from tracker_api.schemas.workspace import (
     AnnotationAnchorCreate,
     AnnotationCommand,
     AnnotationCreateCommand,
+    DiscussionAnswerDeleteCommand,
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
@@ -792,6 +794,72 @@ def test_discussion_message_body_can_be_edited_with_document_history(
         "revision_number": 2,
         "change_reason": "discussion_message_updated",
     }
+
+
+def test_deleting_one_tutor_answer_reopens_and_unlinks_its_question(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Why does this update converge?",
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+            ),
+        )
+        created = create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown=(
+                    "## Q-001 — convergence\n\nBad answer.\n\n"
+                    "## Q-002 — another topic\n\nUseful answer."
+                ),
+                annotation_links=[
+                    {
+                        "annotation_id": question.id,
+                        "relation": "answers",
+                    }
+                ],
+            ),
+        )
+        before = get_workspace(connection, course_id)
+        message = before.discussions[0].messages[0]
+        deleted = delete_discussion_answer(
+            connection,
+            created.id,
+            DiscussionAnswerDeleteCommand(
+                revision=message.revision,
+                document_revision=message.body.revision,
+                markdown="## Q-002 — another topic\n\nUseful answer.",
+                plain_text="Useful answer.",
+                question_ids=[question.id],
+            ),
+        )
+        after = get_workspace(connection, course_id)
+        answered_at = connection.execute(
+            text("SELECT answered_at FROM annotations WHERE id = :id"),
+            {"id": question.id},
+        ).scalar_one()
+
+    reopened = next(item for item in after.annotations if item.id == question.id)
+    updated_message = after.discussions[0].messages[0]
+    assert deleted.revision == message.revision + 1
+    assert reopened.status == "open"
+    assert answered_at is None
+    assert updated_message.annotation_links == []
+    assert "Bad answer" not in (updated_message.body.markdown or "")
+    assert "Useful answer" in (updated_message.body.markdown or "")
 
 
 def test_saving_discussion_message_exports_configured_instruction_tag(

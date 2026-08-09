@@ -11,6 +11,7 @@ import {
   createDiscussion,
   createDiscussionMessage,
   createPromptBatch,
+  deleteDiscussionAnswer,
   deleteDiscussion,
   fetchCourses,
   fetchCourseWorkspace,
@@ -1234,7 +1235,29 @@ export function App() {
         ],
       });
       setActionMessage(
-        `${input.exerciseLabel} and its formulas were added to the exercise task.`,
+        `${input.exerciseLabels.join(" and ")} and its formulas were added to the exercise task.`,
+      );
+    });
+  }
+
+  function handleDeleteDiscussionAnswer(
+    message: DiscussionMessage,
+    markdownInput: string,
+    questionIds: string[],
+  ) {
+    const markdown = normalizeDiscussionMarkdown(markdownInput);
+    void runMutation(async () => {
+      await deleteDiscussionAnswer(message.id, {
+        revision: message.revision,
+        documentRevision: message.body.revision,
+        markdown,
+        plainText: markdown,
+        questionIds,
+      });
+      setActionMessage(
+        questionIds.length
+          ? "The tutor answer was deleted and its questions are open again."
+          : "The tutor answer was deleted.",
       );
     });
   }
@@ -1603,6 +1626,7 @@ export function App() {
           onAnnotationChange={handleAnnotationChange}
           onCreateCapture={handleCreateResourceCapture}
           onCreateDiscussion={handleCreateDiscussion}
+          onDeleteAnswer={handleDeleteDiscussionAnswer}
           onDeleteDiscussion={handleDeleteDiscussion}
           onDiscussionStatusChange={handleDiscussionStatusChange}
           onDiscussionAttentionChange={handleDiscussionAttentionChange}

@@ -90,6 +90,11 @@ type DiscussionsViewProps = {
   ) => void;
   onCreateCapture: (resourceId: string, input: ResourceCaptureInput) => void;
   onCreateDiscussion: (resourceId: string) => void;
+  onDeleteAnswer: (
+    message: DiscussionMessage,
+    markdown: string,
+    questionIds: string[],
+  ) => void;
   onDeleteDiscussion: (discussion: Discussion) => void;
   onDiscussionStatusChange: (
     discussion: Discussion,
@@ -815,6 +820,7 @@ export function DiscussionsView({
   onAskMessageQuestion,
   onCreateCapture,
   onCreateDiscussion,
+  onDeleteAnswer,
   onDeleteDiscussion,
   onDiscussionStatusChange,
   onDiscussionAttentionChange,
@@ -1410,6 +1416,7 @@ export function DiscussionsView({
           discussion={discussion}
           onAnnotationChange={onAnnotationChange}
           onClose={() => setQaReviewDiscussionId("")}
+          onDeleteAnswer={onDeleteAnswer}
           onMapExerciseSolution={onMapExerciseSolution}
           onQuestionLink={onQuestionLink}
           onUpdateMessage={onUpdateMessage}

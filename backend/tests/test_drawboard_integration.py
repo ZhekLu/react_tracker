@@ -14,6 +14,7 @@ from tracker_api.services import drawboard_service, pdf_annotation_service
 from tracker_api.services.drawboard_service import (
     DrawboardCapture,
     DrawboardExtraction,
+    DrawboardInk,
     _annotation_color,
     _annotation_rects,
     drawboard_deep_link,
@@ -476,6 +477,76 @@ def test_cloud_collection_prompts_for_new_exact_colors_and_reclassifies(
     assert first_kind == "question"
     assert updated.updated_count == 1
     assert final_kind == "highlight"
+
+
+def test_red_highlight_inside_handwriting_group_is_not_a_second_question(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resource_id = _seed_cloud_resource(tmp_path)
+    highlight = DrawboardCapture(
+        fingerprint=f"drawboard-{DOCUMENT_ID}-red-highlight",
+        source_revision="highlight-1",
+        page=11,
+        annotation_kind="TextHighlight",
+        color="red",
+        rgb=[1.0, 0.0, 0.0],
+        quote="This line belongs to the handwritten question",
+        comment="",
+        is_question=True,
+        created_at="2026-07-01T10:00:00Z",
+        rect=[80.0, 40.0, 260.0, 55.0],
+    )
+    ink = DrawboardInk(
+        fingerprint=f"drawboard-{DOCUMENT_ID}-red-ink",
+        source_revision="ink-1",
+        page=11,
+        color="red",
+        rgb=[1.0, 0.0, 0.0],
+        created_at="2026-07-01T10:01:00Z",
+        rect=[8.0, 25.0, 300.0, 100.0],
+        ink_vertex_sets=([[8.0, 25.0], [8.0, 100.0]],),
+        member_fingerprints=(f"drawboard-{DOCUMENT_ID}-red-ink",),
+    )
+    extraction = DrawboardExtraction(
+        source_url=SHARE_URL,
+        document_id=DOCUMENT_ID,
+        captures=[highlight],
+        red_ink=[ink],
+        all_ink=[ink],
+        ignored={},
+    )
+    monkeypatch.setattr(
+        pdf_annotation_service,
+        "extract_drawboard_annotations",
+        lambda _source_url: extraction,
+    )
+
+    with transaction() as connection:
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection,
+            resource_id,
+            {"#FF0000": "question"},
+        )
+        collected = collect_resource_pdf_annotations(connection, resource_id)
+        rows = connection.execute(
+            text(
+                """
+                SELECT a.kind, a.origin
+                FROM annotations a
+                WHERE a.resource_id = :resource_id
+                  AND a.deleted_at IS NULL
+                ORDER BY a.kind
+                """
+            ),
+            {"resource_id": resource_id},
+        ).mappings().all()
+
+    assert collected.kind_counts == {"highlight": 1, "question": 1}
+    assert rows == [
+        {"kind": "highlight", "origin": "drawboard_cloud"},
+        {"kind": "question", "origin": "drawboard_cloud_ink"},
+    ]
 
 
 def test_book_chapters_map_to_their_explicit_study_days(tmp_path: Path) -> None:

@@ -14,7 +14,7 @@ from ..config import get_settings
 from .drawboard_service import DrawboardCapture, DrawboardInk
 
 SAFE_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
-INK_RENDERER_VERSION = "ink-render-v8"
+INK_RENDERER_VERSION = "ink-render-v9"
 INK_VECTOR_EMBOLDEN_WIDTH = 0.22
 PDF_BLEND_MODES = {
     "darken": "Darken",
@@ -657,7 +657,7 @@ def render_ink_context_images(
     *,
     captures: Iterable[DrawboardCapture] = (),
     page_inks: Iterable[DrawboardInk] = (),
-    margin: float = 54.0,
+    margin: float = 12.0,
     scale: float = 5.0,
     stroke_width: float = 0.65,
 ) -> dict[str, str]:

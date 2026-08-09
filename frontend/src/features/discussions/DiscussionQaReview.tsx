@@ -8,6 +8,7 @@ import {
   CircleHelp,
   Save,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import {
@@ -50,6 +51,7 @@ import type {
   ExerciseSolutionMappingInput,
 } from "../../types/tracker";
 import {
+  inferredExerciseLabels,
   qaReviewItems,
   sourceQuestionForReview,
   type QaReviewItem,
@@ -71,6 +73,11 @@ type DiscussionQaReviewProps = {
     },
   ) => void;
   onClose: () => void;
+  onDeleteAnswer: (
+    message: DiscussionMessage,
+    markdown: string,
+    questionIds: string[],
+  ) => void;
   onQuestionLink: (
     messageId: string,
     annotationId: string,
@@ -90,20 +97,18 @@ type ExerciseTaskOption = {
   task: Course["days"][number]["sections"][number]["tasks"][number];
 };
 
-function inferredExerciseLabel(item: QaReviewItem): string {
-  const candidates = [
-    item.section?.title ?? "",
-    ...item.questions.flatMap((question) => [
-      annotationDisplayText(question),
-      question.anchor?.sectionTitle ?? "",
-      metadataText(question, "contextParagraph"),
-    ]),
-  ];
-  for (const candidate of candidates) {
-    const match = candidate.match(/\bExercise\s+(\d+(?:\.\d+)+)\b/i);
-    if (match) return `Exercise ${match[1]}`;
+function exerciseLabelsFromInput(value: string): string[] {
+  const labels: string[] = [];
+  for (const match of value.matchAll(/(?:Exercise\s*)?(\d+(?:\.\d+)+)/gi)) {
+    const label = `Exercise ${match[1]}`;
+    if (!labels.includes(label)) labels.push(label);
   }
-  return "Exercise";
+  return labels.length ? labels : ["Exercise"];
+}
+
+function exerciseHeading(labels: string[]): string {
+  if (labels.length === 1) return labels[0];
+  return `Exercises ${labels.map((label) => label.replace(/^Exercise\s+/i, "")).join(", ")}`;
 }
 
 function exerciseTaskOptions(
@@ -157,10 +162,13 @@ function ExerciseSolutionMapper({
   item: QaReviewItem;
   onMap: (input: ExerciseSolutionMappingInput) => void;
 }) {
-  const initialLabel = inferredExerciseLabel(item);
+  const initialLabels = inferredExerciseLabels(item);
   const [open, setOpen] = useState(false);
-  const [exerciseLabel, setExerciseLabel] = useState(initialLabel);
-  const options = exerciseTaskOptions(course, item, exerciseLabel);
+  const [exerciseLabelInput, setExerciseLabelInput] = useState(
+    initialLabels.join(", "),
+  );
+  const exerciseLabels = exerciseLabelsFromInput(exerciseLabelInput);
+  const options = exerciseTaskOptions(course, item, exerciseLabels[0]);
   const [taskId, setTaskId] = useState(options[0]?.task.id ?? "");
   const mappedOption = options.find(({ task }) =>
     task.notes.some(
@@ -177,7 +185,8 @@ function ExerciseSolutionMapper({
   if (!item.section || !item.questions.length || !options.length) return null;
 
   function save() {
-    const label = exerciseLabel.trim() || "Exercise";
+    const labels = exerciseLabelsFromInput(exerciseLabelInput);
+    const heading = exerciseHeading(labels);
     const questionText = item.questions
       .filter(
         (question) =>
@@ -186,7 +195,7 @@ function ExerciseSolutionMapper({
       .map((question) => annotationDisplayText(question))
       .join("\n\n");
     const markdown = [
-      `# ${label} — tutor material`,
+      `# ${heading} — tutor material`,
       `_From “${discussion.title}”, response #${item.section!.messageSequenceNumber}_`,
       questionText ? `## Question context\n\n${questionText}` : "",
       `## Tutor explanation\n\n${item.section!.bodyMarkdown}`,
@@ -194,7 +203,7 @@ function ExerciseSolutionMapper({
       .filter(Boolean)
       .join("\n\n");
     onMap({
-      exerciseLabel: label,
+      exerciseLabels: labels,
       markdown,
       questionIds: item.questions.map((question) => question.id),
       sourceMessageId: item.section!.messageId,
@@ -220,11 +229,11 @@ function ExerciseSolutionMapper({
       {open ? (
         <div className="qaExerciseMapForm">
           <label>
-            <span>Exercise</span>
+            <span>Exercises</span>
             <input
-              onChange={(event) => setExerciseLabel(event.target.value)}
-              placeholder="Exercise 6.1"
-              value={exerciseLabel}
+              onChange={(event) => setExerciseLabelInput(event.target.value)}
+              placeholder="Exercise 6.2, Exercise 6.6"
+              value={exerciseLabelInput}
             />
           </label>
           <label>
@@ -240,7 +249,9 @@ function ExerciseSolutionMapper({
           <button disabled={!taskId} onClick={save} type="button">
             Save rich answer
           </button>
-          <p>The exact Markdown and formulas will appear inside that task.</p>
+          <p>
+            Every listed exercise is saved with the same exact Markdown and formulas.
+          </p>
         </div>
       ) : null}
     </section>
@@ -444,13 +455,21 @@ export function DiscussionQaReview({
   discussion,
   onAnnotationChange,
   onClose,
+  onDeleteAnswer,
   onMapExerciseSolution,
   onQuestionLink,
   onUpdateMessage,
 }: DiscussionQaReviewProps) {
-  const sections = useMemo(
+  const parsedSections = useMemo(
     () => discussionQaSections(discussion, course.annotations),
     [course.annotations, discussion],
+  );
+  const [hiddenSectionIds, setHiddenSectionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const sections = useMemo(
+    () => parsedSections.filter((section) => !hiddenSectionIds.has(section.id)),
+    [hiddenSectionIds, parsedSections],
   );
   const annotationById = useMemo(
     () => new Map(course.annotations.map((item) => [item.id, item])),
@@ -498,6 +517,7 @@ export function DiscussionQaReview({
   const [editorGeneration, setEditorGeneration] = useState(0);
   const [savedPulse, setSavedPulse] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmDeleteAnswer, setConfirmDeleteAnswer] = useState(false);
   const allItems = useMemo(
     () => qaReviewItems(sections, annotationById, discussion),
     [annotationById, discussion, sections],
@@ -657,6 +677,30 @@ export function DiscussionQaReview({
     onClose();
   }
 
+  function deleteCurrentAnswer() {
+    const section = activeItem?.section;
+    if (!section) return;
+    const message = messageById.get(section.messageId);
+    if (!message) return;
+    const remainingSections = (sectionsByMessage.get(section.messageId) ?? []).filter(
+      (candidate) => candidate.id !== section.id,
+    );
+    const rebuilt = reconstructQaMessage(remainingSections, sectionDrafts);
+    onDeleteAnswer(
+      message,
+      rebuilt.markdown,
+      activeItem.questions.map((question) => question.id),
+    );
+    setHiddenSectionIds((current) => new Set([...current, section.id]));
+    setSavedMessageMarkdown((current) => {
+      const next = new Map(current);
+      next.set(section.messageId, rebuilt.markdown);
+      return next;
+    });
+    setConfirmDeleteAnswer(false);
+    setActiveIndex((current) => Math.max(0, current - 1));
+  }
+
   const content = (
     <div className="qaReviewBackdrop">
       <main className="qaReviewSession" role="dialog" aria-modal="true">
@@ -750,52 +794,70 @@ export function DiscussionQaReview({
                   </span>
                   <h2>{activeItem.section?.title ?? "Unmapped question"}</h2>
                 </div>
-                {activeItem.questions.length ? (
-                  <button
-                    className={
-                      activeItem.questions.every(
+                <div className="qaAnswerActions">
+                  {activeItem.section ? (
+                    <button
+                      aria-label="Delete this tutor answer"
+                      className="qaDeleteAnswer"
+                      disabled={hasUnsavedChanges}
+                      onClick={() => setConfirmDeleteAnswer(true)}
+                      title={
+                        hasUnsavedChanges
+                          ? "Save the QA session before deleting an answer"
+                          : "Delete answer and reopen its questions"
+                      }
+                      type="button"
+                    >
+                      <Trash2 size={14} /> Delete answer
+                    </button>
+                  ) : null}
+                  {activeItem.questions.length ? (
+                    <button
+                      className={
+                        activeItem.questions.every(
+                          (question) => question.status === "answered",
+                        )
+                          ? "qaAnsweredToggle answered"
+                          : "qaAnsweredToggle"
+                      }
+                      onClick={() => {
+                        const allAnswered = activeItem.questions.every(
+                          (question) => question.status === "answered",
+                        );
+                        for (const question of activeItem.questions) {
+                          if (allAnswered) {
+                            onAnnotationChange(question, { status: "open" });
+                          } else if (
+                            activeItem.section &&
+                            question.status !== "answered"
+                          ) {
+                            onQuestionLink(
+                              activeItem.section.messageId,
+                              question.id,
+                              "answers",
+                            );
+                          } else if (question.status !== "answered") {
+                            onAnnotationChange(question, { status: "answered" });
+                          }
+                        }
+                      }}
+                      type="button"
+                    >
+                      {activeItem.questions.every(
+                        (question) => question.status === "answered",
+                      ) ? (
+                        <CheckCircle2 size={15} />
+                      ) : (
+                        <Circle size={15} />
+                      )}
+                      {activeItem.questions.every(
                         (question) => question.status === "answered",
                       )
-                        ? "qaAnsweredToggle answered"
-                        : "qaAnsweredToggle"
-                    }
-                    onClick={() => {
-                      const allAnswered = activeItem.questions.every(
-                        (question) => question.status === "answered",
-                      );
-                      for (const question of activeItem.questions) {
-                        if (allAnswered) {
-                          onAnnotationChange(question, { status: "open" });
-                        } else if (
-                          activeItem.section &&
-                          question.status !== "answered"
-                        ) {
-                          onQuestionLink(
-                            activeItem.section.messageId,
-                            question.id,
-                            "answers",
-                          );
-                        } else if (question.status !== "answered") {
-                          onAnnotationChange(question, { status: "answered" });
-                        }
-                      }
-                    }}
-                    type="button"
-                  >
-                    {activeItem.questions.every(
-                      (question) => question.status === "answered",
-                    ) ? (
-                      <CheckCircle2 size={15} />
-                    ) : (
-                      <Circle size={15} />
-                    )}
-                    {activeItem.questions.every(
-                      (question) => question.status === "answered",
-                    )
-                      ? "Understood"
-                      : "Mark understood"}
-                  </button>
-                ) : null}
+                        ? "Understood"
+                        : "Mark understood"}
+                    </button>
+                  ) : null}
+                </div>
               </header>
               {activeItem.questions.length ? (
                 <section className="qaQuestionPrompt">
@@ -900,6 +962,15 @@ export function DiscussionQaReview({
           onCancel={() => setConfirmClose(false)}
           onConfirm={onClose}
           title="Close without saving?"
+        />
+      ) : null}
+      {confirmDeleteAnswer ? (
+        <ConfirmDialog
+          confirmLabel="Delete answer"
+          description="Only this tutor answer will be removed. Its linked questions will return to the open queue for your next tutor round."
+          onCancel={() => setConfirmDeleteAnswer(false)}
+          onConfirm={deleteCurrentAnswer}
+          title="Delete this tutor answer?"
         />
       ) : null}
     </div>
