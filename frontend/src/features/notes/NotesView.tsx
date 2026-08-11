@@ -66,7 +66,7 @@ type NotesViewProps = {
   onOpenResource: (resourceId: string) => void;
 };
 
-type NotesFilter = "all" | "questions" | "professor" | "later";
+type NotesFilter = "all" | "questions" | "important" | "professor" | "later";
 
 type NoteContext = {
   entityId: string;
@@ -376,6 +376,15 @@ export function NotesView({
       ),
     [course.discussions],
   );
+  const discussionByMessageId = useMemo(
+    () =>
+      new Map(
+        course.discussions.flatMap((discussion) =>
+          discussion.messages.map((message) => [message.id, discussion] as const),
+        ),
+      ),
+    [course.discussions],
+  );
   const questionById = useMemo(
     () =>
       new Map(
@@ -435,9 +444,22 @@ export function NotesView({
         }
         return items;
       }
+      if (link.entityType === "discussion_message") {
+        const discussion = discussionByMessageId.get(link.entityId);
+        if (discussion) {
+          items.push({
+            entityId: link.entityId,
+            entityType: "discussion_message",
+            label: discussion.title,
+            note,
+            resourceId: discussion.resourceId,
+          });
+        }
+        return items;
+      }
       return items;
     }, []);
-  }, [course.notes, dayById, questionById, resourceById, taskById]);
+  }, [course.notes, dayById, discussionByMessageId, questionById, resourceById, taskById]);
 
   const laterTasks = useMemo(
     () =>
@@ -543,6 +565,9 @@ export function NotesView({
   );
   const filteredNotes = noteContexts.filter((item) => {
     if (filter === "later") return false;
+    if (filter === "important" && item.note.kind !== "important_answer") {
+      return false;
+    }
     if (filter === "professor" && item.note.attention !== "professor") {
       return false;
     }
@@ -558,7 +583,7 @@ export function NotesView({
     );
   });
   const filteredAnnotations = course.annotations.filter((annotation) => {
-    if (filter === "later" || filter === "professor") return false;
+    if (filter === "later" || filter === "professor" || filter === "important") return false;
     if (filter === "questions" && !["question", "todo"].includes(annotation.kind)) return false;
     if (annotation.status === "archived") return false;
     if (
@@ -651,7 +676,7 @@ export function NotesView({
       </header>
 
       <div className="filterBar" aria-label="Notes filters">
-        {(["questions", "all", "professor", "later"] as const).map((item) => (
+        {(["questions", "important", "all", "professor", "later"] as const).map((item) => (
           <button
             className={filter === item ? "filterButton active" : "filterButton"}
             key={item}
@@ -662,6 +687,8 @@ export function NotesView({
               ? "All notes"
               : item === "questions"
                 ? `Questions · ${openQuestionCount}`
+                : item === "important"
+                  ? `Important · ${noteContexts.filter(({ note }) => note.kind === "important_answer").length}`
                 : item === "professor"
                   ? `Professor · ${
                       noteContexts.filter(
@@ -819,18 +846,28 @@ export function NotesView({
         />
       </section> : null}
 
-      {filter === "all" || filter === "professor" ? (
+      {filter === "all" || filter === "professor" || filter === "important" ? (
         <section className="noteCollection">
           <header className="collectionHeader">
             <h2>
               {filter === "professor"
                 ? "Discuss with professor"
+                : filter === "important"
+                  ? "Important tutor answers"
                 : "Editable notes"}
             </h2>
             <span>{filteredNotes.length}</span>
           </header>
-          {filteredNotes.map((item) => (
-            <article className="summaryNoteCard" key={item.note.id}>
+          {filteredNotes
+            .filter(({ note }) => filter !== "important" || note.kind === "important_answer")
+            .map((item) => {
+              const linkedAnswerQuestions = item.note.kind === "important_answer"
+                ? item.note.links
+                    .filter((link) => link.entityType === "annotation")
+                    .map((link) => course.annotations.find((annotation) => annotation.id === link.entityId))
+                    .filter((annotation): annotation is Annotation => Boolean(annotation))
+                : [];
+              return <article className="summaryNoteCard" key={item.note.id}>
               <div className="summaryNoteIdentity">
                 <MessageSquareText size={16} />
                 <div>
@@ -850,6 +887,19 @@ export function NotesView({
                   </div>
                 ) : null}
               </div>
+              {linkedAnswerQuestions.length ? (
+                <details className="importantAnswerQuestionContext">
+                  <summary>
+                    Original question context · {linkedAnswerQuestions.length}
+                  </summary>
+                  <AnnotationChapterGroups
+                    annotations={linkedAnswerQuestions}
+                    flat
+                    onAnnotationChange={onAnnotationChange}
+                    onNoteSave={onNoteSave}
+                  />
+                </details>
+              ) : null}
               <EntityNoteEditor
                 key={`${item.note.id}:${item.note.revision}`}
                 label="Edit note"
@@ -866,8 +916,8 @@ export function NotesView({
                 }
                 placeholder={`Notes for ${item.label}`}
               />
-            </article>
-          ))}
+            </article>;
+            })}
           {!filteredNotes.length ? <div className="emptyInline">No editable notes in this view.</div> : null}
         </section>
       ) : null}

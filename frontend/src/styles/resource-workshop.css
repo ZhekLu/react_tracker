@@ -871,6 +871,25 @@
   font-weight: 800;
 }
 
+.qaImportantAnswer {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, #7653c8 24%, var(--line));
+  border-radius: 9px;
+  background: #fff;
+  color: #6540b6;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.qaImportantAnswer.active {
+  background: color-mix(in srgb, #efe8ff 75%, #fff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #7653c8 18%, transparent);
+}
+
 .qaDeleteAnswer:disabled {
   cursor: default;
   opacity: 0.42;
@@ -898,6 +917,63 @@
   color: var(--ink);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.qaReviewTitle small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.qaFollowupTrail {
+  margin-top: 8px;
+  border: 1px solid color-mix(in srgb, #7653c8 18%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, #f6f2ff 54%, #fff);
+  overflow: hidden;
+}
+
+.qaFollowupTrail > summary {
+  padding: 8px 10px;
+  color: #6540b6;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+  font-weight: 820;
+}
+
+.qaFollowupTrail > summary small {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.qaFollowupOriginal,
+.qaFollowupAnswer,
+.qaFollowupAsked,
+.qaFollowupTrail blockquote {
+  margin: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.qaFollowupTrail blockquote {
+  border-left: 3px solid color-mix(in srgb, #7653c8 42%, var(--line));
+  background: color-mix(in srgb, #efe8ff 38%, #fff);
+}
+
+.qaFollowupOriginal > strong,
+.qaFollowupAnswer > strong,
+.qaFollowupAsked > strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .qaExerciseMapper {

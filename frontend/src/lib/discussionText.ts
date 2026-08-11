@@ -304,9 +304,13 @@ export function discussionFollowups(
       annotation.anchor?.discussionMessageId ?? "",
     );
     if (!message) return [];
+    const storedLabel = annotation.anchor?.metadata?.promptLabel;
     const orderedIndex = discussion.questionIds.indexOf(annotation.id);
     const labelNumber = orderedIndex >= 0 ? orderedIndex + 1 : index + 1;
-    const label = `Q-${String(labelNumber).padStart(3, "0")}`;
+    const label =
+      typeof storedLabel === "string"
+        ? storedLabel
+        : `Q-${String(labelNumber).padStart(3, "0")}`;
     const selected = annotation.anchor?.quote?.trim() || "No excerpt saved.";
     const question =
       annotation.body?.markdown ||

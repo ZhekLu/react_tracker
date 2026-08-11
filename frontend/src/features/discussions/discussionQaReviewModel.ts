@@ -61,6 +61,7 @@ export function qaReviewItems(
   sections: DiscussionQaSection[],
   annotationById: Map<string, Annotation>,
   discussion: Discussion,
+  includeUnmapped = true,
 ): QaReviewItem[] {
   const mappedQuestionIds = new Set<string>();
   const items = sections.flatMap((section) => {
@@ -76,6 +77,7 @@ export function qaReviewItems(
       section,
     }];
   });
+  if (!includeUnmapped) return items;
   const unmappedQuestions = discussion.questionIds
     .filter((id) => !mappedQuestionIds.has(id))
     .map((id) => annotationById.get(id))

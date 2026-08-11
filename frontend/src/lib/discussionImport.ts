@@ -209,7 +209,10 @@ function normalizeDisplayBody(value: string): string {
     .join("\n")
     .replace(/\\left\{/g, "\\left\\{")
     .replace(/\\right\}/g, "\\right\\}")
-    .replace(/^[-]{3,}$/gm, "")
+    // ChatGPT sometimes formats a subtraction sign as an underline-like row
+    // between two operands. It looks like a Markdown divider, but inside a
+    // display formula it is still the binary minus operator.
+    .replace(/^[-]{3,}$/gm, "-")
     .replace(/\n=\n/g, " = ")
     .replace(/\n([+\-=])\s*/g, " $1 ")
     .replace(/(?:\s*=\s*){2,}/g, " = ")

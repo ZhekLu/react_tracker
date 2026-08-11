@@ -50,6 +50,7 @@ import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { ProgressBar } from "../../components/ProgressBar";
 import { BookChapterProgress } from "../../components/resources/BookChapterProgress";
+import { BookExerciseProgress } from "../../components/resources/BookExerciseProgress";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import { petCelebrationDuration } from "../../config/petCelebrations";
 import { statusTone } from "../../lib/progress";
@@ -98,8 +99,14 @@ type RoadmapViewProps = {
     status: ResourceChapterStatus,
   ) => void;
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
+  onExerciseProgressChange: (
+    resource: Resource,
+    exercise: string,
+    status: ResourceChapterStatus,
+  ) => void;
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
+  onNoteDelete: (note: Task["notes"][number]) => void;
   onNoteAttentionChange: (
     note: NonNullable<Task["notes"][number]>,
     attention: NonNullable<Task["notes"][number]>["attention"],
@@ -134,7 +141,9 @@ type TaskRowProps = {
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
   onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
+  onExerciseProgressChange: RoadmapViewProps["onExerciseProgressChange"];
   onNoteSave: (input: EntityNoteSaveInput) => void;
+  onNoteDelete: RoadmapViewProps["onNoteDelete"];
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
@@ -173,7 +182,9 @@ function TaskRow({
   onCollectPdfAnnotations,
   onChapterProgressChange,
   onCreateCapture,
+  onExerciseProgressChange,
   onNoteSave,
+  onNoteDelete,
   onNoteAttentionChange,
   onOpenDiscussion,
   onOpenResource,
@@ -216,6 +227,14 @@ function TaskRow({
   const exerciseSolutionNotes = task.notes.filter(
     (note) => note.kind === "exercise_solution",
   );
+  const exerciseSolutionGroups = [...exerciseSolutionNotes.reduce((groups, note) => {
+    const markdown = note.document.markdown ?? note.document.plainText;
+    const label = markdown.match(/^#\s+(.+)$/m)?.[1] ?? "Exercise material";
+    const current = groups.get(label) ?? [];
+    current.push(note);
+    groups.set(label, current);
+    return groups;
+  }, new Map<string, typeof exerciseSolutionNotes>()).entries()];
   const exerciseNumbers =
     task.title.toLowerCase().includes("exercise")
       ? [...task.title.matchAll(/\b(\d+\.\d+)\b/g)].map((match) => match[1])
@@ -314,6 +333,16 @@ function TaskRow({
                   key={resource.id}
                   onChange={onChapterProgressChange}
                   preferredChapterNumbers={task.chapterNumbers}
+                  resource={resource}
+                />
+              ))}
+            {linkedResources
+              .filter((resource) => resource.kind === "book")
+              .map((resource) => (
+                <BookExerciseProgress
+                  chapterNumbers={task.chapterNumbers}
+                  key={`exercises:${resource.id}`}
+                  onChange={onExerciseProgressChange}
                   resource={resource}
                 />
               ))}
@@ -492,21 +521,35 @@ function TaskRow({
               <strong>{exerciseSolutionNotes.length}</strong>
             </summary>
             <div className="taskExerciseSolutionList">
-              {exerciseSolutionNotes.map((note) => {
-                const markdown =
-                  note.document.markdown ?? note.document.plainText;
-                const label =
-                  markdown.match(/^#\s+(.+)$/m)?.[1] ?? "Exercise material";
-                return (
-                  <details className="taskExerciseSolution" key={note.id}>
-                    <summary>
-                      <span>{label}</span>
-                      <small>From QA</small>
-                    </summary>
-                    <MarkdownMath>{markdown}</MarkdownMath>
-                  </details>
-                );
-              })}
+              {exerciseSolutionGroups.map(([label, notes]) => (
+                <details className="taskExerciseSolution" key={label}>
+                  <summary>
+                    <span>{label}</span>
+                    <small>{notes.length} tutor answer{notes.length === 1 ? "" : "s"}</small>
+                  </summary>
+                  <div className="taskExerciseAnswerStack">
+                    {notes.map((note, index) => (
+                      <EntityNoteEditor
+                        deleteLabel="Unlink from task"
+                        key={`${note.id}:${note.revision}`}
+                        label={notes.length > 1 ? `Answer ${index + 1}` : "Tutor answer"}
+                        note={note}
+                        onDelete={onNoteDelete}
+                        onSave={(html) =>
+                          onNoteSave({
+                            entityId: task.id,
+                            entityType: "task",
+                            html,
+                            kind: "exercise_solution",
+                            note,
+                          })
+                        }
+                        placeholder="Edit this tutor solution or highlight the useful parts…"
+                      />
+                    ))}
+                  </div>
+                </details>
+              ))}
             </div>
           </details>
         ) : null}
@@ -858,8 +901,10 @@ type DayCardProps = {
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
   onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
+  onExerciseProgressChange: RoadmapViewProps["onExerciseProgressChange"];
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onEntityNoteSave: (input: EntityNoteSaveInput) => void;
+  onNoteDelete: RoadmapViewProps["onNoteDelete"];
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
@@ -880,8 +925,10 @@ function DayCard({
   onCollectPdfAnnotations,
   onChapterProgressChange,
   onCreateCapture,
+  onExerciseProgressChange,
   onDayNoteSave,
   onEntityNoteSave,
+  onNoteDelete,
   onNoteAttentionChange,
   onOpenDiscussion,
   onOpenResource,
@@ -995,8 +1042,10 @@ function DayCard({
                 onCollectPdfAnnotations={onCollectPdfAnnotations}
                 onChapterProgressChange={onChapterProgressChange}
                 onCreateCapture={onCreateCapture}
+                onExerciseProgressChange={onExerciseProgressChange}
                 onStatusChange={onTaskStatusChange}
                 onNoteSave={onEntityNoteSave}
+                onNoteDelete={onNoteDelete}
                 onNoteAttentionChange={onNoteAttentionChange}
                 onOpenDiscussion={onOpenDiscussion}
                 onOpenResource={onOpenResource}
@@ -1115,9 +1164,11 @@ export function RoadmapView({
   onCollectPdfAnnotations,
   onChapterProgressChange,
   onCreateCapture,
+  onExerciseProgressChange,
   onDayClosedChange,
   onDayNoteSave,
   onNoteSave,
+  onNoteDelete,
   onNoteAttentionChange,
   onOpenDiscussion,
   onOpenResource,
@@ -1214,9 +1265,11 @@ export function RoadmapView({
           onCollectPdfAnnotations={onCollectPdfAnnotations}
           onChapterProgressChange={onChapterProgressChange}
           onCreateCapture={onCreateCapture}
+          onExerciseProgressChange={onExerciseProgressChange}
           onClosedChange={onDayClosedChange}
           onDayNoteSave={onDayNoteSave}
           onEntityNoteSave={onNoteSave}
+          onNoteDelete={onNoteDelete}
           onNoteAttentionChange={onNoteAttentionChange}
           onOpenDiscussion={onOpenDiscussion}
           onOpenResource={onOpenResource}

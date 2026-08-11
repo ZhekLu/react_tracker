@@ -44,6 +44,7 @@ from ..schemas.workspace import (
     ExamStatusCommand,
     MutationResponse,
     Note,
+    NoteDeleteCommand,
     NoteLink,
     NoteUpsertCommand,
     PromptBatchCreateCommand,
@@ -1183,16 +1184,20 @@ def _discussions(
 ) -> list[Discussion]:
     links_by_message: dict[str, list[DiscussionMessageAnnotation]] = defaultdict(list)
     linked_question_ids: dict[str, list[str]] = defaultdict(list)
+    linked_followup_ids: dict[str, list[str]] = defaultdict(list)
     for row in _rows(
         connection,
         """
-        SELECT dm.thread_id, dma.message_id, dma.annotation_id, dma.relation
+        SELECT dm.thread_id, dma.message_id, dma.annotation_id, dma.relation,
+               a.origin, a.kind
         FROM discussion_message_annotations dma
         JOIN discussion_messages dm ON dm.id = dma.message_id
         JOIN discussion_threads dt ON dt.id = dm.thread_id
+        JOIN annotations a ON a.id = dma.annotation_id
         WHERE dt.course_id = :course_id
           AND dt.deleted_at IS NULL
           AND dm.deleted_at IS NULL
+          AND a.deleted_at IS NULL
         ORDER BY dm.sequence_number, dma.created_at
         """,
         {"course_id": course_id},
@@ -1206,13 +1211,21 @@ def _discussions(
                 relation=cast(Any, row["relation"]),
             )
         )
-        if annotation_id not in linked_question_ids[thread_id]:
+        if (
+            str(row["kind"]) in {"question", "todo"}
+            and annotation_id not in linked_question_ids[thread_id]
+        ):
             linked_question_ids[thread_id].append(annotation_id)
+        if (
+            str(row["origin"]) == "discussion_review_followup"
+            and annotation_id not in linked_followup_ids[thread_id]
+        ):
+            linked_followup_ids[thread_id].append(annotation_id)
 
     for row in _rows(
         connection,
         """
-        SELECT dm.thread_id, aa.annotation_id
+        SELECT dm.thread_id, aa.annotation_id, a.origin
         FROM annotation_anchors aa
         JOIN discussion_messages dm ON dm.id = aa.discussion_message_id
         JOIN discussion_threads dt ON dt.id = dm.thread_id
@@ -1230,6 +1243,10 @@ def _discussions(
         annotation_id = str(row["annotation_id"])
         if annotation_id not in linked_question_ids[thread_id]:
             linked_question_ids[thread_id].append(annotation_id)
+        # A question anchored inside this thread belongs to its local review
+        # scope even when it predates the explicit review-followup origin.
+        if annotation_id not in linked_followup_ids[thread_id]:
+            linked_followup_ids[thread_id].append(annotation_id)
 
     initial_question_ids: dict[str, list[str]] = defaultdict(list)
     for row in _rows(
@@ -1316,7 +1333,11 @@ def _discussions(
                 dict.fromkeys(
                     [
                         *initial_question_ids.get(str(row["id"]), []),
-                        *linked_question_ids.get(str(row["id"]), []),
+                        *(
+                            linked_followup_ids.get(str(row["id"]), [])
+                            if row["initial_prompt_batch_id"]
+                            else linked_question_ids.get(str(row["id"]), [])
+                        ),
                     ]
                 )
             ),
@@ -2942,6 +2963,56 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
     return _mutation_result(row)
 
 
+def delete_note(
+    connection: Connection,
+    note_id: str,
+    command: NoteDeleteCommand,
+) -> MutationResponse:
+    now = _now()
+    row = _one_or_none(
+        connection,
+        """
+        UPDATE notes
+        SET status = 'archived',
+            deleted_at = :now,
+            updated_at = :now,
+            revision = revision + 1
+        WHERE id = :id
+          AND revision = :revision
+          AND deleted_at IS NULL
+        RETURNING id, revision, updated_at
+        """,
+        {"id": note_id, "revision": command.revision, "now": now},
+    )
+    if row is None:
+        exists = connection.execute(
+            text("SELECT id FROM notes WHERE id = :id"),
+            {"id": note_id},
+        ).scalar_one_or_none()
+        if exists is None:
+            raise EntityNotFoundError(f"Note does not exist: {note_id}")
+        raise RevisionConflictError(f"Stale revision for note: {note_id}")
+    connection.execute(
+        text(
+            """
+            UPDATE annotations
+            SET deleted_at = :now,
+                updated_at = :now,
+                revision = revision + 1
+            WHERE origin = 'note_marker'
+              AND deleted_at IS NULL
+              AND id IN (
+                SELECT annotation_id
+                FROM annotation_anchors
+                WHERE json_extract(selector_json, '$.sourceNoteId') = :note_id
+              )
+            """
+        ),
+        {"note_id": note_id, "now": now},
+    )
+    return _mutation_result(row)
+
+
 def resource_open_target(
     connection: Connection,
     resource_id: str,
@@ -3875,7 +3946,7 @@ def review_discussion_message(
     scope = _one_or_none(
         connection,
         """
-        SELECT dt.resource_id, dt.course_id
+        SELECT dt.id AS thread_id, dt.resource_id, dt.course_id
         FROM discussion_messages dm
         JOIN discussion_threads dt ON dt.id = dm.thread_id
         WHERE dm.id = :message_id
@@ -3889,6 +3960,59 @@ def review_discussion_message(
     result = update_discussion_message(connection, message_id, command)
     now = _now()
     for item in command.review_items:
+        prompt_label: str | None = None
+        if item.kind == "question":
+            label_number = int(
+                connection.execute(
+                    text(
+                        """
+                        WITH scoped_questions AS (
+                          SELECT pbi.annotation_id
+                          FROM discussion_threads dt
+                          JOIN prompt_batch_items pbi
+                            ON pbi.prompt_batch_id = dt.initial_prompt_batch_id
+                          WHERE dt.id = :thread_id
+                          UNION
+                          SELECT dma.annotation_id
+                          FROM discussion_messages dm
+                          JOIN discussion_message_annotations dma
+                            ON dma.message_id = dm.id
+                          JOIN annotations a ON a.id = dma.annotation_id
+                          WHERE dm.thread_id = :thread_id
+                            AND dm.deleted_at IS NULL
+                            AND a.deleted_at IS NULL
+                            AND a.kind IN ('question', 'todo')
+                        ), existing_labels AS (
+                          SELECT MAX(
+                            CAST(
+                              SUBSTR(
+                                json_extract(aa.selector_json, '$.promptLabel'),
+                                3
+                              ) AS INTEGER
+                            )
+                          ) AS maximum
+                          FROM annotation_anchors aa
+                          JOIN annotations a ON a.id = aa.annotation_id
+                          JOIN discussion_messages dm
+                            ON dm.id = aa.discussion_message_id
+                          WHERE dm.thread_id = :thread_id
+                            AND a.origin = 'discussion_review_followup'
+                            AND a.deleted_at IS NULL
+                            AND json_extract(
+                              aa.selector_json,
+                              '$.promptLabel'
+                            ) GLOB 'Q-[0-9][0-9][0-9]*'
+                        )
+                        SELECT COALESCE(
+                          (SELECT maximum + 1 FROM existing_labels),
+                          (SELECT COUNT(*) + 1 FROM scoped_questions)
+                        )
+                        """
+                    ),
+                    {"thread_id": str(scope["thread_id"])},
+                ).scalar_one()
+            )
+            prompt_label = f"Q-{label_number:03d}"
         annotation = create_annotation(
             connection,
             AnnotationCreateCommand(
@@ -3914,6 +4038,7 @@ def review_discussion_message(
                         "from_position": item.from_position,
                         "to_position": item.to_position,
                         "review_kind": item.kind,
+                        **({"promptLabel": prompt_label} if prompt_label else {}),
                     },
                 ),
             ),

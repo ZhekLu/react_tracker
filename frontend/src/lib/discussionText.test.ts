@@ -80,6 +80,7 @@ describe("discussion answer mapping", () => {
     const followup = {
       anchor: {
         discussionMessageId: "message-1",
+        metadata: { promptLabel: "Q-098" },
         quote: "$V(s) \\leftarrow r + \\gamma V(s')$",
       },
       body: { markdown: "Why is this bootstrapping?" },
@@ -87,10 +88,10 @@ describe("discussion answer mapping", () => {
       id: "followup",
       kind: "question",
       status: "open",
-    } as Annotation;
+    } as unknown as Annotation;
 
     const prompt = discussionFollowups(discussion, [followup]);
-    expect(prompt).toContain("## Q-002 — Follow-up to message #2");
+    expect(prompt).toContain("## Q-098 — Follow-up to message #2");
     expect(prompt).toContain("$V(s) \\leftarrow r + \\gamma V(s')$");
     expect(prompt).toContain("Why is this bootstrapping?");
   });

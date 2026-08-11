@@ -4,6 +4,7 @@ import {
   GraduationCap,
   Highlighter,
   Pencil,
+  Trash2,
 } from "lucide-react";
 import { DiscussionMarkdownSurface } from "../editor/DiscussionMarkdownSurface";
 import {
@@ -20,6 +21,8 @@ type EntityNoteEditorProps = {
   placeholder: string;
   onSave: (html: string) => void;
   onAttentionChange?: (note: Note, attention: Attention) => void;
+  onDelete?: (note: Note) => void;
+  deleteLabel?: string;
 };
 
 function noteContent(note?: Note): string {
@@ -37,6 +40,8 @@ export function EntityNoteEditor({
   note,
   placeholder,
   onAttentionChange,
+  onDelete,
+  deleteLabel = "Delete note",
   onSave,
 }: EntityNoteEditorProps) {
   const [open, setOpen] = useState(false);
@@ -151,6 +156,16 @@ export function EntityNoteEditor({
                   <Pencil size={13} />
                   <span>Edit</span>
                 </button>
+                {note && onDelete ? (
+                  <button
+                    className="commandButton danger subtle"
+                    onClick={() => onDelete(note)}
+                    type="button"
+                  >
+                    <Trash2 size={13} />
+                    <span>{deleteLabel}</span>
+                  </button>
+                ) : null}
               </div>
             </>
           )}

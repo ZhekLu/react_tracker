@@ -683,6 +683,7 @@ def test_reviewing_message_saves_selection_followups_and_math_highlights(
         annotation for annotation in review_annotations if annotation.kind == "highlight"
     )
     assert question.anchor and question.anchor.discussion_message_id == message.id
+    assert question.anchor.metadata["promptLabel"] == "Q-001"
     assert highlight.anchor and highlight.anchor.color == "secondary"
     assert after.discussions[0].messages[0].annotation_links[0].relation == "followup_to"
     assert question.id in after.discussions[0].question_ids

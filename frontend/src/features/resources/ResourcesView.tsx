@@ -134,6 +134,7 @@ function ResourceRow({
   const [capturesOpen, setCapturesOpen] = useState(false);
   const [captureEditorOpen, setCaptureEditorOpen] = useState(false);
   const completed = isRead(resource);
+  const resourceNote = resource.notes.find((note) => note.kind === "resource");
   const sourcePath = resource.version?.localPath ?? resource.canonicalUrl ?? undefined;
   const questions = resource.annotations.filter(
     (annotation) =>
@@ -328,16 +329,16 @@ function ResourceRow({
           </details>
         ) : null}
         <EntityNoteEditor
-          key={`${resource.notes[0]?.id ?? resource.id}:${resource.notes[0]?.revision ?? 0}`}
+          key={`${resourceNote?.id ?? resource.id}:${resourceNote?.revision ?? 0}`}
           label="Resource notes"
-          note={resource.notes[0]}
+          note={resourceNote}
           onSave={(html) =>
             onNoteSave({
               entityId: resource.id,
               entityType: "resource",
               html,
               kind: "resource",
-              note: resource.notes[0],
+              note: resourceNote,
             })
           }
           placeholder={`Questions, highlights, or summary for ${resource.title}`}

@@ -680,6 +680,8 @@ def prepare_prompt_attachments(
         total_work = max(1, len(resource_rows) + len(question_rows))
         completed_work = 0
         for row in resource_rows:
+            if command.attachment_limit and len(attachments) >= command.attachment_limit:
+                break
             paths = _resource_paths(row)
             if not paths:
                 metadata = _json_object(row["metadata_json"])
@@ -744,6 +746,8 @@ def prepare_prompt_attachments(
                 continue
 
             for source in paths:
+                if command.attachment_limit and len(attachments) >= command.attachment_limit:
+                    break
                 source_key = str(source).casefold()
                 if source_key in copied_source_paths:
                     continue
@@ -773,6 +777,8 @@ def prepare_prompt_attachments(
             question_rows,
             start=1,
         ):
+            if command.attachment_limit and len(attachments) >= command.attachment_limit:
+                break
             image_bytes = _question_image_bytes(row)
             if image_bytes is None:
                 completed_work += 1
@@ -807,6 +813,13 @@ def prepare_prompt_attachments(
             notify(
                 10 + round(75 * completed_work / total_work),
                 "Reusing or preparing question screenshots",
+            )
+
+        if command.attachment_limit and (
+            len(resource_rows) + len(question_rows) > command.attachment_limit
+        ):
+            warnings.append(
+                f"Attachment package was limited to the first {command.attachment_limit} files."
             )
 
         notify(90, "Writing the attachment manifest")

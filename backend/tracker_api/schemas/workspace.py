@@ -493,6 +493,10 @@ class NoteUpsertCommand(StrictModel):
     related_links: list[NoteRelatedLinkInput] = Field(default_factory=list)
 
 
+class NoteDeleteCommand(RevisionCommand):
+    pass
+
+
 class DiscussionCreateCommand(StrictModel):
     course_id: str
     source_resource_id: str | None = None
@@ -571,6 +575,7 @@ class PromptBatchCreateCommand(StrictModel):
     source_day_id: str | None = None
     source_task_id: str | None = None
     annotation_ids: list[str] = Field(default_factory=list)
+    attachment_limit: int | None = Field(default=None, ge=1, le=100)
 
 
 class TogglStartCommand(StrictModel):
@@ -620,6 +625,7 @@ class ExerciseScreenshotItem(StrictModel):
 
 class ExerciseScreenshotResponse(StrictModel):
     directory: str
+    available_exercises: list[str] = Field(default_factory=list)
     exercises: list[str] = Field(default_factory=list)
     screenshots: list[ExerciseScreenshotItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

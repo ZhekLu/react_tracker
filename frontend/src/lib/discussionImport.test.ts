@@ -125,6 +125,30 @@ v_*(l) = \max \left{q_*(l,\text{wait}), q_*(l,\text{recharge})\right}
     }
   });
 
+  it("preserves a subtraction written as a row of hyphens in display math", () => {
+    const imported = importPastedMarkdown(String.raw`
+[
+\delta_t
+========
+
+R_{t+1}+\gamma V(S_{t+1})
+-----------------
+V(S_t)
+]
+`);
+
+    expect(imported).toContain(
+      "\\delta_t = R_{t+1}+\\gamma V(S_{t+1}) - V(S_t)",
+    );
+    const latex =
+      imported.match(/\$\$([\s\S]*?)\$\$/)?.[1].trim() ??
+      imported.match(/\$([^$\n]+)\$/)?.[1].trim();
+    expect(latex).toBeTruthy();
+    expect(() =>
+      renderToString(latex!, { displayMode: true, throwOnError: true }),
+    ).not.toThrow();
+  });
+
   it("keeps nested expectation brackets inside one display formula", () => {
     const imported = importPastedMarkdown(String.raw`
 Use the tower property:

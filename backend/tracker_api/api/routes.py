@@ -35,6 +35,7 @@ from ..schemas.workspace import (
     ExerciseScreenshotItem,
     ExerciseScreenshotResponse,
     MutationResponse,
+    NoteDeleteCommand,
     NoteUpsertCommand,
     PdfAnnotationCollectionResponse,
     PdfReaderMetadataResponse,
@@ -465,6 +466,7 @@ def prepare_task_exercise_screenshots(
         bundle = prepare_exercise_solution_screenshots(connection, task_id)
         return ExerciseScreenshotResponse(
             directory=bundle.directory,
+            available_exercises=bundle.available_exercises,
             exercises=bundle.exercises,
             screenshots=[
                 ExerciseScreenshotItem(
@@ -676,6 +678,18 @@ def create_annotation(
 def upsert_note(command: NoteUpsertCommand, connection: Database) -> MutationResponse:
     try:
         return workspace_repository.upsert_note(connection, command)
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.delete("/notes/{note_id}", response_model=MutationResponse)
+def delete_note(
+    note_id: str,
+    command: NoteDeleteCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.delete_note(connection, note_id, command)
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error
 

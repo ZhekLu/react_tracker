@@ -44,6 +44,7 @@ import type {
   DiscussionQuestionRelation,
   EntityNoteSaveInput,
   ExerciseSolutionMappingInput,
+  ImportantAnswerInput,
   Resource,
 } from "../../types/tracker";
 import {
@@ -53,6 +54,7 @@ import {
   normalizeDiscussionMarkdown,
 } from "../../lib/discussionText";
 import { importPastedMarkdown } from "../../lib/discussionImport";
+import { responseQuestionIds } from "../../lib/discussionQa";
 import {
   discussionHighlights,
   discussionHeadingAt,
@@ -119,6 +121,7 @@ type DiscussionsViewProps = {
     relation: DiscussionQuestionRelation,
   ) => void;
   onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;
+  onToggleImportantAnswer: (input: ImportantAnswerInput) => void;
 };
 
 function messageRoleLabel(role: Discussion["messages"][number]["role"]): string {
@@ -320,10 +323,16 @@ function DiscussionMessageContent({
     }
     return <ExportAwareDiscussionMarkdown markdown={markdown} />;
   }
+  const ordinaryQuestionCandidates = questionCandidates.filter(
+    (question) => question.origin !== "discussion_review_followup",
+  );
+  const followupQuestionCandidates = questionCandidates.filter(
+    (question) => question.origin === "discussion_review_followup",
+  );
   const sectionMatches = new Map(
     matchAnswerSectionsToQuestions(
       parsed.sections,
-      questionCandidates.map((question) => ({
+      ordinaryQuestionCandidates.map((question) => ({
         id: question.id,
         text: questionText(question),
       })),
@@ -332,6 +341,28 @@ function DiscussionMessageContent({
       ),
     ).map((match) => [match.sectionLabel, match.questionIds]),
   );
+  for (const followup of followupQuestionCandidates) {
+    const promptLabel = followup.anchor?.metadata?.promptLabel;
+    const directSection =
+      typeof promptLabel === "string"
+        ? parsed.sections.find((section) => section.labels.includes(promptLabel))
+        : undefined;
+    const matchedSection =
+      directSection ??
+      parsed.sections.find((section) =>
+        (matchAnswerSectionsToQuestions(
+          [section],
+          [{ id: followup.id, text: questionText(followup) }],
+          false,
+        )[0]?.questionIds ?? []).includes(followup.id),
+      );
+    if (!matchedSection) continue;
+    const current = sectionMatches.get(matchedSection.label) ?? [];
+    sectionMatches.set(
+      matchedSection.label,
+      [...new Set([...current, followup.id])],
+    );
+  }
   return (
     <div className={`discussionStructuredAnswer ${editing ? "isEditing" : ""}`}>
       {parsed.preamble ? (
@@ -828,6 +859,7 @@ export function DiscussionsView({
   onFocusResource,
   onImportClipboard,
   onMapExerciseSolution,
+  onToggleImportantAnswer,
   onNoteSave,
   onCopy,
   onOpenResource,
@@ -964,6 +996,23 @@ export function DiscussionsView({
           annotation.kind === "highlight" &&
           annotation.origin === "discussion_review_highlight",
       ),
+  );
+  const mappedQuestionCountByMessage = useMemo(
+    () =>
+      new Map(
+        (discussion?.messages ?? []).map((message) => [
+          message.id,
+          discussion
+            ? responseQuestionIds(
+                discussion,
+                message.body.markdown || message.body.plainText,
+                course.annotations,
+                course.discussions,
+              ).length
+            : 0,
+        ]),
+      ),
+    [course.annotations, course.discussions, discussion],
   );
   const highlightCount = (discussion?.messages ?? []).reduce(
     (count, message) =>
@@ -1319,13 +1368,16 @@ export function DiscussionsView({
                             onUpdateMessage(message, updatedMarkdown, reviewItems);
                           }}
                         />
-                      {message.annotationLinks.length ||
+                      {(mappedQuestionCountByMessage.get(message.id) ?? 0) ||
                       message.role === "assistant" ? (
                         <footer>
-                          {message.annotationLinks.length ? (
+                          {(mappedQuestionCountByMessage.get(message.id) ?? 0) ? (
                             <span>
-                              {message.annotationLinks.length} linked question
-                              {message.annotationLinks.length === 1 ? "" : "s"}
+                              {mappedQuestionCountByMessage.get(message.id)} mapped
+                              {" "}question
+                              {(mappedQuestionCountByMessage.get(message.id) ?? 0) === 1
+                                ? ""
+                                : "s"}
                             </span>
                           ) : null}
                           {message.role === "assistant" ? (
@@ -1418,6 +1470,7 @@ export function DiscussionsView({
           onClose={() => setQaReviewDiscussionId("")}
           onDeleteAnswer={onDeleteAnswer}
           onMapExerciseSolution={onMapExerciseSolution}
+          onToggleImportantAnswer={onToggleImportantAnswer}
           onQuestionLink={onQuestionLink}
           onUpdateMessage={onUpdateMessage}
         />

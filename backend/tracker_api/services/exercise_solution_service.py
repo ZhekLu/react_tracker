@@ -45,6 +45,7 @@ class ExerciseScreenshot:
 @dataclass(frozen=True, slots=True)
 class ExerciseScreenshotBundle:
     directory: str
+    available_exercises: list[str]
     exercises: list[str]
     screenshots: list[ExerciseScreenshot]
     warnings: list[str]
@@ -470,6 +471,7 @@ def prepare_exercise_solution_screenshots(
     screenshots: list[ExerciseScreenshot] = []
     rendered_paths: list[tuple[tuple[str, ...], int, Path]] = []
     detected_exercises: list[str] = []
+    available_exercises: list[str] = []
     try:
         locations = _exercise_locations(document)
         chapter_locations = [
@@ -482,6 +484,9 @@ def prepare_exercise_solution_screenshots(
             raise ExerciseSolutionError(
                 f"No exercise headings were found for chapter {chapter_labels}."
             )
+        available_exercises = list(
+            dict.fromkeys(location.number for location in chapter_locations)
+        )
         all_ink = list(extraction.all_ink)
         page_heights = [float(document[index].rect.height) for index in range(document.page_count)]
         plans = _plan_exercise_captures(
@@ -601,6 +606,7 @@ def prepare_exercise_solution_screenshots(
 
     return ExerciseScreenshotBundle(
         directory=str(destination),
+        available_exercises=available_exercises,
         exercises=list(dict.fromkeys(detected_exercises)),
         screenshots=screenshots,
         warnings=warnings,

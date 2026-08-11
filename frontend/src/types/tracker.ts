@@ -310,6 +310,7 @@ export type EntityNoteSaveInput = {
     | "task"
     | "resource"
     | "exam_question"
+    | "discussion_message"
     | "course";
   entityId: string;
   kind: string;
@@ -323,4 +324,13 @@ export type ExerciseSolutionMappingInput = {
   markdown: string;
   sourceMessageId: string;
   questionIds: string[];
+};
+
+export type ImportantAnswerInput = {
+  messageId: string;
+  questionIds: string[];
+  sectionLabel: string;
+  title: string;
+  markdown: string;
+  existingNote?: Note;
 };

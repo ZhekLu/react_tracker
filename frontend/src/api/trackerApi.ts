@@ -470,6 +470,7 @@ export type PromptBatchInput = {
   sourceDayId?: string;
   sourceTaskId?: string;
   annotationIds?: string[];
+  attachmentLimit?: number;
 };
 
 export type PromptAttachment = {
@@ -1129,6 +1130,7 @@ export async function createPromptBatch(
 ): Promise<PromptBatchResult> {
   const command = {
     annotation_ids: input.annotationIds ?? [],
+    attachment_limit: input.attachmentLimit,
     course_id: input.courseId,
     markdown: input.markdown,
     plain_text: input.plainText ?? input.markdown,
@@ -1179,6 +1181,7 @@ export async function prepareExerciseScreenshots(
   taskId: string,
 ): Promise<{
   directory: string;
+  available_exercises: string[];
   exercises: string[];
   screenshots: Array<{
     exercise: string;
@@ -1366,6 +1369,16 @@ export async function upsertNote(input: NoteUpsertInput): Promise<MutationRespon
       })),
     }),
     method: "POST",
+  });
+}
+
+export async function deleteNote(
+  noteId: string,
+  revision: number,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/notes/${noteId}`, {
+    body: JSON.stringify({ revision }),
+    method: "DELETE",
   });
 }
 

@@ -49,6 +49,7 @@ import type {
   DiscussionQuestionRelation,
   Resource,
   ExerciseSolutionMappingInput,
+  ImportantAnswerInput,
 } from "../../types/tracker";
 import {
   inferredExerciseLabels,
@@ -84,6 +85,7 @@ type DiscussionQaReviewProps = {
     relation: DiscussionQuestionRelation,
   ) => void;
   onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;
+  onToggleImportantAnswer: (input: ImportantAnswerInput) => void;
   onUpdateMessage: (
     message: DiscussionMessage,
     markdown: string,
@@ -96,6 +98,72 @@ type ExerciseTaskOption = {
   dayTitle: string;
   task: Course["days"][number]["sections"][number]["tasks"][number];
 };
+
+type FollowupTrailEntry = {
+  answerMarkdown: string;
+  followup: Annotation;
+  originalQuestions: Annotation[];
+  responseTitle: string;
+  selectedContext: string;
+};
+
+function comparableText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function followupTrail(
+  course: Course,
+  current: Annotation,
+): FollowupTrailEntry[] {
+  const annotationById = new Map(course.annotations.map((item) => [item.id, item]));
+  const entries: FollowupTrailEntry[] = [];
+  const seen = new Set<string>();
+  let followup: Annotation | undefined = current;
+  while (
+    followup?.origin === "discussion_review_followup" &&
+    followup.anchor?.discussionMessageId &&
+    !seen.has(followup.id)
+  ) {
+    seen.add(followup.id);
+    const parentDiscussion = course.discussions.find((discussion) =>
+      discussion.messages.some(
+        (message) => message.id === followup?.anchor?.discussionMessageId,
+      ),
+    );
+    if (!parentDiscussion) break;
+    const selected = comparableText(followup.anchor.quote ?? "");
+    const candidates = discussionQaSections(
+      parentDiscussion,
+      course.annotations,
+    ).filter(
+      (section) =>
+        section.messageId === followup?.anchor?.discussionMessageId,
+    );
+    const parentSection =
+      candidates.find((section) => {
+        const body = comparableText(section.bodyMarkdown);
+        return selected.length > 12 && body.includes(selected.slice(0, 80));
+      }) ?? candidates[0];
+    if (!parentSection) break;
+    const originalQuestions = parentSection.questionIds
+      .map((id) => annotationById.get(id))
+      .filter((item): item is Annotation => Boolean(item));
+    entries.unshift({
+      answerMarkdown: parentSection.bodyMarkdown,
+      followup,
+      originalQuestions,
+      responseTitle: parentSection.title,
+      selectedContext: followup.anchor.quote ?? "",
+    });
+    followup = originalQuestions.find(
+      (question) => question.origin === "discussion_review_followup",
+    );
+  }
+  return entries;
+}
 
 function exerciseLabelsFromInput(value: string): string[] {
   const labels: string[] = [];
@@ -457,6 +525,7 @@ export function DiscussionQaReview({
   onClose,
   onDeleteAnswer,
   onMapExerciseSolution,
+  onToggleImportantAnswer,
   onQuestionLink,
   onUpdateMessage,
 }: DiscussionQaReviewProps) {
@@ -464,12 +533,30 @@ export function DiscussionQaReview({
     () => discussionQaSections(discussion, course.annotations),
     [course.annotations, discussion],
   );
+  const latestResponseMessageId = useMemo(
+    () =>
+      [...discussion.messages]
+        .reverse()
+        .find((message) =>
+          parsedSections.some(
+            (section) =>
+              section.messageId === message.id && section.questionIds.length > 0,
+          ),
+        )?.id ?? "",
+    [discussion.messages, parsedSections],
+  );
   const [hiddenSectionIds, setHiddenSectionIds] = useState<Set<string>>(
     () => new Set(),
   );
   const sections = useMemo(
-    () => parsedSections.filter((section) => !hiddenSectionIds.has(section.id)),
-    [hiddenSectionIds, parsedSections],
+    () =>
+      parsedSections.filter(
+        (section) =>
+          section.messageId === latestResponseMessageId &&
+          section.questionIds.length > 0 &&
+          !hiddenSectionIds.has(section.id),
+      ),
+    [hiddenSectionIds, latestResponseMessageId, parsedSections],
   );
   const annotationById = useMemo(
     () => new Map(course.annotations.map((item) => [item.id, item])),
@@ -519,7 +606,7 @@ export function DiscussionQaReview({
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDeleteAnswer, setConfirmDeleteAnswer] = useState(false);
   const allItems = useMemo(
-    () => qaReviewItems(sections, annotationById, discussion),
+    () => qaReviewItems(sections, annotationById, discussion, false),
     [annotationById, discussion, sections],
   );
   const visibleItems = useMemo(
@@ -539,14 +626,43 @@ export function DiscussionQaReview({
     Math.min(activeIndex, Math.max(0, visibleItems.length - 1)),
   );
   const activeItem = visibleItems[boundedActiveIndex];
+  const [visitedItemIds, setVisitedItemIds] = useState<Set<string>>(
+    () => new Set(activeItem ? [activeItem.id] : []),
+  );
+  const activeFollowupTrail = useMemo(
+    () =>
+      activeItem?.questions
+        .filter((question) => question.origin === "discussion_review_followup")
+        .flatMap((question) => followupTrail(course, question)) ?? [],
+    [activeItem, course],
+  );
+  const activeImportantNote = activeItem?.section
+    ? course.notes.find(
+        (note) =>
+          note.kind === "important_answer" &&
+          note.document.plainText.includes(
+            `qa-section:${activeItem.section!.messageId}:${activeItem.section!.label}`,
+          ),
+      ) ?? course.notes.find(
+        (note) =>
+          note.kind === "important_answer" &&
+          note.links.some(
+            (link) =>
+              link.entityType === "discussion_message" &&
+              link.entityId === activeItem.section!.messageId,
+          ) &&
+          (note.document.markdown ?? "").includes(
+            `qa-section:${activeItem.section!.messageId}:${activeItem.section!.label}`,
+          ),
+      )
+    : undefined;
   const reviewUnits = allItems.filter((item) => item.questions.length);
-  const answeredUnits = reviewUnits.filter(
-    (item) =>
-      item.questions.length > 0 &&
-      item.questions.every((question) => question.status === "answered"),
+  const visitedUnits = reviewUnits.filter((item) =>
+    visitedItemIds.has(item.id),
   ).length;
+  const remainingOpenQuestions = course.stats.openQuestionCount;
   const completionRatio = reviewUnits.length
-    ? answeredUnits / reviewUnits.length
+    ? visitedUnits / reviewUnits.length
     : 0;
 
   const reconstructedByMessage = useMemo(
@@ -572,6 +688,21 @@ export function DiscussionQaReview({
   const hasUnsavedChanges =
     dirtyMessageIds.length > 0 || pendingReviewCount > 0;
 
+  const navigateTo = useCallback(
+    (nextIndex: number) => {
+      const bounded = Math.max(
+        0,
+        Math.min(nextIndex, Math.max(0, visibleItems.length - 1)),
+      );
+      const nextItem = visibleItems[bounded];
+      if (nextItem) {
+        setVisitedItemIds((current) => new Set([...current, nextItem.id]));
+      }
+      setActiveIndex(bounded);
+    },
+    [visibleItems],
+  );
+
   useEffect(() => {
     function navigateWithKeyboard(event: KeyboardEvent) {
       if (
@@ -582,19 +713,11 @@ export function DiscussionQaReview({
         return;
       }
       event.preventDefault();
-      setActiveIndex((current) =>
-        Math.max(
-          0,
-          Math.min(
-            current + (event.key === "ArrowRight" ? 1 : -1),
-            Math.max(0, visibleItems.length - 1),
-          ),
-        ),
-      );
+      navigateTo(activeIndex + (event.key === "ArrowRight" ? 1 : -1));
     }
     window.addEventListener("keydown", navigateWithKeyboard);
     return () => window.removeEventListener("keydown", navigateWithKeyboard);
-  }, [visibleItems.length]);
+  }, [activeIndex, navigateTo]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -712,8 +835,9 @@ export function DiscussionQaReview({
             <div>
               <p>{discussion.title}</p>
               <strong>
-                {answeredUnits} of {reviewUnits.length} answer groups understood
+                {visitedUnits} of {reviewUnits.length} groups reviewed in this response
               </strong>
+              <small>{remainingOpenQuestions} questions still open overall</small>
             </div>
           </div>
           <div className="qaReviewProgressBlock">
@@ -723,13 +847,13 @@ export function DiscussionQaReview({
                   ? `Reviewing ${openQuestionsOnly ? "open " : ""}group ${boundedActiveIndex + 1} of ${visibleItems.length}`
                   : "All clear"}
               </span>
-              <strong>{Math.round(completionRatio * 100)}% complete</strong>
+              <strong>{Math.round(completionRatio * 100)}% reviewed</strong>
             </div>
             <div
-              aria-label="Questions understood"
+              aria-label="Current response groups reviewed"
               aria-valuemax={reviewUnits.length}
               aria-valuemin={0}
-              aria-valuenow={answeredUnits}
+              aria-valuenow={visitedUnits}
               className="qaReviewProgressTrack"
               role="progressbar"
             >
@@ -747,6 +871,20 @@ export function DiscussionQaReview({
               <input
                 checked={openQuestionsOnly}
                 onChange={(event) => {
+                  const nextVisibleItems = event.target.checked
+                    ? allItems.filter((item) =>
+                        item.questions.some(
+                          (question) =>
+                            question.status === "open" && !question.postponed,
+                        ),
+                      )
+                    : allItems;
+                  const nextItem = nextVisibleItems[0];
+                  if (nextItem) {
+                    setVisitedItemIds(
+                      (current) => new Set([...current, nextItem.id]),
+                    );
+                  }
                   setOpenQuestionsOnly(event.target.checked);
                   setActiveIndex(0);
                 }}
@@ -795,6 +933,28 @@ export function DiscussionQaReview({
                   <h2>{activeItem.section?.title ?? "Unmapped question"}</h2>
                 </div>
                 <div className="qaAnswerActions">
+                  {activeItem.section ? (
+                    <button
+                      className={activeImportantNote ? "qaImportantAnswer active" : "qaImportantAnswer"}
+                      onClick={() =>
+                        onToggleImportantAnswer({
+                          existingNote: activeImportantNote,
+                          markdown:
+                            sectionDrafts.get(activeItem.section!.id) ??
+                            activeItem.section!.bodyMarkdown,
+                          messageId: activeItem.section!.messageId,
+                          questionIds: activeItem.questions.map((question) => question.id),
+                          sectionLabel: activeItem.section!.label,
+                          title: activeItem.section!.title,
+                        })
+                      }
+                      title={activeImportantNote ? "Remove from important answers" : "Keep this answer in Notes"}
+                      type="button"
+                    >
+                      <BookMarked size={14} />
+                      {activeImportantNote ? "Important" : "Mark important"}
+                    </button>
+                  ) : null}
                   {activeItem.section ? (
                     <button
                       aria-label="Delete this tutor answer"
@@ -862,21 +1022,53 @@ export function DiscussionQaReview({
               {activeItem.questions.length ? (
                 <section className="qaQuestionPrompt">
                   <span>
-                    <CircleHelp size={13} /> Original question
+                    <CircleHelp size={13} />
+                    {activeFollowupTrail.length ? "Follow-up review" : "Original question"}
                     {activeItem.questions.length > 1
                       ? ` · ${activeItem.questions.length} linked captures`
                       : ""}
                   </span>
+                  {activeFollowupTrail.map((entry, index) => (
+                    <details className="qaFollowupTrail" key={entry.followup.id} open>
+                      <summary>
+                        {index ? `Earlier follow-up ${index + 1}` : "Original Q&A"}
+                        <small>{entry.responseTitle}</small>
+                      </summary>
+                      {entry.originalQuestions.map((question) => (
+                        <div className="qaFollowupOriginal" key={question.id}>
+                          <strong>Question</strong>
+                          <MarkdownMath>{annotationDisplayText(question)}</MarkdownMath>
+                        </div>
+                      ))}
+                      <div className="qaFollowupAnswer">
+                        <strong>Tutor answer</strong>
+                        <MarkdownMath>{entry.answerMarkdown}</MarkdownMath>
+                      </div>
+                      {entry.selectedContext ? (
+                        <blockquote>
+                          <MarkdownMath>{entry.selectedContext}</MarkdownMath>
+                        </blockquote>
+                      ) : null}
+                      <div className="qaFollowupAsked">
+                        <strong>Your follow-up</strong>
+                        <MarkdownMath>{annotationDisplayText(entry.followup)}</MarkdownMath>
+                      </div>
+                    </details>
+                  ))}
                   {(
                     activeItem.questions.filter(
                       (question) =>
+                        question.origin !== "discussion_review_followup" &&
                         !annotationDisplayText(question).startsWith("Screenshot ·"),
                     ).length
                       ? activeItem.questions.filter(
                           (question) =>
+                            question.origin !== "discussion_review_followup" &&
                             !annotationDisplayText(question).startsWith("Screenshot ·"),
                         )
-                      : activeItem.questions.slice(0, 1)
+                      : activeFollowupTrail.length
+                        ? []
+                        : activeItem.questions.slice(0, 1)
                   ).map((question) => (
                     <MarkdownMath key={question.id}>
                       {annotationDisplayText(question)}
@@ -936,7 +1128,7 @@ export function DiscussionQaReview({
         <footer className="qaReviewNavigation">
           <button
             disabled={boundedActiveIndex <= 0}
-            onClick={() => setActiveIndex(Math.max(0, boundedActiveIndex - 1))}
+            onClick={() => navigateTo(boundedActiveIndex - 1)}
             type="button"
           >
             <ArrowLeft size={18} /> Previous
@@ -944,11 +1136,7 @@ export function DiscussionQaReview({
           <span>⌘⌥ ← / → to navigate</span>
           <button
             disabled={boundedActiveIndex >= visibleItems.length - 1}
-            onClick={() =>
-              setActiveIndex(
-                Math.min(visibleItems.length - 1, boundedActiveIndex + 1),
-              )
-            }
+            onClick={() => navigateTo(boundedActiveIndex + 1)}
             type="button"
           >
             Next <ArrowRight size={18} />

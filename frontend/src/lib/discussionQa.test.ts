@@ -3,6 +3,7 @@ import type { Annotation, Discussion } from "../types/tracker";
 import {
   discussionQaSections,
   reconstructQaMessage,
+  responseQuestionIds,
 } from "./discussionQa";
 
 const questions = [
@@ -105,7 +106,7 @@ describe("discussion QA review model", () => {
       origin: "discussion_review_followup",
       resourceId: "book",
       status: "open",
-    } as Annotation;
+    } as unknown as Annotation;
     const withFollowup = {
       ...discussion,
       messages: discussion.messages.map((message) => ({
@@ -125,5 +126,66 @@ describe("discussion QA review model", () => {
     const sections = discussionQaSections(withFollowup, [...questions, followup]);
 
     expect(sections.at(-1)?.questionIds).toContain(followup.id);
+  });
+
+  it("maps a follow-up response by its persistent copied prompt label", () => {
+    const followup = {
+      anchor: {
+        discussionMessageId: "older-message",
+        metadata: { promptLabel: "Q-098" },
+        quote: "Batch training repeats the same episodes.",
+      },
+      body: { markdown: "Why does the target change on the next sweep?" },
+      createdAt: "2026-07-10T10:02:00Z",
+      id: "followup-98",
+      kind: "question",
+      origin: "discussion_review_followup",
+      resourceId: "discussion-resource",
+      status: "open",
+    } as unknown as Annotation;
+    const followupResponse = {
+      ...discussion,
+      messages: [
+        {
+          annotationLinks: [
+            { annotationId: followup.id, relation: "references" as const },
+          ],
+          body: {
+            markdown: "## Q-098\n\nThe target changes because $V(S_{t+1})$ changes.",
+          },
+          id: "followup-response",
+          role: "assistant",
+          sequenceNumber: 3,
+        },
+      ],
+      questionIds: [...discussion.questionIds, followup.id],
+    } as Discussion;
+
+    const sections = discussionQaSections(followupResponse, [
+      ...questions,
+      followup,
+    ]);
+
+    expect(sections[0].questionIds).toEqual([followup.id]);
+    expect(
+      responseQuestionIds(
+        followupResponse,
+        followupResponse.messages[0].body.markdown ?? "",
+        [...questions, followup],
+        [
+          {
+            ...discussion,
+            title: followupResponse.title,
+            messages: [
+              {
+                ...discussion.messages[0],
+                id: "older-message",
+              },
+            ],
+          } as Discussion,
+          followupResponse,
+        ],
+      ),
+    ).toEqual([followup.id]);
   });
 });

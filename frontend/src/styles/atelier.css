@@ -2865,6 +2865,73 @@ button.taskMetaBadge:disabled {
   gap: 4px;
 }
 
+.importantAnswerQuestionContext {
+  margin-top: 9px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--course-accent) 18%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--course-accent) 3%, white);
+}
+
+.importantAnswerQuestionContext > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bookExerciseProgress {
+  min-height: 22px;
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, #7456cf 25%, var(--line));
+  border-radius: 7px;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  background: color-mix(in srgb, #7456cf 4%, white);
+}
+
+.bookExerciseProgress > span {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  color: #6554a3;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.bookExerciseProgress > div {
+  display: flex;
+  gap: 2px;
+}
+
+.bookExerciseProgress button {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid #c9c5d9;
+  border-radius: 4px;
+  color: #8d879d;
+  background: transparent;
+  font-size: 6px;
+  font-weight: 800;
+}
+
+.bookExerciseProgress button.exercise-read_partially {
+  border-color: #b69ee9;
+  color: #5c428f;
+  background: linear-gradient(135deg, #bfaaf0 50%, transparent 50%);
+}
+
+.bookExerciseProgress button.exercise-read_fully {
+  border-color: #7456cf;
+  color: white;
+  background: #7456cf;
+  box-shadow: 0 0 0 1px rgba(116, 86, 207, 0.08);
+}
+
 .summaryNoteActions button,
 .annotationCard footer button {
   min-height: 28px;

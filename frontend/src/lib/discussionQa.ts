@@ -26,6 +26,51 @@ export type ReconstructedQaMessage = {
   sectionBodyOffsets: Map<string, number>;
 };
 
+export function responseQuestionIds(
+  discussion: Discussion,
+  markdown: string,
+  annotations: Annotation[],
+  discussions: Discussion[],
+): string[] {
+  const labels = discussionAnswerSections(markdown).sections.flatMap(
+    (section) => section.labels,
+  );
+  const messageDiscussionById = new Map(
+    discussions.flatMap((item) =>
+      item.messages.map((message) => [message.id, item] as const),
+    ),
+  );
+  const followupByLabel = new Map<string, string>();
+  annotations.forEach((annotation) => {
+    if (annotation.origin !== "discussion_review_followup") return;
+    const label = annotation.anchor?.metadata?.promptLabel;
+    const sourceDiscussion = messageDiscussionById.get(
+      annotation.anchor?.discussionMessageId ?? "",
+    );
+    if (
+      typeof label === "string" &&
+      sourceDiscussion?.title === discussion.title
+    ) {
+      followupByLabel.set(label, annotation.id);
+    }
+  });
+  const ids = labels.length
+    ? labels.flatMap((label) => {
+        const followupId = followupByLabel.get(label);
+        if (followupId) return [followupId];
+        const match = label.match(/Q-(\d{3})/);
+        const index = match ? Number(match[1]) - 1 : -1;
+        return discussion.questionIds[index]
+          ? [discussion.questionIds[index]]
+          : [];
+      })
+    : discussion.questionIds.filter((id) => {
+        const annotation = annotations.find((item) => item.id === id);
+        return annotation?.status === "open" && !annotation.postponed;
+      });
+  return [...new Set(ids)];
+}
+
 function annotationText(annotation: Annotation): string {
   const body =
     annotation.body?.markdown ||
@@ -52,9 +97,13 @@ function linkedQuestionCandidates(
   );
   const orderedQuestionIds = [
     ...discussion.questionIds.filter((id) => linkedQuestionIds.has(id)),
-    ...message.annotationLinks
-      .map((link) => link.annotationId)
-      .filter((id) => !discussion.questionIds.includes(id)),
+    ...(
+      discussion.initialPromptBatchId
+        ? []
+        : message.annotationLinks
+            .map((link) => link.annotationId)
+            .filter((id) => !discussion.questionIds.includes(id))
+    ),
   ];
   const linkedQuestions = orderedQuestionIds
     .map((id) => annotationById.get(id))
@@ -128,6 +177,20 @@ export function discussionQaSections(
       ).map((match) => [match.sectionLabel, match.questionIds]),
     );
     for (const followup of followupQuestions) {
+      const promptLabel = followup.anchor?.metadata?.promptLabel;
+      if (typeof promptLabel === "string") {
+        const directSection = parsed.sections.find((section) =>
+          section.labels.includes(promptLabel),
+        );
+        if (directSection) {
+          const existing = questionIdsByLabel.get(directSection.label) ?? [];
+          questionIdsByLabel.set(
+            directSection.label,
+            [...new Set([...existing, followup.id])],
+          );
+          continue;
+        }
+      }
       const followupMatch = matchAnswerSectionsToQuestions(
         parsed.sections,
         [{ id: followup.id, text: annotationText(followup) }],

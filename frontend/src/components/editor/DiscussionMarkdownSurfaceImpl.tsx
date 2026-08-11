@@ -262,20 +262,18 @@ export function DiscussionMarkdownSurfaceImpl({
     selection: ReviewSelection,
     color: string,
   ) {
-    const mark = activeEditor.schema.marks.highlight.create({ color });
-    const transaction = activeEditor.state.tr;
-    activeEditor.state.doc.nodesBetween(
-      selection.fromPosition,
-      selection.toPosition,
-      (node, position) => {
-        if (!node.isText) return true;
-        const from = Math.max(selection.fromPosition, position);
-        const to = Math.min(selection.toPosition, position + node.nodeSize);
-        if (from < to) transaction.addMark(from, to, mark);
-        return false;
-      },
-    );
-    activeEditor.view.dispatch(transaction);
+    // Use the same Tiptap command path as the toolbar. A hand-built
+    // transaction split text around inline-math atoms and could corrupt the
+    // visual line layout when a shortcut selection crossed a formula.
+    activeEditor
+      .chain()
+      .focus()
+      .setTextSelection({
+        from: selection.fromPosition,
+        to: selection.toPosition,
+      })
+      .toggleHighlight({ color })
+      .run();
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {

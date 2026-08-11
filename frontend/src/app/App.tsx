@@ -11,6 +11,7 @@ import {
   createDiscussion,
   createDiscussionMessage,
   createPromptBatch,
+  deleteNote,
   deleteDiscussionAnswer,
   deleteDiscussion,
   fetchCourses,
@@ -61,6 +62,11 @@ import {
 } from "../lib/prompts";
 import { normalizeDiscussionMarkdown } from "../lib/discussionText";
 import { importPastedMarkdown } from "../lib/discussionImport";
+import { responseQuestionIds } from "../lib/discussionQa";
+import {
+  parseExerciseProgress,
+  serializeExerciseProgress,
+} from "../lib/exerciseProgress";
 import {
   extractedQuestionFingerprint,
   extractQuestionsFromMarkdown,
@@ -77,6 +83,7 @@ import type {
   ExamStatus,
   DiscussionQuestionRelation,
   ExerciseSolutionMappingInput,
+  ImportantAnswerInput,
   Note,
   ResourceStatus,
   ResourceChapterStatus,
@@ -140,6 +147,13 @@ function findTask(course: Course, taskId: string) {
     .flatMap((day) => day.sections)
     .flatMap((section) => section.tasks)
     .find((task) => task.id === taskId);
+}
+
+function truncatePromptQuestions(markdown: string, limit: number): string {
+  const headings = [...markdown.matchAll(/^###\s+Q-\d{3}\b/gm)];
+  const cutoff = headings[limit]?.index;
+  if (cutoff === undefined) return markdown;
+  return `${markdown.slice(0, cutoff).trim()}\n\n> Attachment limit: only the first ${limit} questions are included in this tutor round.\n`;
 }
 
 function resetWorkspaceScroll() {
@@ -620,12 +634,26 @@ export function App() {
       stage: "Starting prompt preparation",
     });
 
+    const sourceAnnotationIds = payload.annotationIds ?? [];
+    const limitQuestions =
+      sourceAnnotationIds.length > 20 &&
+      window.confirm(
+        `${sourceAnnotationIds.length} question items are ready, but ChatGPT accepts at most 20 uploaded files.\n\nPress OK to prepare only the first 20 questions/files, or Cancel to keep the full package.`,
+      );
+    const annotationIds = limitQuestions
+      ? sourceAnnotationIds.slice(0, 20)
+      : sourceAnnotationIds;
+    const markdown = limitQuestions
+      ? truncatePromptQuestions(payload.markdown, 20)
+      : payload.markdown;
+
     let batch: Awaited<ReturnType<typeof createPromptBatch>>;
     try {
       batch = await createPromptBatch({
-        annotationIds: payload.annotationIds,
+        annotationIds,
+        attachmentLimit: limitQuestions ? 20 : undefined,
         courseId: workspace.id,
-        markdown: payload.markdown,
+        markdown,
         sourceDayId: payload.sourceDayId,
         sourceResourceId: payload.sourceResourceId,
         sourceScope: payload.sourceScope,
@@ -765,6 +793,13 @@ export function App() {
     });
   }
 
+  function handleNoteDelete(note: Note) {
+    void runMutation(async () => {
+      await deleteNote(note.id, note.revision);
+      setActionMessage("The tutor answer was unlinked from this exercise task.");
+    });
+  }
+
   function handleResourceStatusChange(resourceId: string, status: ResourceStatus) {
     if (!workspace) return;
     const resource = workspace.resources.find((item) => item.id === resourceId);
@@ -787,6 +822,35 @@ export function App() {
           status,
           chapter.revision,
         );
+      },
+      { preserveScroll: true },
+    );
+  }
+
+  function handleExerciseProgressChange(
+    resource: Course["resources"][number],
+    exercise: string,
+    status: ResourceChapterStatus,
+  ) {
+    if (!workspace) return;
+    const note = resource.notes.find((item) => item.kind === "exercise_progress");
+    const markdown = serializeExerciseProgress({
+      ...parseExerciseProgress(note),
+      [exercise]: status,
+    });
+    void runMutation(
+      async () => {
+        await upsertNote({
+          courseId: workspace.id,
+          noteId: note?.id,
+          noteRevision: note?.revision,
+          documentRevision: note?.document.revision,
+          entityId: resource.id,
+          entityType: "resource",
+          kind: "exercise_progress",
+          markdown,
+          plainText: markdown,
+        });
       },
       { preserveScroll: true },
     );
@@ -1105,8 +1169,36 @@ export function App() {
   }
 
   function handlePrepareExerciseScreenshots(task: Course["days"][number]["sections"][number]["tasks"][number]) {
+    if (!workspace) return;
     void runMutation(async () => {
       const bundle = await prepareExerciseScreenshots(task.id);
+      const resource = task.resourceIds
+        .map((resourceId) => workspace.resources.find((item) => item.id === resourceId))
+        .find((item) => item?.kind === "book");
+      if (resource && bundle.available_exercises.length) {
+        const note = resource.notes.find((item) => item.kind === "exercise_progress");
+        const existing = parseExerciseProgress(note);
+        const detected = new Set(bundle.exercises);
+        const progress = Object.fromEntries(
+          bundle.available_exercises.map((exercise) => [
+            exercise,
+            existing[exercise] ??
+              (detected.has(exercise) ? "read_partially" : "unread"),
+          ]),
+        );
+        const markdown = serializeExerciseProgress(progress);
+        await upsertNote({
+          courseId: workspace.id,
+          noteId: note?.id,
+          noteRevision: note?.revision,
+          documentRevision: note?.document.revision,
+          entityId: resource.id,
+          entityType: "resource",
+          kind: "exercise_progress",
+          markdown,
+          plainText: markdown,
+        });
+      }
       const warningText = bundle.warnings.length
         ? ` ${bundle.warnings.join(" ")}`
         : "";
@@ -1129,28 +1221,20 @@ export function App() {
     });
   }
 
-  function activeQuestionLinks(
+  function responseQuestionLinks(
     discussion: Discussion | undefined,
-    fallbackResourceId: string,
+    markdown: string,
   ): NonNullable<DiscussionMessageInput["annotationLinks"]> {
-    if (!workspace) return [];
-    const sourceIds = new Set(
-      discussion?.sourceResourceIds.length
-        ? discussion.sourceResourceIds
-        : [fallbackResourceId],
-    );
-    return workspace.annotations
-      .filter(
-        (annotation) =>
-          (sourceIds.has(annotation.resourceId) ||
-            Boolean(discussion?.questionIds.includes(annotation.id))) &&
-          ["question", "todo"].includes(annotation.kind) &&
-          annotation.status !== "archived",
-      )
-      .map((annotation) => ({
-        annotationId: annotation.id,
-        relation: "references" as const,
-      }));
+    if (!workspace || !discussion) return [];
+    return responseQuestionIds(
+      discussion,
+      markdown,
+      workspace.annotations,
+      workspace.discussions,
+    ).map((annotationId) => ({
+      annotationId,
+      relation: "references" as const,
+    }));
   }
 
   function handleAddDiscussionMessage(
@@ -1163,10 +1247,7 @@ export function App() {
     const markdown = normalizeDiscussionMarkdown(input.markdown);
     const automaticLinks =
       input.role === "assistant"
-        ? activeQuestionLinks(
-            discussion,
-            discussion?.sourceResourceIds[0] ?? "",
-          )
+        ? responseQuestionLinks(discussion, markdown)
         : [];
     const annotationLinks = [
       ...(input.annotationLinks ?? []),
@@ -1216,8 +1297,30 @@ export function App() {
   function handleMapExerciseSolution(input: ExerciseSolutionMappingInput) {
     if (!workspace) return;
     void runMutation(async () => {
+      const task = workspace.days
+        .flatMap((day) => day.sections)
+        .flatMap((section) => section.tasks)
+        .find((item) => item.id === input.taskId);
+      const questionIds = new Set(input.questionIds);
+      const existing = task?.notes.find(
+        (note) =>
+          note.kind === "exercise_solution" &&
+          note.links.some(
+            (link) =>
+              link.entityType === "discussion_message" &&
+              link.entityId === input.sourceMessageId,
+          ) &&
+          note.links.some(
+            (link) =>
+              link.entityType === "annotation" &&
+              questionIds.has(link.entityId),
+          ),
+      );
       await upsertNote({
         courseId: workspace.id,
+        noteId: existing?.id,
+        noteRevision: existing?.revision,
+        documentRevision: existing?.document.revision,
         entityId: input.taskId,
         entityType: "task",
         kind: "exercise_solution",
@@ -1237,6 +1340,31 @@ export function App() {
       setActionMessage(
         `${input.exerciseLabels.join(" and ")} and its formulas were added to the exercise task.`,
       );
+    });
+  }
+
+  function handleToggleImportantAnswer(input: ImportantAnswerInput) {
+    if (!workspace) return;
+    void runMutation(async () => {
+      if (input.existingNote) {
+        await deleteNote(input.existingNote.id, input.existingNote.revision);
+        setActionMessage("Answer removed from important notes.");
+        return;
+      }
+      const marker = `<!-- qa-section:${input.messageId}:${input.sectionLabel} -->`;
+      await upsertNote({
+        courseId: workspace.id,
+        entityId: input.messageId,
+        entityType: "discussion_message",
+        kind: "important_answer",
+        markdown: `# ${input.title}\n\n${marker}\n\n${input.markdown}`,
+        plainText: input.markdown,
+        relatedLinks: input.questionIds.map((questionId) => ({
+          entityId: questionId,
+          entityType: "annotation",
+        })),
+      });
+      setActionMessage("Answer saved to Important answers in Notes.");
     });
   }
 
@@ -1282,14 +1410,13 @@ export function App() {
             courseId: workspace.id,
             sourceResourceId: resourceId,
           }));
-        const annotationLinks = activeQuestionLinks(
-          existingDiscussion,
-          existingDiscussion?.sourceResourceIds[0] ?? resourceId,
-        );
+        const annotationLinks = existingDiscussion
+          ? responseQuestionLinks(existingDiscussion, markdown)
+          : [];
         await createDiscussionMessage(discussion.id, {
           annotationLinks,
           importedFromClipboard: true,
-          linkPromptQuestions: true,
+          linkPromptQuestions: false,
           markdown,
           plainText: markdown,
           role: "assistant",
@@ -1511,9 +1638,11 @@ export function App() {
           onCollectPdfAnnotations={handleCollectPdfAnnotations}
           onChapterProgressChange={handleResourceChapterProgressChange}
           onDayClosedChange={handleDayClosedChange}
+          onExerciseProgressChange={handleExerciseProgressChange}
           onDayNoteSave={handleDayNoteSave}
           onCreateCapture={handleCreateResourceCapture}
           onNoteSave={handleNoteSave}
+          onNoteDelete={handleNoteDelete}
           onNoteAttentionChange={handleNoteAttentionChange}
           onOpenDiscussion={handleOpenDiscussion}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
@@ -1637,6 +1766,7 @@ export function App() {
             void handleImportDiscussionFromClipboard(resourceId)
           }
           onMapExerciseSolution={handleMapExerciseSolution}
+          onToggleImportantAnswer={handleToggleImportantAnswer}
           onNoteSave={handleNoteSave}
           onCopy={(text, label) => void handleCopy(text, label)}
           onFocusResource={handleFocusDiscussionResource}
