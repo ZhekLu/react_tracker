@@ -4,6 +4,7 @@ import type { DiscussionQaSection } from "../../lib/discussionQa";
 import {
   inferredExerciseLabels,
   qaReviewItems,
+  qaReviewThreads,
   sourceQuestionForReview,
 } from "./discussionQaReviewModel";
 
@@ -54,7 +55,7 @@ describe("focused discussion QA review units", () => {
     } as DiscussionQaSection;
     const discussion = {
       questionIds: [textQuestion.id, screenshotQuestion.id],
-    } as Discussion;
+    } as unknown as Discussion;
 
     const items = qaReviewItems(
       [section],
@@ -136,6 +137,118 @@ describe("focused discussion QA review units", () => {
     expect(inferredExerciseLabels(item)).toEqual([
       "Exercise 6.2",
       "Exercise 6.6",
+    ]);
+  });
+
+  it("keeps original and follow-up answers in one root-question thread", () => {
+    const root = annotation("root-question");
+    const followup = annotation("followup-question", {
+      anchor: {
+        anchorType: "discussion_selection",
+        discussionMessageId: "message-1",
+        metadata: { rootQuestionIds: [root.id], sectionLabel: "Q-001" },
+        quote: "Earlier tutor text",
+      },
+      origin: "discussion_review_followup",
+    });
+    const first = {
+      id: "discussion-1",
+      messages: [{
+        annotationLinks: [{ annotationId: root.id, relation: "answers" }],
+        body: { markdown: "## Q-001\n\nFirst answer." },
+        createdAt: "2026-07-23T01:00:00Z",
+        id: "message-1",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [root.id],
+      questionLabels: [{ annotationIds: [root.id], label: "Q-001" }],
+    } as unknown as Discussion;
+    const second = {
+      id: "discussion-2",
+      messages: [{
+        annotationLinks: [{ annotationId: followup.id, relation: "answers" }],
+        body: { markdown: "## Q-098\n\nUpdated answer." },
+        createdAt: "2026-07-23T02:00:00Z",
+        id: "message-2",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [followup.id],
+      questionLabels: [{ annotationIds: [followup.id], label: "Q-098" }],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads([first, second], [root, followup], second);
+
+    expect(threads).toHaveLength(1);
+    expect(threads[0].rootQuestions?.map((item) => item.id)).toEqual([root.id]);
+    expect(threads[0].questions.map((item) => item.id)).toEqual([
+      root.id,
+      followup.id,
+    ]);
+    expect(threads[0].answers?.map((item) => item.section.bodyMarkdown)).toEqual([
+      "First answer.",
+      "Updated answer.",
+    ]);
+  });
+
+  it("restores every first-round QA thread when opening a follow-up discussion", () => {
+    const firstRoot = annotation("first-root");
+    const secondRoot = annotation("second-root");
+    const followup = annotation("followup", {
+      anchor: {
+        anchorType: "discussion_selection",
+        discussionMessageId: "first-response",
+        metadata: { rootQuestionIds: [firstRoot.id], sectionLabel: "Q-001" },
+      },
+      origin: "discussion_review_followup",
+    });
+    const firstDiscussion = {
+      id: "first",
+      messages: [{
+        annotationLinks: [
+          { annotationId: firstRoot.id, relation: "answers" },
+          { annotationId: secondRoot.id, relation: "answers" },
+        ],
+        body: { markdown: "## Q-001\n\nOne.\n\n## Q-002\n\nTwo." },
+        createdAt: "2026-07-23T01:00:00Z",
+        id: "first-response",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [firstRoot.id, secondRoot.id],
+      questionLabels: [
+        { annotationIds: [firstRoot.id], label: "Q-001" },
+        { annotationIds: [secondRoot.id], label: "Q-002" },
+      ],
+    } as unknown as Discussion;
+    const followupDiscussion = {
+      id: "followups",
+      messages: [{
+        annotationLinks: [{ annotationId: followup.id, relation: "answers" }],
+        body: { markdown: "## Q-098\n\nFollow-up answer." },
+        createdAt: "2026-07-23T02:00:00Z",
+        id: "followup-response",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [followup.id],
+      questionLabels: [{ annotationIds: [followup.id], label: "Q-098" }],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads(
+      [firstDiscussion, followupDiscussion],
+      [firstRoot, secondRoot, followup],
+      followupDiscussion,
+    );
+
+    expect(threads.map((item) => item.rootQuestions?.[0].id).sort()).toEqual([
+      firstRoot.id,
+      secondRoot.id,
     ]);
   });
 });
