@@ -55,6 +55,10 @@ const discussion = {
     },
   ],
   questionIds: questions.map((question) => question.id),
+  questionLabels: [
+    { annotationIds: ["question-1"], label: "Q-001" },
+    { annotationIds: ["question-2"], label: "Q-002" },
+  ],
 } as Discussion;
 
 describe("discussion QA review model", () => {
@@ -92,7 +96,7 @@ describe("discussion QA review model", () => {
     );
   });
 
-  it("maps review follow-ups back to the answer section containing their excerpt", () => {
+  it("does not guess a legacy follow-up section inside an explicit batch", () => {
     const followup = {
       anchor: {
         discussionMessageId: "message",
@@ -125,7 +129,7 @@ describe("discussion QA review model", () => {
 
     const sections = discussionQaSections(withFollowup, [...questions, followup]);
 
-    expect(sections.at(-1)?.questionIds).toContain(followup.id);
+    expect(sections.at(-1)?.questionIds).not.toContain(followup.id);
   });
 
   it("maps a follow-up response by its persistent copied prompt label", () => {
@@ -147,6 +151,10 @@ describe("discussion QA review model", () => {
       ...discussion,
       messages: [
         {
+          ...discussion.messages[0],
+          id: "older-message",
+        },
+        {
           annotationLinks: [
             { annotationId: followup.id, relation: "references" as const },
           ],
@@ -166,11 +174,11 @@ describe("discussion QA review model", () => {
       followup,
     ]);
 
-    expect(sections[0].questionIds).toEqual([followup.id]);
+    expect(sections.at(-1)?.questionIds).toEqual([followup.id]);
     expect(
       responseQuestionIds(
         followupResponse,
-        followupResponse.messages[0].body.markdown ?? "",
+        followupResponse.messages[1].body.markdown ?? "",
         [...questions, followup],
         [
           {
@@ -187,5 +195,138 @@ describe("discussion QA review model", () => {
         ],
       ),
     ).toEqual([followup.id]);
+  });
+
+  it("keeps a cross-discussion follow-up attached by UUID and prompt label", () => {
+    const followup = {
+      anchor: {
+        discussionMessageId: "message-in-older-discussion",
+        metadata: { promptLabel: "Q-098" },
+        quote: "Selected context from the older answer.",
+      },
+      body: { markdown: "Why does replay change the TD target?" },
+      createdAt: "2026-07-10T10:02:00Z",
+      id: "cross-discussion-followup",
+      kind: "question",
+      origin: "discussion_review_followup",
+      resourceId: "discussion-resource",
+      status: "open",
+    } as unknown as Annotation;
+    const currentDiscussion = {
+      ...discussion,
+      messages: [
+        {
+          annotationLinks: [
+            { annotationId: followup.id, relation: "answers" as const },
+          ],
+          body: {
+            markdown:
+              "## Q-098\n\nThe replay target changes with the current value estimate.",
+          },
+          id: "current-response",
+          role: "assistant",
+          sequenceNumber: 1,
+        },
+      ],
+      questionIds: [...discussion.questionIds, followup.id],
+    } as Discussion;
+
+    const sections = discussionQaSections(currentDiscussion, [
+      ...questions,
+      followup,
+    ]);
+
+    expect(sections[0].questionIds).toEqual([followup.id]);
+  });
+
+  it("fails closed when an imported follow-up label collides with local Q-001", () => {
+    const followup = {
+      anchor: {
+        discussionMessageId: "message-in-older-discussion",
+        metadata: { promptLabel: "Q-001" },
+        quote: "Unrelated selected context.",
+      },
+      body: { markdown: "A different discussion's first follow-up." },
+      createdAt: "2026-07-10T10:02:00Z",
+      id: "colliding-followup",
+      kind: "question",
+      origin: "discussion_review_followup",
+      resourceId: "discussion-resource",
+      status: "open",
+    } as unknown as Annotation;
+    const currentDiscussion = {
+      ...discussion,
+      messages: [
+        {
+          annotationLinks: [
+            { annotationId: followup.id, relation: "answers" as const },
+          ],
+          body: { markdown: "## Q-001\n\nAn ambiguous answer." },
+          id: "current-response",
+          role: "assistant",
+          sequenceNumber: 1,
+        },
+      ],
+      questionIds: [...discussion.questionIds, followup.id],
+    } as Discussion;
+
+    const sections = discussionQaSections(currentDiscussion, [
+      ...questions,
+      followup,
+    ]);
+
+    expect(sections[0].questionIds).toEqual(["question-1"]);
+    expect(sections[0].questionIds).not.toContain(followup.id);
+  });
+
+  it("does not semantically reassign an unknown label in an explicit batch", () => {
+    const explicit = {
+      ...discussion,
+      messages: [
+        {
+          ...discussion.messages[0],
+          body: {
+            markdown:
+              "## Q-999 — Why is the policy deterministic?\n\nLooks semantically similar but has no stored identity.",
+          },
+        },
+      ],
+    } as Discussion;
+
+    const sections = discussionQaSections(explicit, questions);
+
+    expect(sections[0].questionIds).toEqual([]);
+  });
+
+  it("uses persisted discussion-local labels instead of flattened array positions", () => {
+    const grouped = {
+      ...discussion,
+      messages: [
+        {
+          ...discussion.messages[0],
+          body: {
+            markdown:
+              "## Q-002 / Q-011 — grouped answer\n\nAn identity answer that must not map semantically.",
+          },
+        },
+      ],
+      questionIds: ["unrelated", "wrong-by-position", ...discussion.questionIds],
+      questionLabels: [
+        { annotationIds: ["question-2"], label: "Q-002" },
+        { annotationIds: ["question-1", "capture-2"], label: "Q-011" },
+      ],
+    } as Discussion;
+    const capture = {
+      ...questions[0],
+      id: "capture-2",
+    } as Annotation;
+
+    const sections = discussionQaSections(grouped, [...questions, capture]);
+
+    expect(sections[0].questionIds).toEqual([
+      "question-2",
+      "question-1",
+      "capture-2",
+    ]);
   });
 });

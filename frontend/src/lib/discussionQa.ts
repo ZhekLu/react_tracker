@@ -26,6 +26,63 @@ export type ReconstructedQaMessage = {
   sectionBodyOffsets: Map<string, number>;
 };
 
+/**
+ * Resolve readable Q-### labels inside one discussion only.
+ *
+ * Prompt labels come from persisted prompt_batch_items. Review follow-ups keep
+ * their persisted promptLabel when either their parent message or the response
+ * that links them belongs to this exact discussion. The latter is what lets a
+ * new discussion answer follow-ups created in an earlier one without sharing
+ * either discussion's Q-001 namespace. UUIDs remain the identity used for every
+ * join.
+ */
+export function discussionQuestionIdsByLabel(
+  discussion: Discussion,
+  annotations: Annotation[],
+): Map<string, string[]> {
+  const result = new Map(
+    (discussion.questionLabels ?? []).map((item) => [
+      item.label,
+      [...item.annotationIds],
+    ]),
+  );
+  const messageIds = new Set(discussion.messages.map((message) => message.id));
+  const linkedAnnotationIds = new Set(
+    discussion.messages.flatMap((message) =>
+      message.annotationLinks.map((link) => link.annotationId),
+    ),
+  );
+  for (const annotation of annotations) {
+    if (
+      annotation.origin !== "discussion_review_followup" ||
+      (!messageIds.has(annotation.anchor?.discussionMessageId ?? "") &&
+        !linkedAnnotationIds.has(annotation.id))
+    ) {
+      continue;
+    }
+    const label = annotation.anchor?.metadata?.promptLabel;
+    if (typeof label !== "string") continue;
+    const belongsToThisDiscussion = messageIds.has(
+      annotation.anchor?.discussionMessageId ?? "",
+    );
+    if (
+      !belongsToThisDiscussion &&
+      (discussion.questionLabels ?? []).some(
+        (item) =>
+          item.label === label && !item.annotationIds.includes(annotation.id),
+      )
+    ) {
+      // The imported follow-up reused a short label owned by this discussion's
+      // prompt batch. Ambiguous labels fail closed; UUID identity is preserved
+      // and the answer stays visibly unmapped rather than joining the wrong Q.
+      continue;
+    }
+    const current = result.get(label) ?? [];
+    if (!current.includes(annotation.id)) result.set(label, [...current, annotation.id]);
+  }
+  return result;
+}
+
 export function responseQuestionIds(
   discussion: Discussion,
   markdown: string,
@@ -35,35 +92,13 @@ export function responseQuestionIds(
   const labels = discussionAnswerSections(markdown).sections.flatMap(
     (section) => section.labels,
   );
-  const messageDiscussionById = new Map(
-    discussions.flatMap((item) =>
-      item.messages.map((message) => [message.id, item] as const),
-    ),
+  void discussions;
+  const questionIdsByLabel = discussionQuestionIdsByLabel(
+    discussion,
+    annotations,
   );
-  const followupByLabel = new Map<string, string>();
-  annotations.forEach((annotation) => {
-    if (annotation.origin !== "discussion_review_followup") return;
-    const label = annotation.anchor?.metadata?.promptLabel;
-    const sourceDiscussion = messageDiscussionById.get(
-      annotation.anchor?.discussionMessageId ?? "",
-    );
-    if (
-      typeof label === "string" &&
-      sourceDiscussion?.title === discussion.title
-    ) {
-      followupByLabel.set(label, annotation.id);
-    }
-  });
   const ids = labels.length
-    ? labels.flatMap((label) => {
-        const followupId = followupByLabel.get(label);
-        if (followupId) return [followupId];
-        const match = label.match(/Q-(\d{3})/);
-        const index = match ? Number(match[1]) - 1 : -1;
-        return discussion.questionIds[index]
-          ? [discussion.questionIds[index]]
-          : [];
-      })
+    ? labels.flatMap((label) => questionIdsByLabel.get(label) ?? [])
     : discussion.questionIds.filter((id) => {
         const annotation = annotations.find((item) => item.id === id);
         return annotation?.status === "open" && !annotation.postponed;
@@ -132,6 +167,10 @@ export function discussionQaSections(
   const annotationById = new Map(
     annotations.map((annotation) => [annotation.id, annotation]),
   );
+  const persistedQuestionIdsByLabel = discussionQuestionIdsByLabel(
+    discussion,
+    annotations,
+  );
   return discussion.messages.flatMap((message) => {
     if (message.role !== "assistant") return [];
     const markdown = normalizeDiscussionMarkdown(
@@ -165,20 +204,38 @@ export function discussionQaSections(
     const followupQuestions = questions.filter(
       (question) => question.origin === "discussion_review_followup",
     );
-    const questionIdsByLabel = new Map(
-      matchAnswerSectionsToQuestions(
-        parsed.sections,
-        ordinaryQuestions.map((question) => ({
-          id: question.id,
-          text: annotationText(question),
-        })),
-        Boolean(discussion.initialPromptBatchId) &&
-          parsed.sections.every((section) => section.labels.length > 0),
-      ).map((match) => [match.sectionLabel, match.questionIds]),
-    );
+    const hasPersistedLabelNamespace = persistedQuestionIdsByLabel.size > 0;
+    const questionIdsByLabel = hasPersistedLabelNamespace
+      ? new Map(
+          parsed.sections.map((section) => [
+            section.label,
+            [...new Set(
+              section.labels.flatMap(
+                (label) => persistedQuestionIdsByLabel.get(label) ?? [],
+              ),
+            )],
+          ]),
+        )
+      : new Map(
+          matchAnswerSectionsToQuestions(
+            parsed.sections,
+            ordinaryQuestions.map((question) => ({
+              id: question.id,
+              text: annotationText(question),
+            })),
+            false,
+          ).map((match) => [match.sectionLabel, match.questionIds]),
+        );
     for (const followup of followupQuestions) {
       const promptLabel = followup.anchor?.metadata?.promptLabel;
-      if (typeof promptLabel === "string") {
+      const promptLabelQuestionIds =
+        typeof promptLabel === "string"
+          ? persistedQuestionIdsByLabel.get(promptLabel) ?? []
+          : [];
+      if (
+        typeof promptLabel === "string" &&
+        promptLabelQuestionIds.includes(followup.id)
+      ) {
         const directSection = parsed.sections.find((section) =>
           section.labels.includes(promptLabel),
         );
@@ -191,6 +248,10 @@ export function discussionQaSections(
           continue;
         }
       }
+      // A prompt-batch discussion has an explicit label namespace. If a label
+      // is not in it, leave the response unmapped instead of guessing by text.
+      // Semantic recovery is retained only for legacy free-form discussions.
+      if (hasPersistedLabelNamespace) continue;
       const followupMatch = matchAnswerSectionsToQuestions(
         parsed.sections,
         [{ id: followup.id, text: annotationText(followup) }],

@@ -240,12 +240,28 @@ class DiscussionMessageAnnotation(StrictModel):
     relation: DiscussionQuestionRelation
 
 
+class DiscussionQuestionLabel(StrictModel):
+    """A human prompt label resolved inside one discussion namespace."""
+
+    label: str
+    annotation_ids: list[str] = Field(default_factory=list)
+
+
+class DiscussionQaReview(StrictModel):
+    annotation_id: str
+    message_id: str
+    message_revision: int
+    viewed_at: str
+
+
 class Discussion(StrictModel):
     id: str
     resource_id: str
     source_resource_ids: list[str] = Field(default_factory=list)
     initial_prompt_batch_id: str | None = None
     question_ids: list[str] = Field(default_factory=list)
+    question_labels: list[DiscussionQuestionLabel] = Field(default_factory=list)
+    qa_reviews: list[DiscussionQaReview] = Field(default_factory=list)
     title: str
     provider: str
     attention: Attention
@@ -539,6 +555,8 @@ class DiscussionReviewItem(StrictModel):
     context_after: str = Field(default="", max_length=2_000)
     from_position: int | None = Field(default=None, ge=0)
     to_position: int | None = Field(default=None, ge=0)
+    section_label: str | None = Field(default=None, max_length=200)
+    question_ids: list[str] = Field(default_factory=list)
 
 
 class DiscussionMessageReviewCommand(DiscussionMessageUpdateCommand):
@@ -551,6 +569,11 @@ class DiscussionAnswerDeleteCommand(DiscussionMessageUpdateCommand):
 
 class DiscussionQuestionLinkCommand(StrictModel):
     relation: DiscussionQuestionRelation
+
+
+class DiscussionQaReviewCommand(StrictModel):
+    message_id: str
+    question_ids: list[str] = Field(min_length=1)
 
 
 class DiscussionStatusCommand(RevisionCommand):

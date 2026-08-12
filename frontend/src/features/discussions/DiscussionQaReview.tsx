@@ -54,7 +54,6 @@ import type {
 import {
   inferredExerciseLabels,
   qaReviewItems,
-  sourceQuestionForReview,
   type QaReviewItem,
 } from "./discussionQaReviewModel";
 
@@ -83,6 +82,11 @@ type DiscussionQaReviewProps = {
     messageId: string,
     annotationId: string,
     relation: DiscussionQuestionRelation,
+  ) => void;
+  onQaViewed: (
+    discussionId: string,
+    messageId: string,
+    questionIds: string[],
   ) => void;
   onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;
   onToggleImportantAnswer: (input: ImportantAnswerInput) => void;
@@ -135,6 +139,9 @@ function followupTrail(
     );
     if (!parentDiscussion) break;
     const selected = comparableText(followup.anchor.quote ?? "");
+    const storedSectionLabel: unknown = followup.anchor.metadata?.sectionLabel;
+    const storedRootQuestionIds: unknown =
+      followup.anchor.metadata?.rootQuestionIds;
     const candidates = discussionQaSections(
       parentDiscussion,
       course.annotations,
@@ -142,13 +149,21 @@ function followupTrail(
       (section) =>
         section.messageId === followup?.anchor?.discussionMessageId,
     );
-    const parentSection =
+    const parentSection: DiscussionQaSection | undefined =
+      (typeof storedSectionLabel === "string"
+        ? candidates.find((section) => section.label === storedSectionLabel)
+        : undefined) ??
       candidates.find((section) => {
         const body = comparableText(section.bodyMarkdown);
         return selected.length > 12 && body.includes(selected.slice(0, 80));
-      }) ?? candidates[0];
+      });
     if (!parentSection) break;
-    const originalQuestions = parentSection.questionIds
+    const rootQuestionIds: string[] = Array.isArray(storedRootQuestionIds)
+      ? storedRootQuestionIds.filter(
+          (id: unknown): id is string => typeof id === "string",
+        )
+      : parentSection.questionIds;
+    const originalQuestions: Annotation[] = rootQuestionIds
       .map((id) => annotationById.get(id))
       .filter((item): item is Annotation => Boolean(item));
     entries.unshift({
@@ -409,27 +424,28 @@ function SourcePageImage({
 
 function SourcePreview({
   questions,
-  resource,
+  resourceById,
+  labelsByAnnotationId,
 }: {
   questions: Annotation[];
-  resource?: Resource;
+  resourceById: Map<string, Resource>;
+  labelsByAnnotationId: Map<string, string>;
 }) {
   const pagesRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef<HTMLDivElement>(null);
-  const question = sourceQuestionForReview(questions);
-  const pageNumber = question?.anchor?.pageNumber ?? null;
-  const pageCount =
-    (question ? metadataNumber(question, "pageCount") : null) ??
-    resource?.version?.pageCount ??
-    null;
-  const annotated = questions.some((item) =>
-    Boolean(metadataText(item, "annotatedPageImageUrl")),
+  const sourceQuestions = questions.filter(
+    (question, index) =>
+      questions.findIndex((candidate) => candidate.id === question.id) === index,
   );
-  const neighboringPages = pageNumber
-    ? [pageNumber - 1, pageNumber, pageNumber + 1].filter(
-        (page) => page >= 1 && (!pageCount || page <= pageCount),
-      )
-    : [];
+  const resourceGroups = [...sourceQuestions.reduce((groups, question) => {
+    const current = groups.get(question.resourceId) ?? [];
+    current.push(question);
+    groups.set(question.resourceId, current);
+    return groups;
+  }, new Map<string, Annotation[]>())];
+  const firstPageNumber = resourceGroups
+    .flatMap(([, items]) => items.map((item) => item.anchor?.pageNumber ?? null))
+    .find((page): page is number => Boolean(page));
 
   const focusCurrentPage = useCallback(() => {
     const pages = pagesRef.current;
@@ -447,9 +463,9 @@ function SourcePreview({
 
   useLayoutEffect(() => {
     focusCurrentPage();
-  }, [focusCurrentPage, pageNumber]);
+  }, [focusCurrentPage, firstPageNumber]);
 
-  if (!question) {
+  if (!sourceQuestions.length) {
     return (
       <div className="qaSourceEmpty">
         <BookOpen size={34} />
@@ -462,58 +478,89 @@ function SourcePreview({
   return (
     <section className="qaSourcePanel">
       <header>
-        <span>{resource?.kind === "slides" ? "Slide" : "Source page"}</span>
+        <span>Linked source{sourceQuestions.length === 1 ? "" : "s"}</span>
         <strong>
-          {pageNumber ? `p. ${pageNumber}` : "Text context"}
+          {sourceQuestions.length} capture{sourceQuestions.length === 1 ? "" : "s"}
         </strong>
       </header>
-      {pageNumber ? (
-        <div className="qaSourcePages" ref={pagesRef}>
-          {neighboringPages.map((sourcePage) => (
-            <div
-              className={
-                sourcePage === pageNumber
-                  ? "qaSourcePage current"
-                  : "qaSourcePage neighbor"
-              }
-              key={sourcePage}
-              ref={sourcePage === pageNumber ? currentPageRef : undefined}
-            >
-              <span>
-                {sourcePage === pageNumber
-                  ? "Current"
-                  : sourcePage < pageNumber
-                    ? "Previous"
-                    : "Next"}{" "}
-                · p. {sourcePage}
-              </span>
-              <SourcePageImage
-                annotated={annotated}
-                focusQuestions={questions}
-                pageNumber={sourcePage}
-                primaryPageNumber={pageNumber}
-                resourceId={question.resourceId}
-                onLoad={
-                  sourcePage === pageNumber ? focusCurrentPage : undefined
-                }
-              />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="qaSourceText">
-          {metadataText(question, "contextBefore") ? (
-            <p>{metadataText(question, "contextBefore")}</p>
-          ) : null}
-          {question.anchor?.quote ? (
-            <blockquote>{question.anchor.quote}</blockquote>
-          ) : null}
-          {metadataText(question, "contextAfter") ? (
-            <p>{metadataText(question, "contextAfter")}</p>
-          ) : null}
-        </div>
-      )}
-      <footer title={resource?.title}>{resource?.title ?? "Linked resource"}</footer>
+      <div className="qaSourcePages" ref={pagesRef}>
+        {resourceGroups.map(([resourceId, resourceQuestions]) => {
+          const resource = resourceById.get(resourceId);
+          const targetPages = [...new Set(
+            resourceQuestions
+              .map((item) => item.anchor?.pageNumber)
+              .filter((page): page is number => Boolean(page)),
+          )].sort((left, right) => left - right);
+          const pageCount =
+            resourceQuestions
+              .map((item) => metadataNumber(item, "pageCount"))
+              .find((value): value is number => Boolean(value)) ??
+            resource?.version?.pageCount ??
+            null;
+          const pages = [...new Set(
+            targetPages.flatMap((page) => [page - 1, page, page + 1]),
+          )]
+            .filter((page) => page >= 1 && (!pageCount || page <= pageCount))
+            .sort((left, right) => left - right);
+          const annotated = resourceQuestions.some((item) =>
+            Boolean(metadataText(item, "annotatedPageImageUrl")),
+          );
+          return (
+            <section className="qaSourceResource" key={resourceId}>
+              <strong className="qaSourceResourceTitle" title={resource?.title}>
+                {resource?.title ?? "Linked resource"}
+              </strong>
+              {pages.map((sourcePage) => {
+                const isTarget = targetPages.includes(sourcePage);
+                const pageQuestions = resourceQuestions.filter(
+                  (item) => item.anchor?.pageNumber === sourcePage,
+                );
+                return (
+                  <div
+                    className={isTarget ? "qaSourcePage current" : "qaSourcePage neighbor"}
+                    key={`${resourceId}:${sourcePage}`}
+                    ref={sourcePage === firstPageNumber ? currentPageRef : undefined}
+                  >
+                    <span>
+                      {isTarget
+                        ? pageQuestions
+                            .map((item) => labelsByAnnotationId.get(item.id))
+                            .filter(Boolean)
+                            .join(" / ") || "Linked capture"
+                        : sourcePage < (targetPages[0] ?? sourcePage)
+                          ? "Previous"
+                          : "Next"}{" "}
+                      · p. {sourcePage}
+                    </span>
+                    <SourcePageImage
+                      annotated={annotated}
+                      focusQuestions={resourceQuestions}
+                      pageNumber={sourcePage}
+                      primaryPageNumber={targetPages[0] ?? sourcePage}
+                      resourceId={resourceId}
+                      onLoad={sourcePage === firstPageNumber ? focusCurrentPage : undefined}
+                    />
+                  </div>
+                );
+              })}
+              {!pages.length
+                ? resourceQuestions.map((question) => (
+                    <div className="qaSourceText" key={question.id}>
+                      <strong>{labelsByAnnotationId.get(question.id) ?? "Linked question"}</strong>
+                      {metadataText(question, "contextBefore") ? (
+                        <p>{metadataText(question, "contextBefore")}</p>
+                      ) : null}
+                      {question.anchor?.quote ? <blockquote>{question.anchor.quote}</blockquote> : null}
+                      {metadataText(question, "contextAfter") ? (
+                        <p>{metadataText(question, "contextAfter")}</p>
+                      ) : null}
+                    </div>
+                  ))
+                : null}
+            </section>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -527,6 +574,7 @@ export function DiscussionQaReview({
   onMapExerciseSolution,
   onToggleImportantAnswer,
   onQuestionLink,
+  onQaViewed,
   onUpdateMessage,
 }: DiscussionQaReviewProps) {
   const parsedSections = useMemo(
@@ -566,6 +614,40 @@ export function DiscussionQaReview({
     () => new Map(course.resources.map((item) => [item.id, item])),
     [course.resources],
   );
+  const labelsByAnnotationId = useMemo(() => {
+    const labels = new Map<string, string>();
+    discussion.questionLabels.forEach((item) =>
+      item.annotationIds.forEach((annotationId) => labels.set(annotationId, item.label)),
+    );
+    const discussionMessageIds = new Set(
+      discussion.messages.map((message) => message.id),
+    );
+    const linkedAnnotationIds = new Set(
+      discussion.messages.flatMap((message) =>
+        message.annotationLinks.map((link) => link.annotationId),
+      ),
+    );
+    course.annotations.forEach((annotation) => {
+      const label = annotation.anchor?.metadata?.promptLabel;
+      if (
+        annotation.origin === "discussion_review_followup" &&
+        typeof label === "string" &&
+        (discussionMessageIds.has(annotation.anchor?.discussionMessageId ?? "") ||
+          linkedAnnotationIds.has(annotation.id))
+      ) {
+        const belongsToThisDiscussion = discussionMessageIds.has(
+          annotation.anchor?.discussionMessageId ?? "",
+        );
+        const collidesWithLocalLabel = discussion.questionLabels.some(
+          (item) =>
+            item.label === label && !item.annotationIds.includes(annotation.id),
+        );
+        if (!belongsToThisDiscussion && collidesWithLocalLabel) return;
+        labels.set(annotation.id, label);
+      }
+    });
+    return labels;
+  }, [course.annotations, discussion.messages, discussion.questionLabels]);
   const messageById = useMemo(
     () => new Map(discussion.messages.map((message) => [message.id, message])),
     [discussion.messages],
@@ -627,8 +709,9 @@ export function DiscussionQaReview({
   );
   const activeItem = visibleItems[boundedActiveIndex];
   const [visitedItemIds, setVisitedItemIds] = useState<Set<string>>(
-    () => new Set(activeItem ? [activeItem.id] : []),
+    () => new Set(),
   );
+  const reportedViewKeys = useRef(new Set<string>());
   const activeFollowupTrail = useMemo(
     () =>
       activeItem?.questions
@@ -636,6 +719,19 @@ export function DiscussionQaReview({
         .flatMap((question) => followupTrail(course, question)) ?? [],
     [activeItem, course],
   );
+  const activeSourceQuestions = useMemo(() => {
+    if (!activeItem) return [];
+    const candidates = [
+      ...activeItem.questions.filter(
+        (question) => question.origin !== "discussion_review_followup",
+      ),
+      ...activeFollowupTrail.flatMap((entry) => entry.originalQuestions),
+    ];
+    return candidates.filter(
+      (question, index) =>
+        candidates.findIndex((candidate) => candidate.id === question.id) === index,
+    );
+  }, [activeFollowupTrail, activeItem]);
   const activeImportantNote = activeItem?.section
     ? course.notes.find(
         (note) =>
@@ -658,12 +754,91 @@ export function DiscussionQaReview({
     : undefined;
   const reviewUnits = allItems.filter((item) => item.questions.length);
   const visitedUnits = reviewUnits.filter((item) =>
-    visitedItemIds.has(item.id),
+    visitedItemIds.has(item.id) ||
+    item.questions.every((question) =>
+      discussion.qaReviews.some(
+        (review) => review.annotationId === question.id,
+      ),
+    ),
   ).length;
   const remainingOpenQuestions = course.stats.openQuestionCount;
   const completionRatio = reviewUnits.length
     ? visitedUnits / reviewUnits.length
     : 0;
+
+  const statusForItem = useCallback(
+    (item: QaReviewItem | undefined) => {
+      if (!item) return "new" as const;
+      const isFollowup = item.questions.some(
+        (question) => question.origin === "discussion_review_followup",
+      );
+      const message = item.section
+        ? messageById.get(item.section.messageId)
+        : undefined;
+      const reviews = item.questions
+        .map((question) =>
+          discussion.qaReviews.find(
+            (review) => review.annotationId === question.id,
+          ),
+        )
+        .filter((review): review is Discussion["qaReviews"][number] =>
+          Boolean(review),
+        );
+      const hasEarlierVersion = Boolean(
+        item.section &&
+          parsedSections.some(
+            (section) =>
+              section.id !== item.section!.id &&
+              section.messageSequenceNumber < item.section!.messageSequenceNumber &&
+              section.questionIds.some((id) =>
+                item.questions.some((question) => question.id === id),
+              ),
+          ),
+      );
+      const answerChanged = Boolean(
+        message &&
+          reviews.some(
+            (review) =>
+              review.messageId !== message.id ||
+              review.messageRevision < message.revision,
+          ),
+      );
+      if (
+        answerChanged ||
+        ((isFollowup || hasEarlierVersion) && !reviews.length)
+      ) {
+        return "updated" as const;
+      }
+      const wasReviewed =
+        reviews.length === item.questions.length || visitedItemIds.has(item.id);
+      if (
+        wasReviewed &&
+        item.questions.length &&
+        item.questions.every((question) => question.status === "answered")
+      ) {
+        return "understood" as const;
+      }
+      if (wasReviewed) {
+        return "viewed" as const;
+      }
+      return "new" as const;
+    },
+    [discussion.qaReviews, messageById, parsedSections, visitedItemIds],
+  );
+  const activeReviewStatus = statusForItem(activeItem);
+
+  useEffect(() => {
+    if (!activeItem?.section || !activeItem.questions.length) return;
+    const viewKey = `${activeItem.section.messageId}:${activeItem.section.id}`;
+    if (reportedViewKeys.current.has(viewKey)) return;
+    reportedViewKeys.current.add(viewKey);
+    const questionIds = activeItem.questions.map((question) => question.id);
+    const timer = window.setTimeout(() => {
+      onQaViewed(discussion.id, activeItem.section!.messageId, questionIds);
+      setVisitedItemIds((current) => new Set([...current, activeItem.id]));
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [activeItem, discussion.id, onQaViewed]);
 
   const reconstructedByMessage = useMemo(
     () =>
@@ -694,10 +869,6 @@ export function DiscussionQaReview({
         0,
         Math.min(nextIndex, Math.max(0, visibleItems.length - 1)),
       );
-      const nextItem = visibleItems[bounded];
-      if (nextItem) {
-        setVisitedItemIds((current) => new Set([...current, nextItem.id]));
-      }
       setActiveIndex(bounded);
     },
     [visibleItems],
@@ -764,6 +935,13 @@ export function DiscussionQaReview({
       const rebuilt = reconstructQaMessage(messageSections, drafts);
       const messageReviewItems = messageSections.flatMap((section) => {
         const offset = rebuilt.sectionBodyOffsets.get(section.id) ?? 0;
+        const rootQuestionIds = section.questionIds.flatMap((questionId) => {
+          const question = annotationById.get(questionId);
+          const storedRoots = question?.anchor?.metadata?.rootQuestionIds;
+          return Array.isArray(storedRoots)
+            ? storedRoots.filter((id): id is string => typeof id === "string")
+            : [questionId];
+        });
         return (reviewItems.get(section.id) ?? []).map((item) => ({
           ...item,
           fromPosition:
@@ -774,6 +952,8 @@ export function DiscussionQaReview({
             item.toPosition === undefined
               ? undefined
               : item.toPosition + offset,
+          sectionLabel: section.label,
+          questionIds: [...new Set(rootQuestionIds)],
         }));
       });
       if (
@@ -917,12 +1097,9 @@ export function DiscussionQaReview({
           <div className="qaReviewWorkspace">
             <SourcePreview
               key={activeItem.id}
-              questions={activeItem.questions}
-              resource={
-                activeItem.questions[0]
-                  ? resourceById.get(activeItem.questions[0].resourceId)
-                  : undefined
-              }
+              labelsByAnnotationId={labelsByAnnotationId}
+              questions={activeSourceQuestions.length ? activeSourceQuestions : activeItem.questions}
+              resourceById={resourceById}
             />
             <section className="qaAnswerPanel">
               <header className="qaAnswerHeading">
@@ -1027,6 +1204,9 @@ export function DiscussionQaReview({
                     {activeItem.questions.length > 1
                       ? ` · ${activeItem.questions.length} linked captures`
                       : ""}
+                    <em className={`qaReviewStatus ${activeReviewStatus}`}>
+                      {activeReviewStatus}
+                    </em>
                   </span>
                   {activeFollowupTrail.map((entry, index) => (
                     <details className="qaFollowupTrail" key={entry.followup.id} open>
@@ -1055,25 +1235,14 @@ export function DiscussionQaReview({
                       </div>
                     </details>
                   ))}
-                  {(
-                    activeItem.questions.filter(
-                      (question) =>
-                        question.origin !== "discussion_review_followup" &&
-                        !annotationDisplayText(question).startsWith("Screenshot ·"),
-                    ).length
-                      ? activeItem.questions.filter(
-                          (question) =>
-                            question.origin !== "discussion_review_followup" &&
-                            !annotationDisplayText(question).startsWith("Screenshot ·"),
-                        )
-                      : activeFollowupTrail.length
-                        ? []
-                        : activeItem.questions.slice(0, 1)
-                  ).map((question) => (
-                    <MarkdownMath key={question.id}>
-                      {annotationDisplayText(question)}
-                    </MarkdownMath>
-                  ))}
+                  {!activeFollowupTrail.length
+                    ? activeItem.questions.map((question) => (
+                        <div className="qaMappedQuestion" key={question.id}>
+                          <small>{labelsByAnnotationId.get(question.id) ?? "Linked capture"}</small>
+                          <MarkdownMath>{annotationDisplayText(question)}</MarkdownMath>
+                        </div>
+                      ))
+                    : null}
                 </section>
               ) : null}
               <ExerciseSolutionMapper
@@ -1132,6 +1301,9 @@ export function DiscussionQaReview({
             type="button"
           >
             <ArrowLeft size={18} /> Previous
+            {visibleItems[boundedActiveIndex - 1] ? (
+              <small>{statusForItem(visibleItems[boundedActiveIndex - 1])}</small>
+            ) : null}
           </button>
           <span>⌘⌥ ← / → to navigate</span>
           <button
@@ -1139,6 +1311,9 @@ export function DiscussionQaReview({
             onClick={() => navigateTo(boundedActiveIndex + 1)}
             type="button"
           >
+            {visibleItems[boundedActiveIndex + 1] ? (
+              <small>{statusForItem(visibleItems[boundedActiveIndex + 1])}</small>
+            ) : null}
             Next <ArrowRight size={18} />
           </button>
         </footer>

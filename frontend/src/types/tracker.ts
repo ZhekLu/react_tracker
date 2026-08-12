@@ -285,6 +285,16 @@ export type Discussion = {
   sourceResourceIds: string[];
   initialPromptBatchId?: string | null;
   questionIds: string[];
+  questionLabels: {
+    label: string;
+    annotationIds: string[];
+  }[];
+  qaReviews: {
+    annotationId: string;
+    messageId: string;
+    messageRevision: number;
+    viewedAt: string;
+  }[];
   title: string;
   provider: string;
   attention: Attention;

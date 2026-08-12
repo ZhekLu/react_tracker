@@ -54,7 +54,10 @@ import {
   normalizeDiscussionMarkdown,
 } from "../../lib/discussionText";
 import { importPastedMarkdown } from "../../lib/discussionImport";
-import { responseQuestionIds } from "../../lib/discussionQa";
+import {
+  discussionQuestionIdsByLabel,
+  responseQuestionIds,
+} from "../../lib/discussionQa";
 import {
   discussionHighlights,
   discussionHeadingAt,
@@ -119,6 +122,11 @@ type DiscussionsViewProps = {
     messageId: string,
     annotationId: string,
     relation: DiscussionQuestionRelation,
+  ) => void;
+  onQaViewed: (
+    discussionId: string,
+    messageId: string,
+    questionIds: string[],
   ) => void;
   onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;
   onToggleImportantAnswer: (input: ImportantAnswerInput) => void;
@@ -246,6 +254,7 @@ function DiscussionMessageContent({
   onAnnotationChange,
   onNoteSave,
   questionLabelsAreOrdered,
+  questionIdsByLabel,
   questionOrderIds,
   resourceById,
   reviewHighlights,
@@ -260,6 +269,7 @@ function DiscussionMessageContent({
   onAnnotationChange: DiscussionsViewProps["onAnnotationChange"];
   onNoteSave: DiscussionsViewProps["onNoteSave"];
   questionLabelsAreOrdered: boolean;
+  questionIdsByLabel: Map<string, string[]>;
   questionOrderIds: string[];
   resourceById: Map<string, Resource>;
   reviewHighlights: Annotation[];
@@ -329,22 +339,32 @@ function DiscussionMessageContent({
   const followupQuestionCandidates = questionCandidates.filter(
     (question) => question.origin === "discussion_review_followup",
   );
-  const sectionMatches = new Map(
-    matchAnswerSectionsToQuestions(
-      parsed.sections,
-      ordinaryQuestionCandidates.map((question) => ({
-        id: question.id,
-        text: questionText(question),
-      })),
-      questionLabelsAreOrdered && parsed.sections.every(
-        (section) => section.labels.length > 0,
-      ),
-    ).map((match) => [match.sectionLabel, match.questionIds]),
-  );
-  for (const followup of followupQuestionCandidates) {
+  const sectionMatches = questionIdsByLabel.size
+    ? new Map(
+        parsed.sections.map((section) => [
+          section.label,
+          [...new Set(
+            section.labels.flatMap(
+              (label) => questionIdsByLabel.get(label) ?? [],
+            ),
+          )],
+        ]),
+      )
+    : new Map(
+        matchAnswerSectionsToQuestions(
+          parsed.sections,
+          ordinaryQuestionCandidates.map((question) => ({
+            id: question.id,
+            text: questionText(question),
+          })),
+          questionLabelsAreOrdered && parsed.sections.every(
+            (section) => section.labels.length > 0,
+          ),
+        ).map((match) => [match.sectionLabel, match.questionIds]),
+      );
+  for (const followup of questionIdsByLabel.size ? [] : followupQuestionCandidates) {
     const promptLabel = followup.anchor?.metadata?.promptLabel;
-    const directSection =
-      typeof promptLabel === "string"
+    const directSection = typeof promptLabel === "string"
         ? parsed.sections.find((section) => section.labels.includes(promptLabel))
         : undefined;
     const matchedSection =
@@ -864,6 +884,7 @@ export function DiscussionsView({
   onCopy,
   onOpenResource,
   onQuestionLink,
+  onQaViewed,
 }: DiscussionsViewProps) {
   const [pendingDelete, setPendingDelete] = useState<Discussion | null>(null);
   const [captureEditorResourceId, setCaptureEditorResourceId] = useState("");
@@ -1359,6 +1380,10 @@ export function DiscussionsView({
                           questionLabelsAreOrdered={Boolean(
                             discussion.initialPromptBatchId,
                           )}
+                          questionIdsByLabel={discussionQuestionIdsByLabel(
+                            discussion,
+                            course.annotations,
+                          )}
                           questionOrderIds={discussion.questionIds}
                           resourceById={resourceById}
                           reviewHighlights={
@@ -1472,6 +1497,7 @@ export function DiscussionsView({
           onMapExerciseSolution={onMapExerciseSolution}
           onToggleImportantAnswer={onToggleImportantAnswer}
           onQuestionLink={onQuestionLink}
+          onQaViewed={onQaViewed}
           onUpdateMessage={onUpdateMessage}
         />
       ) : null}

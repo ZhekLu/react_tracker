@@ -28,6 +28,7 @@ from ..schemas.workspace import (
     DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
+    DiscussionQaReviewCommand,
     DiscussionStatusCommand,
     DrawboardColorRolesCommand,
     DrawboardColorRolesResponse,
@@ -842,6 +843,25 @@ def link_discussion_question(
             connection,
             message_id,
             annotation_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.put(
+    "/discussions/{discussion_id}/qa-review",
+    response_model=MutationResponse,
+)
+def review_discussion_qa(
+    discussion_id: str,
+    command: DiscussionQaReviewCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.review_discussion_qa(
+            connection,
+            discussion_id,
             command,
         )
     except workspace_repository.WorkspaceRepositoryError as error:

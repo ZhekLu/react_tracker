@@ -22,6 +22,7 @@ import {
   pdfReaderPageUrl,
   prepareExerciseScreenshots,
   reviewDiscussionMessage,
+  reviewDiscussionQa,
   saveDrawboardColorRoles,
   updateAnnotation,
   updateDayStatus,
@@ -1446,6 +1447,16 @@ export function App() {
     });
   }
 
+  function handleDiscussionQaViewed(
+    discussionId: string,
+    messageId: string,
+    questionIds: string[],
+  ) {
+    void runMutation(async () => {
+      await reviewDiscussionQa(discussionId, messageId, questionIds);
+    });
+  }
+
   function handleAskDiscussionQuestion(
     discussionResourceId: string,
     messageId: string,
@@ -1761,6 +1772,7 @@ export function App() {
           onDiscussionAttentionChange={handleDiscussionAttentionChange}
           onExtractQuestions={handleExtractDiscussionQuestions}
           onQuestionLink={handleDiscussionQuestionLink}
+          onQaViewed={handleDiscussionQaViewed}
           onAskMessageQuestion={handleAskDiscussionQuestion}
           onImportClipboard={(resourceId) =>
             void handleImportDiscussionFromClipboard(resourceId)

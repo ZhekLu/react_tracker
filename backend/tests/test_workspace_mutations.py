@@ -23,6 +23,7 @@ from tracker_api.repositories.workspace_repository import (
     record_toggl_start,
     resource_content_target,
     review_discussion_message,
+    review_discussion_qa,
     toggl_task_id,
     toggl_task_totals,
     update_annotation,
@@ -42,6 +43,7 @@ from tracker_api.schemas.workspace import (
     DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
+    DiscussionQaReviewCommand,
     DiscussionReviewItem,
     NoteUpsertCommand,
     PromptBatchCreateCommand,
@@ -533,6 +535,9 @@ def test_prompt_discussion_tracks_question_coverage_and_answer_state(
     assert thread.resource_id != resource_id
     assert thread.source_resource_ids == [resource_id]
     assert thread.question_ids == [question.id]
+    assert len(thread.question_labels) == 1
+    assert thread.question_labels[0].label == "Q-001"
+    assert thread.question_labels[0].annotation_ids == [question.id]
     assert len(thread.messages) == 1
     assert thread.messages[0].role == "assistant"
     assert thread.messages[0].imported_from_clipboard is True
@@ -542,6 +547,63 @@ def test_prompt_discussion_tracks_question_coverage_and_answer_state(
     answered_message = after.discussions[0].messages[0]
     assert answered_message.annotation_links[0].relation == "answers"
     assert followup.id in after.discussions[0].question_ids
+
+
+def test_qa_review_state_is_persisted_per_discussion_question(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Why?",
+            ),
+        )
+        batch = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Review batch",
+                source_scope="resource_questions",
+                source_resource_id=resource_id,
+                markdown="# Q-001\n\nWhy?",
+                annotation_ids=[question.id],
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+                initial_prompt_batch_id=batch.id,
+            ),
+        )
+        message = create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown="# Q-001\n\nAnswer.",
+                link_prompt_questions=True,
+            ),
+        )
+        review_discussion_qa(
+            connection,
+            discussion.id,
+            DiscussionQaReviewCommand(
+                message_id=message.id,
+                question_ids=[question.id],
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+
+    review = workspace.discussions[0].qa_reviews[0]
+    assert review.annotation_id == question.id
+    assert review.message_id == message.id
+    assert review.message_revision == message.revision
 
 
 def test_prompt_discussion_skips_annotations_deleted_after_prompt_creation(
@@ -654,6 +716,8 @@ def test_reviewing_message_saves_selection_followups_and_math_highlights(
                         context_after="uses the next-state estimate",
                         from_position=1,
                         to_position=11,
+                        section_label="Q-001 — bootstrap update",
+                        question_ids=["root-question-id"],
                     ),
                     DiscussionReviewItem(
                         kind="highlight",
@@ -684,6 +748,10 @@ def test_reviewing_message_saves_selection_followups_and_math_highlights(
     )
     assert question.anchor and question.anchor.discussion_message_id == message.id
     assert question.anchor.metadata["promptLabel"] == "Q-001"
+    assert question.anchor.metadata["sectionLabel"] == (
+        "Q-001 — bootstrap update"
+    )
+    assert question.anchor.metadata["rootQuestionIds"] == ["root-question-id"]
     assert highlight.anchor and highlight.anchor.color == "secondary"
     assert after.discussions[0].messages[0].annotation_links[0].relation == "followup_to"
     assert question.id in after.discussions[0].question_ids

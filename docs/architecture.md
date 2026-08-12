@@ -63,9 +63,19 @@ Reasons:
   snapshot-backed user messages, while message-question relationships distinguish references,
   partial answers, and complete answers.
 - A prompt-batch discussion relates to every resource implied by its explicit
-  resource, task, day, and question annotations. Prompt item order is the stable
-  identity bridge from `Q-001` response headings to annotation IDs; grouped
-  headings remain one answer section but expose every linked question control.
+  resource, task, day, and question annotations. Each `prompt_batch_items` row
+  persists the discussion-local display label (`Q-001`) and the canonical
+  annotation UUID it names. Answer parsing resolves labels only through that
+  persisted namespace; it never infers identity from the current annotation
+  array order or from similar text. Grouped labels may deliberately resolve to
+  several annotation UUIDs and remain one answer section while exposing every
+  linked capture.
+- Annotation UUIDs are the canonical question identity. `Q-001` is only a
+  readable alias within one prompt batch/discussion, so another discussion can
+  have its own unrelated `Q-001`. Follow-ups have their own annotation UUID and
+  persist their parent message, prompt label, section label, and root question
+  UUIDs. This lets subsequent answers attach to the original QA chain without
+  relying on title matching.
 - `discussionImport.ts` owns external clipboard canonicalization. It protects
   code and math first, repairs degraded ChatGPT delimiters, parses Markdown into
   an mdast tree, and performs paste-only compaction. Ordinary editor saves use

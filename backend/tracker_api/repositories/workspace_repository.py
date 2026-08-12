@@ -36,7 +36,10 @@ from ..schemas.workspace import (
     DiscussionMessageCreateCommand,
     DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
+    DiscussionQuestionLabel,
     DiscussionQuestionLinkCommand,
+    DiscussionQaReview,
+    DiscussionQaReviewCommand,
     DiscussionStatusCommand,
     DocumentContent,
     Exam,
@@ -1249,10 +1252,11 @@ def _discussions(
             linked_followup_ids[thread_id].append(annotation_id)
 
     initial_question_ids: dict[str, list[str]] = defaultdict(list)
+    initial_question_labels: dict[str, dict[str, list[str]]] = defaultdict(dict)
     for row in _rows(
         connection,
         """
-        SELECT dt.id AS thread_id, pbi.annotation_id
+        SELECT dt.id AS thread_id, pbi.annotation_id, pbi.question_label
         FROM discussion_threads dt
         JOIN prompt_batch_items pbi
           ON pbi.prompt_batch_id = dt.initial_prompt_batch_id
@@ -1261,7 +1265,36 @@ def _discussions(
         """,
         {"course_id": course_id},
     ):
-        initial_question_ids[str(row["thread_id"])].append(str(row["annotation_id"]))
+        thread_id = str(row["thread_id"])
+        annotation_id = str(row["annotation_id"])
+        question_label = str(row["question_label"])
+        initial_question_ids[thread_id].append(annotation_id)
+        initial_question_labels[thread_id].setdefault(question_label, []).append(
+            annotation_id
+        )
+
+    qa_reviews: dict[str, list[DiscussionQaReview]] = defaultdict(list)
+    for row in _rows(
+        connection,
+        """
+        SELECT discussion_id, annotation_id, message_id, message_revision, viewed_at
+        FROM discussion_qa_reviews
+        WHERE discussion_id IN (
+          SELECT id FROM discussion_threads
+          WHERE course_id = :course_id AND deleted_at IS NULL
+        )
+        ORDER BY discussion_id, viewed_at
+        """,
+        {"course_id": course_id},
+    ):
+        qa_reviews[str(row["discussion_id"])].append(
+            DiscussionQaReview(
+                annotation_id=str(row["annotation_id"]),
+                message_id=str(row["message_id"]),
+                message_revision=int(row["message_revision"]),
+                viewed_at=str(row["viewed_at"]),
+            )
+        )
 
     source_resource_ids: dict[str, list[str]] = defaultdict(list)
     for row in _rows(
@@ -1341,6 +1374,13 @@ def _discussions(
                     ]
                 )
             ),
+            question_labels=[
+                DiscussionQuestionLabel(label=label, annotation_ids=annotation_ids)
+                for label, annotation_ids in initial_question_labels.get(
+                    str(row["id"]), {}
+                ).items()
+            ],
+            qa_reviews=qa_reviews.get(str(row["id"]), []),
             title=(
                 str(row["title"])
                 if str(row["resource_kind"]) == "discussion"
@@ -4038,6 +4078,16 @@ def review_discussion_message(
                         "from_position": item.from_position,
                         "to_position": item.to_position,
                         "review_kind": item.kind,
+                        **(
+                            {"sectionLabel": item.section_label}
+                            if item.section_label
+                            else {}
+                        ),
+                        **(
+                            {"rootQuestionIds": item.question_ids}
+                            if item.question_ids
+                            else {}
+                        ),
                         **({"promptLabel": prompt_label} if prompt_label else {}),
                     },
                 ),
@@ -4245,6 +4295,76 @@ def link_discussion_question(
         {"thread_id": message["thread_id"], "updated_at": now},
     )
     return response
+
+
+def review_discussion_qa(
+    connection: Connection,
+    discussion_id: str,
+    command: DiscussionQaReviewCommand,
+) -> MutationResponse:
+    message = _one_or_none(
+        connection,
+        """
+        SELECT dm.id, dm.thread_id, dm.revision
+        FROM discussion_messages dm
+        JOIN discussion_threads dt ON dt.id = dm.thread_id
+        WHERE dm.id = :message_id
+          AND dm.thread_id = :discussion_id
+          AND dm.deleted_at IS NULL
+          AND dt.deleted_at IS NULL
+        """,
+        {"message_id": command.message_id, "discussion_id": discussion_id},
+    )
+    if message is None:
+        raise EntityNotFoundError(
+            f"Discussion message does not exist in discussion: {command.message_id}"
+        )
+    now = _now()
+    for annotation_id in dict.fromkeys(command.question_ids):
+        annotation = _one_or_none(
+            connection,
+            """
+            SELECT id FROM annotations
+            WHERE id = :annotation_id AND deleted_at IS NULL
+              AND kind IN ('question', 'todo')
+            """,
+            {"annotation_id": annotation_id},
+        )
+        if annotation is None:
+            raise EntityNotFoundError(
+                f"Question annotation does not exist: {annotation_id}"
+            )
+        connection.execute(
+            text(
+                """
+                INSERT INTO discussion_qa_reviews (
+                  discussion_id, annotation_id, message_id, message_revision,
+                  viewed_at, updated_at
+                ) VALUES (
+                  :discussion_id, :annotation_id, :message_id, :message_revision,
+                  :viewed_at, :updated_at
+                )
+                ON CONFLICT(discussion_id, annotation_id) DO UPDATE SET
+                  message_id = excluded.message_id,
+                  message_revision = excluded.message_revision,
+                  viewed_at = excluded.viewed_at,
+                  updated_at = excluded.updated_at
+                """
+            ),
+            {
+                "discussion_id": discussion_id,
+                "annotation_id": annotation_id,
+                "message_id": command.message_id,
+                "message_revision": int(message["revision"]),
+                "viewed_at": now,
+                "updated_at": now,
+            },
+        )
+    return MutationResponse(
+        id=discussion_id,
+        revision=int(message["revision"]),
+        updated_at=now,
+    )
 
 
 def update_discussion_status(

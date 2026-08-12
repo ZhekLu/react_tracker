@@ -274,6 +274,16 @@ type ApiDiscussion = {
   source_resource_ids: string[];
   initial_prompt_batch_id?: string | null;
   question_ids: string[];
+  question_labels: {
+    label: string;
+    annotation_ids: string[];
+  }[];
+  qa_reviews: {
+    annotation_id: string;
+    message_id: string;
+    message_revision: number;
+    viewed_at: string;
+  }[];
   title: string;
   provider: string;
   attention: Attention;
@@ -348,6 +358,8 @@ export type DiscussionReviewItemInput = {
   contextAfter?: string;
   fromPosition?: number;
   toPosition?: number;
+  sectionLabel?: string;
+  questionIds?: string[];
 };
 
 export type DiscussionMessageReviewInput = DiscussionMessageUpdateInput & {
@@ -849,6 +861,16 @@ function discussion(api: ApiDiscussion): Discussion {
     sourceResourceIds: api.source_resource_ids,
     initialPromptBatchId: api.initial_prompt_batch_id,
     questionIds: api.question_ids,
+    questionLabels: api.question_labels.map((item) => ({
+      label: item.label,
+      annotationIds: item.annotation_ids,
+    })),
+    qaReviews: api.qa_reviews.map((item) => ({
+      annotationId: item.annotation_id,
+      messageId: item.message_id,
+      messageRevision: item.message_revision,
+      viewedAt: item.viewed_at,
+    })),
     title: api.title,
     provider: api.provider,
     attention: api.attention,
@@ -1467,6 +1489,8 @@ export async function reviewDiscussionMessage(
           context_after: item.contextAfter ?? "",
           from_position: item.fromPosition,
           to_position: item.toPosition,
+          section_label: item.sectionLabel,
+          question_ids: item.questionIds ?? [],
         })),
       }),
       method: "POST",
@@ -1506,6 +1530,20 @@ export async function linkDiscussionQuestion(
       method: "PUT",
     },
   );
+}
+
+export async function reviewDiscussionQa(
+  discussionId: string,
+  messageId: string,
+  questionIds: string[],
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/discussions/${discussionId}/qa-review`, {
+    body: JSON.stringify({
+      message_id: messageId,
+      question_ids: questionIds,
+    }),
+    method: "PUT",
+  });
 }
 
 export async function updateDiscussionStatus(
