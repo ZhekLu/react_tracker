@@ -30,6 +30,7 @@ import {
   MessageSquareText,
   NotebookPen,
   RotateCcw,
+  Sparkles,
   Timer,
   X,
 } from "lucide-react";
@@ -54,6 +55,14 @@ import { BookExerciseProgress } from "../../components/resources/BookExercisePro
 import { useCompletionReward } from "../../hooks/useCompletionReward";
 import { petCelebrationDuration } from "../../config/petCelebrations";
 import { statusTone } from "../../lib/progress";
+import {
+  combinedExerciseReviewStatus,
+  exerciseNumbersForTask,
+  exerciseNumbersInText,
+  exerciseReviewCounts,
+  parseExerciseReviewProgress,
+  type ExerciseReviewProgress,
+} from "../../lib/exerciseReview";
 import type {
   Annotation,
   AnnotationKind,
@@ -78,6 +87,7 @@ import {
   isDayClosed,
   isDayFullyComplete,
 } from "./dayPresentation";
+import { ExerciseQaReview } from "./ExerciseQaReview";
 
 type RoadmapViewProps = {
   activeDayId: string;
@@ -104,6 +114,7 @@ type RoadmapViewProps = {
     exercise: string,
     status: ResourceChapterStatus,
   ) => void;
+  onExerciseReviewChange: (task: Task, progress: ExerciseReviewProgress) => void;
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onNoteDelete: (note: Task["notes"][number]) => void;
@@ -142,6 +153,7 @@ type TaskRowProps = {
   onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
   onExerciseProgressChange: RoadmapViewProps["onExerciseProgressChange"];
+  onExerciseReviewChange: RoadmapViewProps["onExerciseReviewChange"];
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onNoteDelete: RoadmapViewProps["onNoteDelete"];
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
@@ -183,6 +195,7 @@ function TaskRow({
   onChapterProgressChange,
   onCreateCapture,
   onExerciseProgressChange,
+  onExerciseReviewChange,
   onNoteSave,
   onNoteDelete,
   onNoteAttentionChange,
@@ -198,6 +211,7 @@ function TaskRow({
   const [rationaleOpen, setRationaleOpen] = useState(false);
   const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
   const [quickCaptureResourceId, setQuickCaptureResourceId] = useState("");
+  const [exerciseQaOpen, setExerciseQaOpen] = useState(false);
   const completed = task.status === "done";
   const linkedResources = task.resourceIds
     .map((resourceId) => resourceById.get(resourceId))
@@ -239,6 +253,25 @@ function TaskRow({
     task.title.toLowerCase().includes("exercise")
       ? [...task.title.matchAll(/\b(\d+\.\d+)\b/g)].map((match) => match[1])
       : [];
+  const exerciseReview = parseExerciseReviewProgress(
+    task.notes.find((note) => note.kind === "exercise_review"),
+  );
+  const exerciseAnswerNumbers = [...new Set(
+    exerciseSolutionNotes.flatMap((note) =>
+      [...(note.document.markdown ?? note.document.plainText).matchAll(
+        /\bExercise\s+(\d+(?:\.\d+)+)\b/gi,
+      )].map((match) => match[1]),
+    ),
+  )].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  const exerciseBook = linkedResources.find((resource) => resource.kind === "book");
+  const chapterExerciseNumbers = exerciseBook
+    ? exerciseNumbersForTask(task, exerciseBook)
+    : exerciseAnswerNumbers;
+  const exerciseStats = exerciseReviewCounts(
+    chapterExerciseNumbers,
+    exerciseNumbers,
+    exerciseReview,
+  );
   const previousTaskOpenQuestionCount = useRef(taskOpenQuestionCount);
   const shouldCompact = completed && taskOpenQuestionCount === 0;
   const showTaskDetails = !shouldCompact || compactDetailsOpen;
@@ -370,6 +403,16 @@ function TaskRow({
                 type="button"
               >
                 <Images size={11} /> Screenshot solutions
+              </button>
+            ) : null}
+            {exerciseSolutionNotes.length && exerciseBook ? (
+              <button
+                className="taskMetaBadge exerciseQaLaunch"
+                onClick={() => setExerciseQaOpen(true)}
+                title="Review handwritten exercises beside mapped tutor answers"
+                type="button"
+              >
+                <Sparkles size={11} /> QA {exerciseStats.requiredReviewed}/{exerciseStats.requiredTotal} required · {exerciseStats.totalReviewed}/{exerciseStats.total} chapter
               </button>
             ) : null}
             {shouldCompact ? (
@@ -521,11 +564,22 @@ function TaskRow({
               <strong>{exerciseSolutionNotes.length}</strong>
             </summary>
             <div className="taskExerciseSolutionList">
-              {exerciseSolutionGroups.map(([label, notes]) => (
-                <details className="taskExerciseSolution" key={label}>
+              {exerciseSolutionGroups.map(([label, notes]) => {
+                const mappedExercises = exerciseNumbersInText(label);
+                const reviewStatus = combinedExerciseReviewStatus(
+                  mappedExercises,
+                  exerciseReview,
+                );
+                return (
+                <details
+                  className={`taskExerciseSolution review-${reviewStatus}`}
+                  key={label}
+                >
                   <summary>
                     <span>{label}</span>
-                    <small>{notes.length} tutor answer{notes.length === 1 ? "" : "s"}</small>
+                    <small>
+                      {reviewStatus === "unreviewed" ? "new" : reviewStatus} · {notes.length} tutor answer{notes.length === 1 ? "" : "s"}
+                    </small>
                   </summary>
                   <div className="taskExerciseAnswerStack">
                     {notes.map((note, index) => (
@@ -549,9 +603,18 @@ function TaskRow({
                     ))}
                   </div>
                 </details>
-              ))}
+                );
+              })}
             </div>
           </details>
+        ) : null}
+        {exerciseQaOpen && exerciseBook ? (
+          <ExerciseQaReview
+            onChange={(progress) => onExerciseReviewChange(task, progress)}
+            onClose={() => setExerciseQaOpen(false)}
+            resource={exerciseBook}
+            task={task}
+          />
         ) : null}
         <EntityNoteEditor
           key={`${taskNote?.id ?? task.id}:${taskNote?.revision ?? 0}`}
@@ -902,6 +965,7 @@ type DayCardProps = {
   onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
   onExerciseProgressChange: RoadmapViewProps["onExerciseProgressChange"];
+  onExerciseReviewChange: RoadmapViewProps["onExerciseReviewChange"];
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
   onEntityNoteSave: (input: EntityNoteSaveInput) => void;
   onNoteDelete: RoadmapViewProps["onNoteDelete"];
@@ -926,6 +990,7 @@ function DayCard({
   onChapterProgressChange,
   onCreateCapture,
   onExerciseProgressChange,
+  onExerciseReviewChange,
   onDayNoteSave,
   onEntityNoteSave,
   onNoteDelete,
@@ -1043,6 +1108,7 @@ function DayCard({
                 onChapterProgressChange={onChapterProgressChange}
                 onCreateCapture={onCreateCapture}
                 onExerciseProgressChange={onExerciseProgressChange}
+                onExerciseReviewChange={onExerciseReviewChange}
                 onStatusChange={onTaskStatusChange}
                 onNoteSave={onEntityNoteSave}
                 onNoteDelete={onNoteDelete}
@@ -1165,6 +1231,7 @@ export function RoadmapView({
   onChapterProgressChange,
   onCreateCapture,
   onExerciseProgressChange,
+  onExerciseReviewChange,
   onDayClosedChange,
   onDayNoteSave,
   onNoteSave,
@@ -1266,6 +1333,7 @@ export function RoadmapView({
           onChapterProgressChange={onChapterProgressChange}
           onCreateCapture={onCreateCapture}
           onExerciseProgressChange={onExerciseProgressChange}
+          onExerciseReviewChange={onExerciseReviewChange}
           onClosedChange={onDayClosedChange}
           onDayNoteSave={onDayNoteSave}
           onEntityNoteSave={onNoteSave}

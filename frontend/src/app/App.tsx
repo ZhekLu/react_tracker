@@ -69,6 +69,10 @@ import {
   serializeExerciseProgress,
 } from "../lib/exerciseProgress";
 import {
+  serializeExerciseReviewProgress,
+  type ExerciseReviewProgress,
+} from "../lib/exerciseReview";
+import {
   extractedQuestionFingerprint,
   extractQuestionsFromMarkdown,
 } from "../lib/questionExtraction";
@@ -849,6 +853,31 @@ export function App() {
           entityId: resource.id,
           entityType: "resource",
           kind: "exercise_progress",
+          markdown,
+          plainText: markdown,
+        });
+      },
+      { preserveScroll: true },
+    );
+  }
+
+  function handleExerciseReviewChange(
+    task: Course["days"][number]["sections"][number]["tasks"][number],
+    progress: ExerciseReviewProgress,
+  ) {
+    if (!workspace) return;
+    const note = task.notes.find((item) => item.kind === "exercise_review");
+    const markdown = serializeExerciseReviewProgress(progress);
+    void runMutation(
+      async () => {
+        await upsertNote({
+          courseId: workspace.id,
+          noteId: note?.id,
+          noteRevision: note?.revision,
+          documentRevision: note?.document.revision,
+          entityId: task.id,
+          entityType: "task",
+          kind: "exercise_review",
           markdown,
           plainText: markdown,
         });
@@ -1650,6 +1679,7 @@ export function App() {
           onChapterProgressChange={handleResourceChapterProgressChange}
           onDayClosedChange={handleDayClosedChange}
           onExerciseProgressChange={handleExerciseProgressChange}
+          onExerciseReviewChange={handleExerciseReviewChange}
           onDayNoteSave={handleDayNoteSave}
           onCreateCapture={handleCreateResourceCapture}
           onNoteSave={handleNoteSave}
