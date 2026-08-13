@@ -606,6 +606,46 @@ def test_qa_review_state_is_persisted_per_discussion_question(
     assert review.message_revision == message.revision
 
 
+def test_qa_review_accepts_a_companion_capture(tmp_path: Path) -> None:
+    """A mapped QA group may be rooted in a screenshot or highlight capture."""
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        capture = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="highlight",
+                markdown="Context attached to a handwritten question",
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+            ),
+        )
+        message = create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown="# Answer\n\nTutor response.",
+            ),
+        )
+        review_discussion_qa(
+            connection,
+            discussion.id,
+            DiscussionQaReviewCommand(
+                message_id=message.id,
+                question_ids=[capture.id],
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+
+    assert workspace.discussions[0].qa_reviews[0].annotation_id == capture.id
+
+
 def test_prompt_discussion_skips_annotations_deleted_after_prompt_creation(
     tmp_path: Path,
 ) -> None:

@@ -194,6 +194,55 @@ describe("focused discussion QA review units", () => {
     ]);
   });
 
+  it("recovers a parent thread from the selected answer when roots were not stored", () => {
+    const root = annotation("root-question");
+    const followup = annotation("legacy-followup", {
+      anchor: {
+        anchorType: "discussion_selection",
+        discussionMessageId: "message-1",
+        metadata: {},
+        quote: "The target itself keeps changing randomly.",
+      },
+      origin: "discussion_review_followup",
+    });
+    const first = {
+      id: "discussion-1",
+      messages: [{
+        annotationLinks: [{ annotationId: root.id, relation: "answers" }],
+        body: {
+          markdown: "## Q-001\n\nThe target itself keeps changing randomly.",
+        },
+        createdAt: "2026-07-23T01:00:00Z",
+        id: "message-1",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [root.id],
+      questionLabels: [{ annotationIds: [root.id], label: "Q-001" }],
+    } as unknown as Discussion;
+    const second = {
+      id: "discussion-2",
+      messages: [{
+        annotationLinks: [{ annotationId: followup.id, relation: "answers" }],
+        body: { markdown: "## Q-098\n\nThe refined answer." },
+        createdAt: "2026-07-23T02:00:00Z",
+        id: "message-2",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [followup.id],
+      questionLabels: [{ annotationIds: [followup.id], label: "Q-098" }],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads([first, second], [root, followup], second);
+
+    expect(threads).toHaveLength(1);
+    expect(threads[0].rootQuestions?.map((item) => item.id)).toEqual([root.id]);
+    expect(threads[0].answers).toHaveLength(2);
+  });
+
   it("restores every first-round QA thread when opening a follow-up discussion", () => {
     const firstRoot = annotation("first-root");
     const secondRoot = annotation("second-root");
@@ -250,5 +299,39 @@ describe("focused discussion QA review units", () => {
       firstRoot.id,
       secondRoot.id,
     ]);
+  });
+
+  it("does not let polluted message links expand a prompt batch", () => {
+    const first = annotation("first");
+    const second = annotation("second");
+    const leaked = annotation("old-day-four");
+    const active = {
+      id: "active",
+      messages: [{
+        annotationLinks: [first, second, leaked].map((item) => ({
+          annotationId: item.id,
+          relation: "answers",
+        })),
+        body: { markdown: "## Q-001\n\nFirst.\n\n## Q-002\n\nSecond." },
+        createdAt: "2026-07-23T01:00:00Z",
+        id: "response",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [first.id, second.id, leaked.id],
+      questionLabels: [
+        { annotationIds: [first.id], label: "Q-001" },
+        { annotationIds: [second.id], label: "Q-002" },
+      ],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads([active], [first, second, leaked], active);
+
+    expect(
+      threads.flatMap((item) => item.rootQuestions?.map((question) => question.id)),
+    ).toEqual(expect.arrayContaining([first.id, second.id]));
+    expect(threads.flatMap((item) => item.questions.map((question) => question.id)))
+      .not.toContain(leaked.id);
   });
 });

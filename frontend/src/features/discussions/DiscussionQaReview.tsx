@@ -581,17 +581,15 @@ export function DiscussionQaReview({
     () => discussionQaSections(discussion, course.annotations),
     [course.annotations, discussion],
   );
+  const courseSections = useMemo(
+    () =>
+      course.discussions.flatMap((item) =>
+        discussionQaSections(item, course.annotations),
+      ),
+    [course.annotations, course.discussions],
+  );
   const [hiddenSectionIds, setHiddenSectionIds] = useState<Set<string>>(
     () => new Set(),
-  );
-  const sections = useMemo(
-    () =>
-      parsedSections.filter(
-        (section) =>
-          section.questionIds.length > 0 &&
-          !hiddenSectionIds.has(section.id),
-      ),
-    [hiddenSectionIds, parsedSections],
   );
   const annotationById = useMemo(
     () => new Map(course.annotations.map((item) => [item.id, item])),
@@ -603,8 +601,12 @@ export function DiscussionQaReview({
   );
   const labelsByAnnotationId = useMemo(() => {
     const labels = new Map<string, string>();
-    discussion.questionLabels.forEach((item) =>
-      item.annotationIds.forEach((annotationId) => labels.set(annotationId, item.label)),
+    course.discussions.forEach((item) =>
+      item.questionLabels.forEach((label) =>
+        label.annotationIds.forEach((annotationId) =>
+          labels.set(annotationId, label.label),
+        ),
+      ),
     );
     const discussionMessageIds = new Set(
       discussion.messages.map((message) => message.id),
@@ -634,7 +636,7 @@ export function DiscussionQaReview({
       }
     });
     return labels;
-  }, [course.annotations, discussion.messages, discussion.questionLabels]);
+  }, [course.annotations, course.discussions, discussion.messages, discussion.questionLabels]);
   const messageById = useMemo(
     () =>
       new Map(
@@ -653,19 +655,48 @@ export function DiscussionQaReview({
       ),
     [course.discussions],
   );
+  const allItems = useMemo(
+    () =>
+      qaReviewThreads(course.discussions, course.annotations, discussion).filter(
+        (item) =>
+          !item.answers?.every((answer) => hiddenSectionIds.has(answer.section.id)),
+      ),
+    [course.annotations, course.discussions, discussion, hiddenSectionIds],
+  );
+  const editableMessageIds = useMemo(
+    () =>
+      new Set(
+        allItems.flatMap((item) =>
+          (item.answers ?? []).map((answer) => answer.section.messageId),
+        ),
+      ),
+    [allItems],
+  );
+  const editableSections = useMemo(
+    () =>
+      courseSections.filter(
+        (section) =>
+          editableMessageIds.has(section.messageId) &&
+          !hiddenSectionIds.has(section.id),
+      ),
+    [courseSections, editableMessageIds, hiddenSectionIds],
+  );
   const sectionsByMessage = useMemo(
     () =>
-      sections.reduce((groups, section) => {
+      editableSections.reduce((groups, section) => {
         const current = groups.get(section.messageId) ?? [];
         current.push(section);
         groups.set(section.messageId, current);
         return groups;
       }, new Map<string, DiscussionQaSection[]>()),
-    [sections],
+    [editableSections],
   );
   const initialSectionDrafts = useMemo(
-    () => new Map(sections.map((section) => [section.id, section.bodyMarkdown])),
-    [sections],
+    () =>
+      new Map(
+        editableSections.map((section) => [section.id, section.bodyMarkdown]),
+      ),
+    [editableSections],
   );
   const [sectionDrafts, setSectionDrafts] = useState(
     () => new Map(initialSectionDrafts),
@@ -688,14 +719,6 @@ export function DiscussionQaReview({
   const [savedPulse, setSavedPulse] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDeleteAnswer, setConfirmDeleteAnswer] = useState(false);
-  const allItems = useMemo(
-    () =>
-      qaReviewThreads(course.discussions, course.annotations, discussion).filter(
-        (item) =>
-          !item.answers?.every((answer) => hiddenSectionIds.has(answer.section.id)),
-      ),
-    [course.annotations, course.discussions, discussion, hiddenSectionIds],
-  );
   const visibleItems = useMemo(
     () =>
       openQuestionsOnly

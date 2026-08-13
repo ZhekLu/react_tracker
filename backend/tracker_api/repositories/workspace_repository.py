@@ -4326,7 +4326,6 @@ def review_discussion_qa(
             """
             SELECT id FROM annotations
             WHERE id = :annotation_id AND deleted_at IS NULL
-              AND kind IN ('question', 'todo')
             """,
             {"annotation_id": annotation_id},
         )

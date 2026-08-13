@@ -47,6 +47,14 @@ function rootQuestionIds(
   return annotation.origin === "discussion_review_followup" ? [] : [annotation.id];
 }
 
+function comparableSelection(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\\[a-z]+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 class QuestionComponents {
   private readonly parent = new Map<string, string>();
 
@@ -192,6 +200,41 @@ export function qaReviewThreads(
       rootQuestionIds(annotation, annotationById),
     );
   });
+  // A follow-up is a child of the answer section it comments on. New captures
+  // persist rootQuestionIds directly; for already-created captures, recover the
+  // same relation from the immutable parent message + selected answer text.
+  // This is a structural join, never a global Q-label join.
+  annotations
+    .filter(
+      (annotation) =>
+        annotation.origin === "discussion_review_followup" &&
+        !(rootsByAnnotationId.get(annotation.id) ?? []).length &&
+        Boolean(annotation.anchor?.discussionMessageId),
+    )
+    .forEach((annotation) => {
+      const selection = comparableSelection(annotation.anchor?.quote ?? "");
+      if (!selection) return;
+      const parentSections = sectionRecords.filter(
+        ({ section }) =>
+          section.messageId === annotation.anchor?.discussionMessageId,
+      );
+      const parent = parentSections.find(({ section }) => {
+        const body = comparableSelection(section.bodyMarkdown);
+        return (
+          body.includes(selection) ||
+          (selection.length > 48 && body.includes(selection.slice(0, 96)))
+        );
+      });
+      if (!parent) return;
+      const inferredRoots = [...new Set(
+        parent.section.questionIds.flatMap(
+          (id) => rootsByAnnotationId.get(id) ?? [],
+        ),
+      )];
+      if (inferredRoots.length) {
+        rootsByAnnotationId.set(annotation.id, inferredRoots);
+      }
+    });
 
   const components = new QuestionComponents();
   sectionRecords.forEach(({ section }) => {
@@ -202,12 +245,30 @@ export function qaReviewThreads(
     components.union(roots);
   });
 
+  const promptQuestionIds = activeDiscussion.questionLabels.flatMap(
+    (item) => item.annotationIds,
+  );
+  const immutableScopeIds = promptQuestionIds.length
+    ? promptQuestionIds
+    : activeDiscussion.questionIds;
+  const activeSectionQuestionIds = sectionRecords
+    .filter(({ discussionId }) => discussionId === activeDiscussion.id)
+    .flatMap(({ section }) => section.questionIds);
+  const mappedFollowupIds = activeSectionQuestionIds.filter(
+    (id) =>
+      annotationById.get(id)?.origin === "discussion_review_followup" &&
+      (rootsByAnnotationId.get(id) ?? []).length > 0,
+  );
+  // Prompt-batch items are the immutable boundary. Historical message links and
+  // the denormalized discussion.questionIds list can contain captures imported
+  // by older mapping code, so neither is allowed to expand the session. A
+  // follow-up may expand it only when an answer section in this discussion was
+  // structurally mapped to that follow-up's UUID. This supports a later response
+  // round whose parent answer lives in another discussion without trusting a
+  // reused Q-### display label or a stale annotation link.
   const activeQuestionIds = new Set([
-    ...activeDiscussion.questionIds,
-    ...activeDiscussion.questionLabels.flatMap((item) => item.annotationIds),
-    ...activeDiscussion.messages.flatMap((message) =>
-      message.annotationLinks.map((link) => link.annotationId),
-    ),
+    ...immutableScopeIds,
+    ...mappedFollowupIds,
   ]);
   const activeRoots = new Set(
     [...activeQuestionIds].flatMap((id) => rootsByAnnotationId.get(id) ?? []),
