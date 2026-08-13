@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,13 @@ class ExerciseScreenshotBundle:
     exercises: list[str]
     screenshots: list[ExerciseScreenshot]
     warnings: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class ExerciseStatementImage:
+    content: bytes
+    exercise: str
+    page: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +148,100 @@ def _exercise_locations(document: Any) -> list[ExerciseLocation]:
                 )
             )
     return sorted(locations, key=lambda item: (item.page, item.rect[1]))
+
+
+@lru_cache(maxsize=16)
+def _cached_exercise_locations(
+    source_path: str,
+    modified_ns: int,
+) -> tuple[ExerciseLocation, ...]:
+    """Scan a book once per server process and PDF revision.
+
+    Exercise QA asks for many statements from the same chapter in quick
+    succession.  Searching every page again for every arrow press made that
+    workflow needlessly slow; the file mtime keeps this cache safe when the
+    annotated cloud copy is refreshed.
+    """
+
+    del modified_ns
+    try:
+        document: Any = pymupdf.open(source_path)  # type: ignore[no-untyped-call]
+    except Exception as error:
+        raise ExerciseSolutionError(f"Could not read {source_path}.") from error
+    try:
+        return tuple(_exercise_locations(document))
+    finally:
+        document.close()
+
+
+def render_exercise_statement(
+    connection: Connection,
+    task_id: str,
+    exercise: str,
+) -> ExerciseStatementImage:
+    """Render the full-width exercise statement when no annotation crop exists."""
+
+    task_title, resource_ids = _task_resource_ids(connection, task_id)
+    chapter = exercise.partition(".")[0]
+    if chapter not in exercise_chapters(task_title):
+        raise ExerciseSolutionError(
+            f"Exercise {exercise} is outside this task's book chapter."
+        )
+    source_path: Path | None = None
+    for resource_id in resource_ids:
+        local_path, _ = workspace_repository.resource_open_target(
+            connection,
+            resource_id,
+        )
+        if not local_path:
+            continue
+        try:
+            candidate = safe_local_resource_path(local_path)
+        except ResourceOpenError:
+            continue
+        if candidate.suffix.casefold() == ".pdf":
+            source_path = candidate
+            break
+    if source_path is None:
+        raise ExerciseSolutionError("No linked local PDF can locate this exercise.")
+
+    locations = _cached_exercise_locations(
+        str(source_path),
+        source_path.stat().st_mtime_ns,
+    )
+    location = next((item for item in locations if item.number == exercise), None)
+    if location is None:
+        raise ExerciseSolutionError(f"Exercise {exercise} was not found in the PDF.")
+    try:
+        document: Any = pymupdf.open(source_path)  # type: ignore[no-untyped-call]
+    except Exception as error:
+        raise ExerciseSolutionError(f"Could not read {source_path}.") from error
+    try:
+        page = document[location.page - 1]
+        following = next(
+            (
+                item
+                for item in locations
+                if item.page == location.page and item.rect[1] > location.rect[1]
+            ),
+            None,
+        )
+        top = max(0.0, location.rect[1] - 18.0)
+        bottom = min(
+            float(page.rect.height),
+            (following.rect[1] - 12.0) if following else (location.rect[3] + 260.0),
+        )
+        if bottom <= top + 48.0:
+            bottom = min(float(page.rect.height), top + 260.0)
+        clip = pymupdf.Rect(0.0, top, float(page.rect.width), bottom)
+        pixmap = page.get_pixmap(matrix=pymupdf.Matrix(3.0, 3.0), clip=clip, alpha=False)
+        return ExerciseStatementImage(
+            content=pixmap.tobytes("png"),
+            exercise=exercise,
+            page=location.page,
+        )
+    finally:
+        document.close()
 
 
 def _ink_pdf_rect(ink: DrawboardInk, page_height: float) -> list[float]:

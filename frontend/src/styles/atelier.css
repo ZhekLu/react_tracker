@@ -5661,7 +5661,7 @@ button.taskMetaBadge:disabled {
   padding: 11px 16px;
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: auto minmax(170px, auto) minmax(180px, 1fr) auto auto;
+  grid-template-columns: auto minmax(170px, auto) minmax(180px, 1fr) auto auto auto;
   align-items: center;
   gap: 14px;
 }
@@ -5678,6 +5678,15 @@ button.taskMetaBadge:disabled {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: white;
+}
+
+.exerciseQaHeader > .exerciseQaPaste {
+  width: auto;
+  padding: 0 10px;
+  color: #6744b4;
+  font-size: 8px;
+  font-weight: 850;
+  white-space: nowrap;
 }
 
 .exerciseQaProgress {
@@ -5731,6 +5740,10 @@ button.taskMetaBadge:disabled {
   display: block;
 }
 
+.exerciseQaSource > img + img {
+  border-top: 6px solid var(--line);
+}
+
 .exerciseQaSource > blockquote {
   margin: 10px;
   padding: 8px 10px;
@@ -5766,10 +5779,41 @@ button.taskMetaBadge:disabled {
 .exerciseQaStateButtons .understood.active { color: #087d52; background: #e3faef; border-color: #6fcaa3; }
 .exerciseQaStateButtons .skipped.active { color: #6d6a77; background: #eeedf1; border-color: #bab7c1; }
 
-.exerciseQaTutorAnswer { padding: 12px 14px; }
-.exerciseQaTutorAnswer + .exerciseQaTutorAnswer { border-top: 1px solid var(--line); }
-.exerciseQaTutorAnswer > small { color: #7653c8; font-weight: 850; text-transform: uppercase; }
-.exerciseQaTutorAnswer > .markdownMath { margin-top: 8px; font-size: 11px; line-height: 1.6; }
+.exerciseQaAnswers > .entityNoteEditor {
+  margin: 10px;
+  border: 1px solid var(--line);
+}
+
+.exerciseQaImportMessage {
+  margin: 8px 10px 0;
+  padding: 7px 9px;
+  border-radius: 9px;
+  color: #5e459a;
+  background: #f3efff;
+  font-size: 8px;
+  font-weight: 750;
+}
+
+.qaFollowupActions {
+  margin-top: 7px;
+  display: flex;
+  gap: 6px;
+}
+
+.qaFollowupActions button {
+  min-height: 25px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: white;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.qaFollowupActions button.danger {
+  color: #a23d3d;
+  border-color: #eac1bd;
+}
 
 .exerciseQaEmpty {
   min-height: 160px;

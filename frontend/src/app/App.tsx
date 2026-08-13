@@ -69,6 +69,7 @@ import {
   serializeExerciseProgress,
 } from "../lib/exerciseProgress";
 import {
+  exerciseNumbersInText,
   serializeExerciseReviewProgress,
   type ExerciseReviewProgress,
 } from "../lib/exerciseReview";
@@ -1340,10 +1341,18 @@ export function App() {
               link.entityType === "discussion_message" &&
               link.entityId === input.sourceMessageId,
           ) &&
-          note.links.some(
-            (link) =>
-              link.entityType === "annotation" &&
-              questionIds.has(link.entityId),
+          (
+            (questionIds.size > 0 &&
+              note.links.some(
+                (link) =>
+                  link.entityType === "annotation" &&
+                  questionIds.has(link.entityId),
+              )) ||
+            input.exerciseLabels.every((label) =>
+              exerciseNumbersInText(
+                note.document.markdown ?? note.document.plainText,
+              ).includes(label.replace(/^Exercise\s+/i, "")),
+            )
           ),
       );
       await upsertNote({

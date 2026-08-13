@@ -405,11 +405,11 @@ function TaskRow({
                 <Images size={11} /> Screenshot solutions
               </button>
             ) : null}
-            {exerciseSolutionNotes.length && exerciseBook ? (
+            {exerciseNumbers.length && exerciseBook ? (
               <button
                 className="taskMetaBadge exerciseQaLaunch"
                 onClick={() => setExerciseQaOpen(true)}
-                title="Review handwritten exercises beside mapped tutor answers"
+                title="Review book exercises, paste tutor answers, or add a solution manually"
                 type="button"
               >
                 <Sparkles size={11} /> QA {exerciseStats.requiredReviewed}/{exerciseStats.requiredTotal} required · {exerciseStats.totalReviewed}/{exerciseStats.total} chapter
@@ -612,6 +612,8 @@ function TaskRow({
           <ExerciseQaReview
             onChange={(progress) => onExerciseReviewChange(task, progress)}
             onClose={() => setExerciseQaOpen(false)}
+            onNoteDelete={onNoteDelete}
+            onNoteSave={onNoteSave}
             resource={exerciseBook}
             task={task}
           />

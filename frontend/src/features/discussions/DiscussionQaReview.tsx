@@ -210,7 +210,10 @@ function exerciseTaskOptions(
   const all = course.days.flatMap((day) =>
     day.sections.flatMap((section) =>
       section.tasks
-        .filter((task) => task.resourceIds.some((id) => resourceIds.has(id)))
+        .filter(
+          (task) =>
+            !resourceIds.size || task.resourceIds.some((id) => resourceIds.has(id)),
+        )
         .map((task) => ({ dayNumber: day.number, dayTitle: day.title, task })),
     ),
   );
@@ -257,15 +260,20 @@ function ExerciseSolutionMapper({
     task.notes.some(
       (note) =>
         note.kind === "exercise_solution" &&
-        note.links.some(
-          (link) =>
-            link.entityType === "annotation" &&
-            item.questions.some((question) => question.id === link.entityId),
+        (
+          note.links.some(
+            (link) =>
+              link.entityType === "annotation" &&
+              item.questions.some((question) => question.id === link.entityId),
+          ) ||
+          initialLabels.every((label) =>
+            (note.document.markdown ?? note.document.plainText).includes(label),
+          )
         ),
     ),
   );
 
-  if (!item.section || !item.questions.length || !options.length) return null;
+  if (!item.section || !options.length) return null;
 
   function save() {
     const labels = exerciseLabelsFromInput(exerciseLabelInput);
@@ -719,14 +727,20 @@ export function DiscussionQaReview({
   const [savedPulse, setSavedPulse] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDeleteAnswer, setConfirmDeleteAnswer] = useState(false);
+  const [editingFollowupId, setEditingFollowupId] = useState<string | null>(null);
   const visibleItems = useMemo(
     () =>
       openQuestionsOnly
-        ? allItems.filter((item) =>
-            item.questions.some(
-              (question) =>
-                question.status === "open" && !question.postponed,
-            ),
+        ? allItems.filter(
+            (item) =>
+              !item.questions.length ||
+              inferredExerciseLabels(item).some((label) =>
+                /^Exercise\s+\d/i.test(label),
+              ) ||
+              item.questions.some(
+                (question) =>
+                  question.status === "open" && !question.postponed,
+              ),
           )
         : allItems,
     [allItems, openQuestionsOnly],
@@ -784,12 +798,13 @@ export function DiscussionQaReview({
           ),
       )
     : undefined;
-  const reviewUnits = allItems.filter((item) => item.questions.length);
+  const reviewUnits = allItems;
   const visitedUnits = reviewUnits.filter((item) =>
     visitedItemIds.has(item.id) ||
-    item.questions.every((question) =>
-      qaReviewByAnnotationId.has(question.id),
-    ),
+    (item.questions.length > 0 &&
+      item.questions.every((question) =>
+        qaReviewByAnnotationId.has(question.id),
+      )),
   ).length;
   const remainingOpenQuestions = course.stats.openQuestionCount;
   const completionRatio = reviewUnits.length
@@ -1082,20 +1097,6 @@ export function DiscussionQaReview({
               <input
                 checked={openQuestionsOnly}
                 onChange={(event) => {
-                  const nextVisibleItems = event.target.checked
-                    ? allItems.filter((item) =>
-                        item.questions.some(
-                          (question) =>
-                            question.status === "open" && !question.postponed,
-                        ),
-                      )
-                    : allItems;
-                  const nextItem = nextVisibleItems[0];
-                  if (nextItem) {
-                    setVisitedItemIds(
-                      (current) => new Set([...current, nextItem.id]),
-                    );
-                  }
                   setOpenQuestionsOnly(event.target.checked);
                   setActiveIndex(0);
                 }}
@@ -1262,7 +1263,42 @@ export function DiscussionQaReview({
                       ) : null}
                       <div className="qaFollowupAsked">
                         <strong>Your follow-up</strong>
-                        <MarkdownMath>{annotationDisplayText(entry.followup)}</MarkdownMath>
+                        {editingFollowupId === entry.followup.id ? (
+                          <DiscussionMarkdownSurface
+                            editable
+                            markdown={annotationDisplayText(entry.followup)}
+                            onCancel={() => setEditingFollowupId(null)}
+                            onSave={(markdown) => {
+                              onAnnotationChange(entry.followup, {
+                                markdown,
+                                plainText: markdown,
+                              });
+                              setEditingFollowupId(null);
+                            }}
+                            placeholder="Refine this follow-up question…"
+                          />
+                        ) : (
+                          <>
+                            <MarkdownMath>{annotationDisplayText(entry.followup)}</MarkdownMath>
+                            <div className="qaFollowupActions">
+                              <button
+                                onClick={() => setEditingFollowupId(entry.followup.id)}
+                                type="button"
+                              >
+                                Edit follow-up
+                              </button>
+                              <button
+                                className="danger"
+                                onClick={() =>
+                                  onAnnotationChange(entry.followup, { status: "archived" })
+                                }
+                                type="button"
+                              >
+                                Delete follow-up
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </details>
                   ))}

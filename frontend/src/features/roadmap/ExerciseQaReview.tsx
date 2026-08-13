@@ -7,10 +7,13 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { annotationImageUrl, pdfReaderPageUrl } from "../../api/trackerApi";
-import { MarkdownMath } from "../../components/content/MarkdownMath";
+import { taskExerciseSourceUrl } from "../../api/trackerApi";
+import { metadataText } from "../../components/annotations/annotationDisplay";
+import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
+import { importPastedMarkdown } from "../../lib/discussionImport";
+import { discussionAnswerSections } from "../../lib/discussionText";
 import {
   annotationExerciseNumbers,
   exerciseNumbersForTask,
@@ -20,11 +23,19 @@ import {
   type ExerciseReviewProgress,
   type ExerciseReviewStatus,
 } from "../../lib/exerciseReview";
-import type { Annotation, Resource, Task } from "../../types/tracker";
+import type {
+  Annotation,
+  EntityNoteSaveInput,
+  Note,
+  Resource,
+  Task,
+} from "../../types/tracker";
 
 type ExerciseQaReviewProps = {
   onChange: (progress: ExerciseReviewProgress) => void;
   onClose: () => void;
+  onNoteDelete: (note: Note) => void;
+  onNoteSave: (input: EntityNoteSaveInput) => void;
   resource: Resource;
   task: Task;
 };
@@ -56,9 +67,28 @@ function sourceAnnotation(
   );
 }
 
+function exerciseSourceImages(resource: Resource, exercise: string): string[] {
+  return [...new Set(
+    resource.annotations
+      .filter((annotation) => annotationExerciseNumbers(annotation).includes(exercise))
+      .flatMap((annotation) => [
+        metadataText(annotation, "contextImageUrl"),
+      ])
+      .filter(Boolean),
+  )];
+}
+
+function solutionHeading(exercises: string[]): string {
+  return exercises.length === 1
+    ? `Exercise ${exercises[0]}`
+    : `Exercises ${exercises.join(", ")}`;
+}
+
 export function ExerciseQaReview({
   onChange,
   onClose,
+  onNoteDelete,
+  onNoteSave,
   resource,
   task,
 }: ExerciseQaReviewProps) {
@@ -69,12 +99,17 @@ export function ExerciseQaReview({
   const reviewNote = task.notes.find((note) => note.kind === "exercise_review");
   const [progress, setProgress] = useState(() => parseExerciseReviewProgress(reviewNote));
   const [activeIndex, setActiveIndex] = useState(0);
+  const [importMessage, setImportMessage] = useState("");
   const exercise = allNumbers[activeIndex];
   const notes = answerNotes.filter((note) =>
     exerciseLabel(note.document.markdown ?? note.document.plainText).includes(exercise),
   );
   const source = sourceAnnotation(resource, exercise);
   const pageNumber = pageForExercise(resource, exercise);
+  const contextImages = useMemo(
+    () => exerciseSourceImages(resource, exercise),
+    [exercise, resource],
+  );
   const counts = exerciseReviewCounts(allNumbers, taskNumbers, progress);
   const completion = counts.total ? counts.totalReviewed / counts.total : 0;
 
@@ -83,6 +118,51 @@ export function ExerciseQaReview({
     setProgress(next);
     onChange(next);
     if (activeIndex < allNumbers.length - 1) setActiveIndex(activeIndex + 1);
+  }
+
+  function saveSolution(note: Note | undefined, markdown: string) {
+    const labels = exerciseNumbersInText(markdown);
+    const content = labels.length
+      ? markdown
+      : `# Exercise ${exercise}\n\n${markdown}`;
+    onNoteSave({
+      entityId: task.id,
+      entityType: "task",
+      html: content,
+      kind: "exercise_solution",
+      note,
+    });
+  }
+
+  async function pasteTutorSolutions() {
+    try {
+      const imported = importPastedMarkdown(await navigator.clipboard.readText());
+      const parsed = discussionAnswerSections(imported);
+      const sections = parsed.sections.length
+        ? parsed.sections
+        : [{ markdown: imported }];
+      const mapped = sections.flatMap((section) => {
+        const numbers = exerciseNumbersInText(section.markdown);
+        return numbers.length ? [{ numbers, markdown: section.markdown }] : [];
+      });
+      if (!mapped.length) {
+        setImportMessage("No Exercise n.m headings were found in the clipboard.");
+        return;
+      }
+      mapped.forEach(({ numbers, markdown }) =>
+        onNoteSave({
+          entityId: task.id,
+          entityType: "task",
+          html: `# ${solutionHeading(numbers)} — tutor material\n\n${markdown}`,
+          kind: "exercise_solution",
+        }),
+      );
+      setImportMessage(
+        `${mapped.length} tutor section${mapped.length === 1 ? "" : "s"} mapped.`,
+      );
+    } catch {
+      setImportMessage("Clipboard access failed. Paste into the open exercise editor instead.");
+    }
   }
 
   return createPortal(
@@ -98,22 +178,26 @@ export function ExerciseQaReview({
           </div>
           <div className="exerciseQaProgress"><span style={{ width: `${Math.max(3, completion * 100)}%` }} /></div>
           <strong>{Math.round(completion * 100)}%</strong>
+          <button className="exerciseQaPaste" onClick={pasteTutorSolutions} type="button">
+            Paste tutor solutions
+          </button>
           <button aria-label="Close exercise QA" onClick={onClose} type="button"><X size={18} /></button>
         </header>
         {exercise ? (
           <div className="exerciseQaWorkspace">
             <section className="exerciseQaSource">
-              <header><strong>Exercise {exercise}</strong><span>{pageNumber ? `p. ${pageNumber}` : "No source page"}</span></header>
-              {pageNumber ? (
+              <header><strong>Exercise {exercise}</strong><span>{pageNumber ? `p. ${pageNumber}` : "Book source"}</span></header>
+              {contextImages.length ? contextImages.map((image, index) => (
                 <img
-                  alt={`Annotated book page for Exercise ${exercise}`}
-                  onError={(event) => {
-                    event.currentTarget.src = pdfReaderPageUrl(resource.id, pageNumber);
-                  }}
-                  src={annotationImageUrl(resource.id, `drawboard-page-${pageNumber}`)}
+                  alt={`Annotated solution area ${index + 1} for Exercise ${exercise}`}
+                  key={image}
+                  src={image}
                 />
-              ) : (
-                <div className="exerciseQaEmpty">No collected book annotation locates this exercise yet.</div>
+              )) : (
+                <img
+                  alt={`Book statement for Exercise ${exercise}`}
+                  src={taskExerciseSourceUrl(task.id, exercise)}
+                />
               )}
               {source?.anchor?.quote ? <blockquote>{source.anchor.quote}</blockquote> : null}
             </section>
@@ -126,12 +210,25 @@ export function ExerciseQaReview({
                   <button className={progress[exercise] === "skipped" ? "skipped active" : "skipped"} onClick={() => setStatus("skipped")} type="button"><FastForward size={14} /> Skip</button>
                 </div>
               </header>
+              {importMessage ? <p className="exerciseQaImportMessage">{importMessage}</p> : null}
               {notes.length ? notes.map((note, index) => (
-                <article className="exerciseQaTutorAnswer" key={note.id}>
-                  <small>Tutor answer {notes.length > 1 ? index + 1 : ""}</small>
-                  <MarkdownMath>{note.document.markdown ?? note.document.plainText}</MarkdownMath>
-                </article>
-              )) : <div className="exerciseQaEmpty">No tutor answer is mapped yet. Mark it later, or skip it if it is unnecessary.</div>}
+                <EntityNoteEditor
+                  deleteLabel="Unlink tutor answer"
+                  key={`${note.id}:${note.revision}`}
+                  label={`Tutor answer${notes.length > 1 ? ` ${index + 1}` : ""}`}
+                  note={note}
+                  onDelete={onNoteDelete}
+                  onSave={(markdown) => saveSolution(note, markdown)}
+                  placeholder="Edit the tutor solution, formulas, or useful highlights…"
+                />
+              )) : (
+                <EntityNoteEditor
+                  key={`new:${exercise}`}
+                  label="Add tutor answer"
+                  onSave={(markdown) => saveSolution(undefined, markdown)}
+                  placeholder="Paste or write the tutor solution for this exercise…"
+                />
+              )}
             </section>
           </div>
         ) : <div className="exerciseQaEmpty">Collect or map chapter exercises first.</div>}

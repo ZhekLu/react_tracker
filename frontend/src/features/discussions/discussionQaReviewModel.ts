@@ -188,10 +188,12 @@ export function qaReviewThreads(
       discussion.messages.map((message) => [message.id, message.createdAt] as const),
     ),
   );
-  const sectionRecords = discussions.flatMap((discussion) =>
+  const allSectionRecords = discussions.flatMap((discussion) =>
     discussionQaSections(discussion, annotations)
-      .filter((section) => section.questionIds.length > 0)
       .map((section) => ({ discussionId: discussion.id, section })),
+  );
+  const sectionRecords = allSectionRecords.filter(
+    ({ section }) => section.questionIds.length > 0,
   );
   const rootsByAnnotationId = new Map<string, string[]>();
   annotations.forEach((annotation) => {
@@ -300,7 +302,7 @@ export function qaReviewThreads(
     groupedRoots.set(key, current);
   });
 
-  return [...groupedRoots.entries()]
+  const questionThreads = [...groupedRoots.entries()]
     .map(([componentId, rootIds]) => {
       const componentRootIds = [...new Set(rootIds)];
       const rootQuestions = componentRootIds
@@ -309,6 +311,7 @@ export function qaReviewThreads(
       const followups = annotations.filter(
         (annotation) =>
           annotation.origin === "discussion_review_followup" &&
+          annotation.status !== "archived" &&
           (rootsByAnnotationId.get(annotation.id) ?? []).some((id) =>
             componentRootIds.includes(id),
           ),
@@ -350,4 +353,39 @@ export function qaReviewThreads(
         ) || left.id.localeCompare(right.id)
       );
     });
+  // Tutor replies about exercises are useful even when the prompt was a free-form
+  // request rather than a Q-### batch. Keep those sections in the active QA
+  // session so they can be reviewed and mapped to the exercise task.
+  const mappedActiveSectionIds = new Set(
+    questionThreads.flatMap((item) =>
+      (item.answers ?? []).map((answer) => answer.section.id),
+    ),
+  );
+  const exerciseSections = allSectionRecords
+    .filter(
+      ({ discussionId, section }) =>
+        discussionId === activeDiscussion.id &&
+        !section.questionIds.length &&
+        !mappedActiveSectionIds.has(section.id) &&
+        /\bExercises?\s+\d+(?:\.\d+)+/i.test(
+          `${section.title}\n${section.bodyMarkdown}`,
+        ),
+    )
+    .map(({ discussionId, section }) => ({
+      answers: [{ discussionId, section }],
+      id: `exercise-section:${section.id}`,
+      questions: [],
+      rootQuestions: [],
+      section,
+      sectionDiscussionId: discussionId,
+    } satisfies QaReviewItem));
+  return [...questionThreads, ...exerciseSections].sort((left, right) => {
+    const leftAnswer = left.answers?.at(-1)?.section;
+    const rightAnswer = right.answers?.at(-1)?.section;
+    return (
+      (messageCreatedAt.get(leftAnswer?.messageId ?? "") ?? "").localeCompare(
+        messageCreatedAt.get(rightAnswer?.messageId ?? "") ?? "",
+      ) || left.id.localeCompare(right.id)
+    );
+  });
 }

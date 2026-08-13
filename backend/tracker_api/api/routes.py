@@ -61,6 +61,7 @@ from ..services.course_file_service import (
 from ..services.exercise_solution_service import (
     ExerciseSolutionError,
     prepare_exercise_solution_screenshots,
+    render_exercise_statement,
 )
 from ..services.pdf_annotation_service import (
     PdfAnnotationError,
@@ -479,6 +480,32 @@ def prepare_task_exercise_screenshots(
                 for item in bundle.screenshots
             ],
             warnings=bundle.warnings,
+        )
+    except (
+        ExerciseSolutionError,
+        workspace_repository.WorkspaceRepositoryError,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.get("/tasks/{task_id}/exercise-source/{exercise}")
+def task_exercise_source(
+    task_id: str,
+    exercise: str,
+    connection: Database,
+) -> Response:
+    try:
+        image = render_exercise_statement(connection, task_id, exercise)
+        return Response(
+            content=image.content,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "private, max-age=3600",
+                "X-Exercise-Page": str(image.page),
+            },
         )
     except (
         ExerciseSolutionError,

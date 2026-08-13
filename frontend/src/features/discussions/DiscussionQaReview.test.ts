@@ -334,4 +334,33 @@ describe("focused discussion QA review units", () => {
     expect(threads.flatMap((item) => item.questions.map((question) => question.id)))
       .not.toContain(leaked.id);
   });
+
+  it("keeps unlabelled tutor exercise sections reviewable and mappable", () => {
+    const discussion = {
+      id: "exercise-check",
+      messages: [{
+        annotationLinks: [],
+        body: {
+          markdown:
+            "### Exercise 6.3\n\nCorrect reasoning.\n\n### Exercise 6.4\n\nNeeds one correction.",
+        },
+        createdAt: "2026-07-23T01:00:00Z",
+        id: "exercise-response",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [],
+      questionLabels: [],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads([discussion], [], discussion);
+
+    expect(threads).toHaveLength(2);
+    expect(threads.every((item) => item.questions.length === 0)).toBe(true);
+    expect(threads.map((item) => inferredExerciseLabels(item))).toEqual([
+      ["Exercise 6.3"],
+      ["Exercise 6.4"],
+    ]);
+  });
 });

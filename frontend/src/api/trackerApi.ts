@@ -1218,6 +1218,10 @@ export async function prepareExerciseScreenshots(
   });
 }
 
+export function taskExerciseSourceUrl(taskId: string, exercise: string): string {
+  return `${API_BASE}/tasks/${encodeURIComponent(taskId)}/exercise-source/${encodeURIComponent(exercise)}`;
+}
+
 export async function openResource(resourceId: string): Promise<ResourceOpenResult> {
   const result = await requestJson<{
     resource_id: string;
