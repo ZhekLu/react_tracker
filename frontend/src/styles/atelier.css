@@ -5656,6 +5656,31 @@ button.taskMetaBadge:disabled {
   box-shadow: 0 22px 70px rgba(32, 61, 50, 0.16);
 }
 
+.exerciseQaSession:has(> .exerciseQaBulkEditor) {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.exerciseQaBulkEditor {
+  max-height: 44vh;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(110deg, #faf7ff, #f4fcf9);
+  overflow: auto;
+}
+
+.exerciseQaBulkEditor > header {
+  margin-bottom: 8px;
+}
+
+.exerciseQaBulkEditor > header div {
+  display: grid;
+  gap: 2px;
+}
+
+.exerciseQaBulkEditor > header small {
+  color: var(--muted);
+}
+
 .exerciseQaHeader {
   min-height: 70px;
   padding: 11px 16px;
@@ -5782,6 +5807,24 @@ button.taskMetaBadge:disabled {
 .exerciseQaAnswers > .entityNoteEditor {
   margin: 10px;
   border: 1px solid var(--line);
+}
+
+.noteSummaryDelete {
+  margin-left: 4px;
+  padding: 4px 6px;
+  border: 1px solid #ecc8c5;
+  border-radius: 7px;
+  background: #fff8f7;
+  color: #a33f3b;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.messageDeleteButton {
+  color: #a33f3b;
 }
 
 .exerciseQaImportMessage {

@@ -1471,6 +1471,16 @@ export async function updateDiscussionMessage(
   });
 }
 
+export async function deleteDiscussionMessage(
+  messageId: string,
+  revision: number,
+): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/discussion-messages/${messageId}`, {
+    body: JSON.stringify({ revision }),
+    method: "DELETE",
+  });
+}
+
 export async function reviewDiscussionMessage(
   messageId: string,
   input: DiscussionMessageReviewInput,

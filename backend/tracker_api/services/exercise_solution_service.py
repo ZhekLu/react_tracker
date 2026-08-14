@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from dataclasses import dataclass
@@ -57,6 +58,14 @@ class ExerciseStatementImage:
     content: bytes
     exercise: str
     page: int
+
+
+@dataclass(frozen=True, slots=True)
+class StoredExerciseImage:
+    image_id: str
+    ink_count: int
+    page_height: float
+    rect: tuple[float, float, float, float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +251,110 @@ def render_exercise_statement(
         )
     finally:
         document.close()
+
+
+def _stored_exercise_image(
+    candidates: list[StoredExerciseImage],
+    location: ExerciseLocation,
+) -> StoredExerciseImage | None:
+    """Choose the actual handwriting group spanning an exercise header.
+
+    Drawboard rectangles use a bottom-left origin while PyMuPDF exercise
+    locations use a top-left origin.  Matching these bands avoids mistaking an
+    equation reference such as ``(6.6)`` for the printed ``Exercise 6.6``.
+    """
+
+    matching: list[StoredExerciseImage] = []
+    for candidate in candidates:
+        pdf_rect = drawboard_rect_to_pdf(list(candidate.rect), candidate.page_height)
+        if pdf_rect[1] <= location.rect[3] + 14.0 and pdf_rect[3] >= location.rect[1] - 14.0:
+            matching.append(candidate)
+    if not matching:
+        return None
+    return max(
+        matching,
+        key=lambda item: (
+            item.ink_count,
+            drawboard_rect_to_pdf(list(item.rect), item.page_height)[3]
+            - drawboard_rect_to_pdf(list(item.rect), item.page_height)[1],
+        ),
+    )
+
+
+def render_exercise_source(
+    connection: Connection,
+    task_id: str,
+    exercise: str,
+) -> ExerciseStatementImage:
+    """Return one annotated handwriting group, falling back to the statement."""
+
+    task_title, resource_ids = _task_resource_ids(connection, task_id)
+    chapter = exercise.partition(".")[0]
+    if chapter not in exercise_chapters(task_title):
+        raise ExerciseSolutionError(
+            f"Exercise {exercise} is outside this task's book chapter."
+        )
+    for resource_id in resource_ids:
+        local_path, _ = workspace_repository.resource_open_target(
+            connection,
+            resource_id,
+        )
+        if not local_path:
+            continue
+        try:
+            source_path = safe_local_resource_path(local_path)
+        except ResourceOpenError:
+            continue
+        if source_path.suffix.casefold() != ".pdf":
+            continue
+        locations = _cached_exercise_locations(
+            str(source_path),
+            source_path.stat().st_mtime_ns,
+        )
+        location = next((item for item in locations if item.number == exercise), None)
+        if location is None:
+            continue
+        rows = connection.execute(
+            text(
+                """
+                SELECT aa.rect_json, aa.selector_json
+                FROM annotations a
+                JOIN annotation_anchors aa ON aa.annotation_id = a.id
+                WHERE a.resource_id = :resource_id
+                  AND a.deleted_at IS NULL
+                  AND a.origin = 'drawboard_cloud_ink'
+                  AND aa.page_number = :page
+                  AND json_extract(aa.selector_json, '$.contextImageUrl') IS NOT NULL
+                """
+            ),
+            {"resource_id": resource_id, "page": location.page},
+        ).mappings()
+        candidates: list[StoredExerciseImage] = []
+        for row in rows:
+            rect = json.loads(str(row["rect_json"] or "[]"))
+            selector = json.loads(str(row["selector_json"] or "{}"))
+            image_url = str(selector.get("contextImageUrl") or "")
+            image_match = re.search(r"/annotation-images/([^/?#]+)", image_url)
+            if not image_match or not isinstance(rect, list) or len(rect) != 4:
+                continue
+            candidates.append(
+                StoredExerciseImage(
+                    image_id=image_match.group(1),
+                    ink_count=int(selector.get("inkGroupSize") or 0),
+                    page_height=float(selector.get("pageHeight") or 0),
+                    rect=tuple(float(value) for value in rect),
+                )
+            )
+        selected = _stored_exercise_image(candidates, location)
+        if selected is not None:
+            image_path = annotation_image_path(resource_id, selected.image_id)
+            if image_path.is_file():
+                return ExerciseStatementImage(
+                    content=image_path.read_bytes(),
+                    exercise=exercise,
+                    page=location.page,
+                )
+    return render_exercise_statement(connection, task_id, exercise)
 
 
 def _ink_pdf_rect(ink: DrawboardInk, page_height: float) -> list[float]:

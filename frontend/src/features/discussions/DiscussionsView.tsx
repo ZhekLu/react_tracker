@@ -100,6 +100,7 @@ type DiscussionsViewProps = {
     markdown: string,
     questionIds: string[],
   ) => void;
+  onDeleteMessage: (message: DiscussionMessage) => void;
   onDeleteDiscussion: (discussion: Discussion) => void;
   onDiscussionStatusChange: (
     discussion: Discussion,
@@ -872,6 +873,7 @@ export function DiscussionsView({
   onCreateCapture,
   onCreateDiscussion,
   onDeleteAnswer,
+  onDeleteMessage,
   onDeleteDiscussion,
   onDiscussionStatusChange,
   onDiscussionAttentionChange,
@@ -887,6 +889,8 @@ export function DiscussionsView({
   onQaViewed,
 }: DiscussionsViewProps) {
   const [pendingDelete, setPendingDelete] = useState<Discussion | null>(null);
+  const [pendingMessageDelete, setPendingMessageDelete] =
+    useState<DiscussionMessage | null>(null);
   const [captureEditorResourceId, setCaptureEditorResourceId] = useState("");
   const [allCaptureResourceId, setAllCaptureResourceId] = useState("");
   const [editingMessageId, setEditingMessageId] = useState("");
@@ -1367,6 +1371,22 @@ export function DiscussionsView({
                             {editingMessageId === message.id ? "Cancel" : "Edit"}
                           </span>
                         </button>
+                        {message.role === "assistant" ? (
+                          <button
+                            aria-label="Delete tutor response fully"
+                            className="messageDeleteButton"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setPendingMessageDelete(message);
+                            }}
+                            title="Delete this complete tutor response"
+                            type="button"
+                          >
+                            <Trash2 size={12} />
+                            <span>Delete response</span>
+                          </button>
+                        ) : null}
                       </summary>
                       <DiscussionMessageContent
                           annotationById={annotationById}
@@ -1487,6 +1507,18 @@ export function DiscussionsView({
           title="Delete this discussion?"
         />
       ) : null}
+      {pendingMessageDelete ? (
+        <ConfirmDialog
+          confirmLabel="Delete response fully"
+          description="This complete tutor response will disappear, its mapped questions will reopen, and follow-ups/highlights created inside it will be removed."
+          onCancel={() => setPendingMessageDelete(null)}
+          onConfirm={() => {
+            onDeleteMessage(pendingMessageDelete);
+            setPendingMessageDelete(null);
+          }}
+          title="Delete this tutor response?"
+        />
+      ) : null}
       {discussion && qaReviewDiscussionId === discussion.id ? (
         <DiscussionQaReview
           course={course}
@@ -1494,6 +1526,7 @@ export function DiscussionsView({
           onAnnotationChange={onAnnotationChange}
           onClose={() => setQaReviewDiscussionId("")}
           onDeleteAnswer={onDeleteAnswer}
+          onDeleteMessage={onDeleteMessage}
           onMapExerciseSolution={onMapExerciseSolution}
           onToggleImportantAnswer={onToggleImportantAnswer}
           onQuestionLink={onQuestionLink}

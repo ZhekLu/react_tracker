@@ -13,6 +13,7 @@ import {
   createPromptBatch,
   deleteNote,
   deleteDiscussionAnswer,
+  deleteDiscussionMessage,
   deleteDiscussion,
   fetchCourses,
   fetchCourseWorkspace,
@@ -1325,6 +1326,15 @@ export function App() {
     });
   }
 
+  function handleDeleteDiscussionMessage(message: DiscussionMessage) {
+    void runMutation(async () => {
+      await deleteDiscussionMessage(message.id, message.revision);
+      setActionMessage(
+        "Tutor response deleted fully; its answered questions are open again.",
+      );
+    });
+  }
+
   function handleMapExerciseSolution(input: ExerciseSolutionMappingInput) {
     if (!workspace) return;
     void runMutation(async () => {
@@ -1801,6 +1811,7 @@ export function App() {
           focusedResourceId={focusedResourceId}
           focusedTaskId={focusedTaskId}
           onAddMessage={handleAddDiscussionMessage}
+          onDeleteMessage={handleDeleteDiscussionMessage}
           onUpdateMessage={handleUpdateDiscussionMessage}
           onAnnotationChange={handleAnnotationChange}
           onCreateCapture={handleCreateResourceCapture}

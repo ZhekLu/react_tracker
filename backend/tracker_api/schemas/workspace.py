@@ -546,6 +546,10 @@ class DiscussionMessageUpdateCommand(RevisionCommand):
     plain_text: str = ""
 
 
+class DiscussionMessageDeleteCommand(RevisionCommand):
+    pass
+
+
 class DiscussionReviewItem(StrictModel):
     kind: Literal["question", "highlight"]
     quote: str = Field(min_length=1, max_length=20_000)

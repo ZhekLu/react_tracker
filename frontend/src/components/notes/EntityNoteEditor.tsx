@@ -16,6 +16,8 @@ import { FileMentionChips } from "./FileMentionChips";
 import { highlightNoteMarkers } from "../../lib/noteMarkers";
 
 type EntityNoteEditorProps = {
+  defaultEditing?: boolean;
+  defaultOpen?: boolean;
   label?: string;
   note?: Note;
   placeholder: string;
@@ -23,6 +25,7 @@ type EntityNoteEditorProps = {
   onAttentionChange?: (note: Note, attention: Attention) => void;
   onDelete?: (note: Note) => void;
   deleteLabel?: string;
+  showDeleteInSummary?: boolean;
 };
 
 function noteContent(note?: Note): string {
@@ -36,18 +39,21 @@ function noteContentType(content: string): "html" | "markdown" {
 }
 
 export function EntityNoteEditor({
+  defaultEditing = false,
+  defaultOpen = false,
   label = "Notes",
   note,
   placeholder,
   onAttentionChange,
   onDelete,
   deleteLabel = "Delete note",
+  showDeleteInSummary = false,
   onSave,
 }: EntityNoteEditorProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [draft, setDraft] = useState(noteContent(note));
   const [savedContent, setSavedContent] = useState(noteContent(note));
-  const [editing, setEditing] = useState(!savedContent.trim());
+  const [editing, setEditing] = useState(defaultEditing || !savedContent.trim());
   const [highlightsOnly, setHighlightsOnly] = useState(false);
   const highlights = discussionHighlights(savedContent);
   const contentType = noteContentType(savedContent);
@@ -63,6 +69,7 @@ export function EntityNoteEditor({
   return (
     <details
       className={`entityNoteEditor ${highlightsOnly ? "highlightsOnly" : ""}`}
+      open={open}
       onToggle={(event) => {
         const nextOpen = event.currentTarget.open;
         setOpen(nextOpen);
@@ -118,6 +125,22 @@ export function EntityNoteEditor({
             type="button"
           >
             <Highlighter size={12} />
+          </button>
+        ) : null}
+        {showDeleteInSummary && note && onDelete ? (
+          <button
+            aria-label={deleteLabel}
+            className="noteSummaryDelete"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onDelete(note);
+            }}
+            title={deleteLabel}
+            type="button"
+          >
+            <Trash2 size={12} />
+            <span>{deleteLabel}</span>
           </button>
         ) : null}
       </summary>

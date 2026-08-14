@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from sqlalchemy import Connection, RowMapping, text
+from sqlalchemy import Connection, RowMapping, bindparam, text
 
 from ..schemas.workspace import (
     Annotation,
@@ -34,6 +34,7 @@ from ..schemas.workspace import (
     DiscussionMessageAnnotation,
     DiscussionMessageAnnotationInput,
     DiscussionMessageCreateCommand,
+    DiscussionMessageDeleteCommand,
     DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLabel,
@@ -4172,6 +4173,113 @@ def delete_discussion_answer(
             },
         )
     return result
+
+
+def delete_discussion_message(
+    connection: Connection,
+    message_id: str,
+    command: DiscussionMessageDeleteCommand,
+) -> MutationResponse:
+    """Soft-delete one response and reopen every question it answered."""
+
+    scope = _one_or_none(
+        connection,
+        """
+        SELECT dm.id, dt.course_id
+        FROM discussion_messages dm
+        JOIN discussion_threads dt ON dt.id = dm.thread_id
+        WHERE dm.id = :message_id
+          AND dm.revision = :revision
+          AND dm.deleted_at IS NULL
+          AND dt.deleted_at IS NULL
+        """,
+        {"message_id": message_id, "revision": command.revision},
+    )
+    if scope is None:
+        existing = _one_or_none(
+            connection,
+            "SELECT id FROM discussion_messages WHERE id = :message_id",
+            {"message_id": message_id},
+        )
+        if existing is None:
+            raise EntityNotFoundError(
+                f"Discussion message does not exist: {message_id}"
+            )
+        raise RevisionConflictError(
+            f"Stale revision for discussion message: {message_id}"
+        )
+
+    linked_question_ids = [
+        str(row["annotation_id"])
+        for row in connection.execute(
+            text(
+                """
+                SELECT dma.annotation_id
+                FROM discussion_message_annotations dma
+                JOIN annotations a ON a.id = dma.annotation_id
+                WHERE dma.message_id = :message_id
+                  AND dma.relation IN ('answers', 'partially_answers')
+                  AND a.deleted_at IS NULL
+                """
+            ),
+            {"message_id": message_id},
+        ).mappings()
+    ]
+    now = _now()
+    if linked_question_ids:
+        connection.execute(
+            text(
+                """
+                UPDATE annotations
+                SET status = 'open', answered_at = NULL,
+                    updated_at = :now, revision = revision + 1
+                WHERE id IN :question_ids AND deleted_at IS NULL
+                """
+            ).bindparams(bindparam("question_ids", expanding=True)),
+            {"question_ids": linked_question_ids, "now": now},
+        )
+    connection.execute(
+        text(
+            """
+            UPDATE annotations
+            SET deleted_at = :now, updated_at = :now, revision = revision + 1
+            WHERE deleted_at IS NULL
+              AND id IN (
+                SELECT aa.annotation_id
+                FROM annotation_anchors aa
+                WHERE aa.discussion_message_id = :message_id
+              )
+              AND origin IN (
+                'discussion_review_followup',
+                'discussion_review_highlight'
+              )
+            """
+        ),
+        {"message_id": message_id, "now": now},
+    )
+    connection.execute(
+        text(
+            "DELETE FROM discussion_message_annotations WHERE message_id = :message_id"
+        ),
+        {"message_id": message_id},
+    )
+    row = _one_or_none(
+        connection,
+        """
+        UPDATE discussion_messages
+        SET deleted_at = :now, updated_at = :now, revision = revision + 1
+        WHERE id = :message_id
+          AND revision = :revision
+          AND deleted_at IS NULL
+        RETURNING id, revision, updated_at
+        """,
+        {"message_id": message_id, "revision": command.revision, "now": now},
+    )
+    if row is None:
+        raise RevisionConflictError(
+            f"Stale revision for discussion message: {message_id}"
+        )
+    return _mutation_result(row)
 
 
 def _set_discussion_message_annotation(

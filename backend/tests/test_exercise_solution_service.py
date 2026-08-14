@@ -3,6 +3,8 @@ from __future__ import annotations
 from tracker_api.services.drawboard_service import DrawboardInk
 from tracker_api.services.exercise_solution_service import (
     ExerciseLocation,
+    StoredExerciseImage,
+    _stored_exercise_image,
     _plan_exercise_captures,
     exercise_chapters,
     exercise_numbers,
@@ -106,3 +108,27 @@ def test_notation_group_continues_only_when_ink_reaches_next_page_top() -> None:
     assert len(plans) == 1
     assert plans[0].exercises == ("5.10",)
     assert [group.page for group in plans[0].groups] == [1, 2]
+
+
+def test_exercise_source_uses_group_geometry_not_equation_references() -> None:
+    location = ExerciseLocation("6.6", 148, (42.0, 241.0, 95.0, 252.0))
+    selected = _stored_exercise_image(
+        [
+            StoredExerciseImage(
+                "unrelated-equation-reference",
+                20,
+                648.0,
+                (40.0, 360.0, 450.0, 420.0),
+            ),
+            StoredExerciseImage(
+                "exercise-6-3-through-6-6-group",
+                392,
+                648.0,
+                (35.0, 351.0, 493.0, 581.0),
+            ),
+        ],
+        location,
+    )
+
+    assert selected is not None
+    assert selected.image_id == "exercise-6-3-through-6-6-group"

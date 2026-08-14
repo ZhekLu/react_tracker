@@ -44,6 +44,27 @@ export function exerciseNumbersInText(value: string): string[] {
   return [...new Set([...singles, ...lists])];
 }
 
+export type ExerciseAnswerSection = {
+  exercises: string[];
+  markdown: string;
+};
+
+/** Split a tutor response at every explicit Exercise heading, regardless of level. */
+export function exerciseAnswerSections(markdown: string): ExerciseAnswerSection[] {
+  const headings = [...markdown.matchAll(/^#{1,6}\s+(.+)$/gim)]
+    .map((match) => ({
+      exercises: exerciseNumbersInText(match[1]),
+      index: match.index ?? 0,
+    }))
+    .filter((heading) => heading.exercises.length > 0);
+  return headings.map((heading, index) => ({
+    exercises: heading.exercises,
+    markdown: markdown
+      .slice(heading.index, headings[index + 1]?.index ?? markdown.length)
+      .trim(),
+  }));
+}
+
 export function annotationExerciseNumbers(annotation: Annotation): string[] {
   return [...new Set(
     [

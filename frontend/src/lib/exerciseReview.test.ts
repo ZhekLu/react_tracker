@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Annotation, Note } from "../types/tracker";
 import {
   annotationExerciseNumbers,
+  exerciseAnswerSections,
   combinedExerciseReviewStatus,
   exerciseReviewCounts,
   exerciseNumbersInText,
@@ -22,6 +23,31 @@ describe("exercise answer review state", () => {
       "6.2": "understood",
       "6.6": "later",
     });
+  });
+
+  it("splits tutor material at explicit exercise headings of mixed levels", () => {
+    expect(
+      exerciseAnswerSections([
+        "Tutor preamble.",
+        "",
+        "## Exercise 6.2",
+        "",
+        "First answer.",
+        "",
+        "### Exercise 6.6 and Exercise 6.7",
+        "",
+        "Shared answer.",
+      ].join("\n")),
+    ).toEqual([
+      {
+        exercises: ["6.2"],
+        markdown: "## Exercise 6.2\n\nFirst answer.",
+      },
+      {
+        exercises: ["6.6", "6.7"],
+        markdown: "### Exercise 6.6 and Exercise 6.7\n\nShared answer.",
+      },
+    ]);
   });
 
   it("finds exercise numbers in PDF context", () => {

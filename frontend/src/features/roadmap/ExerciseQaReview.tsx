@@ -7,15 +7,14 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { taskExerciseSourceUrl } from "../../api/trackerApi";
-import { metadataText } from "../../components/annotations/annotationDisplay";
+import { DiscussionMarkdownSurface } from "../../components/editor/DiscussionMarkdownSurface";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { importPastedMarkdown } from "../../lib/discussionImport";
-import { discussionAnswerSections } from "../../lib/discussionText";
 import {
-  annotationExerciseNumbers,
+  exerciseAnswerSections,
   exerciseNumbersForTask,
   exerciseNumbersInText,
   exerciseReviewCounts,
@@ -24,7 +23,6 @@ import {
   type ExerciseReviewStatus,
 } from "../../lib/exerciseReview";
 import type {
-  Annotation,
   EntityNoteSaveInput,
   Note,
   Resource,
@@ -42,40 +40,6 @@ type ExerciseQaReviewProps = {
 
 function exerciseLabel(noteMarkdown: string): string[] {
   return exerciseNumbersInText(noteMarkdown.match(/^#\s+(.+)$/m)?.[1] ?? noteMarkdown);
-}
-
-function pageForExercise(resource: Resource, exercise: string): number | null {
-  const matching = resource.annotations
-    .filter((annotation) => annotationExerciseNumbers(annotation).includes(exercise))
-    .sort(
-      (left, right) =>
-        Number(right.origin.includes("ink")) - Number(left.origin.includes("ink")) ||
-        (left.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER) -
-          (right.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER),
-    );
-  return matching[0]?.anchor?.pageNumber ?? null;
-}
-
-function sourceAnnotation(
-  resource: Resource,
-  exercise: string,
-): Annotation | undefined {
-  return resource.annotations.find(
-    (annotation) =>
-      annotationExerciseNumbers(annotation).includes(exercise) &&
-      annotation.anchor?.pageNumber,
-  );
-}
-
-function exerciseSourceImages(resource: Resource, exercise: string): string[] {
-  return [...new Set(
-    resource.annotations
-      .filter((annotation) => annotationExerciseNumbers(annotation).includes(exercise))
-      .flatMap((annotation) => [
-        metadataText(annotation, "contextImageUrl"),
-      ])
-      .filter(Boolean),
-  )];
 }
 
 function solutionHeading(exercises: string[]): string {
@@ -100,15 +64,11 @@ export function ExerciseQaReview({
   const [progress, setProgress] = useState(() => parseExerciseReviewProgress(reviewNote));
   const [activeIndex, setActiveIndex] = useState(0);
   const [importMessage, setImportMessage] = useState("");
+  const [bulkEditorOpen, setBulkEditorOpen] = useState(false);
+  const [bulkDraft, setBulkDraft] = useState("");
   const exercise = allNumbers[activeIndex];
   const notes = answerNotes.filter((note) =>
     exerciseLabel(note.document.markdown ?? note.document.plainText).includes(exercise),
-  );
-  const source = sourceAnnotation(resource, exercise);
-  const pageNumber = pageForExercise(resource, exercise);
-  const contextImages = useMemo(
-    () => exerciseSourceImages(resource, exercise),
-    [exercise, resource],
   );
   const counts = exerciseReviewCounts(allNumbers, taskNumbers, progress);
   const completion = counts.total ? counts.totalReviewed / counts.total : 0;
@@ -134,35 +94,37 @@ export function ExerciseQaReview({
     });
   }
 
-  async function pasteTutorSolutions() {
-    try {
-      const imported = importPastedMarkdown(await navigator.clipboard.readText());
-      const parsed = discussionAnswerSections(imported);
-      const sections = parsed.sections.length
-        ? parsed.sections
-        : [{ markdown: imported }];
-      const mapped = sections.flatMap((section) => {
-        const numbers = exerciseNumbersInText(section.markdown);
-        return numbers.length ? [{ numbers, markdown: section.markdown }] : [];
-      });
-      if (!mapped.length) {
-        setImportMessage("No Exercise n.m headings were found in the clipboard.");
-        return;
-      }
-      mapped.forEach(({ numbers, markdown }) =>
-        onNoteSave({
-          entityId: task.id,
-          entityType: "task",
-          html: `# ${solutionHeading(numbers)} — tutor material\n\n${markdown}`,
-          kind: "exercise_solution",
-        }),
-      );
-      setImportMessage(
-        `${mapped.length} tutor section${mapped.length === 1 ? "" : "s"} mapped.`,
-      );
-    } catch {
-      setImportMessage("Clipboard access failed. Paste into the open exercise editor instead.");
+  function importTutorSolutions(markdownInput: string) {
+    const imported = importPastedMarkdown(markdownInput);
+    const mapped = exerciseAnswerSections(imported).map((section) => ({
+      numbers: section.exercises,
+      markdown: section.markdown,
+    }));
+    if (!mapped.length) {
+      setImportMessage("No Exercise n.m headings were found in this response.");
+      return;
     }
+    const existingContent = answerNotes.map(
+      (note) => note.document.markdown ?? note.document.plainText,
+    );
+    const newSections = mapped.filter(
+      ({ markdown }) =>
+        !existingContent.some((content) => content.includes(markdown)),
+    );
+    newSections.forEach(({ numbers, markdown }) =>
+      onNoteSave({
+        entityId: task.id,
+        entityType: "task",
+        html: `# ${solutionHeading(numbers)} — tutor material\n\n${markdown}`,
+        kind: "exercise_solution",
+      }),
+    );
+    const duplicates = mapped.length - newSections.length;
+    setImportMessage(
+      `${newSections.length} new tutor section${newSections.length === 1 ? "" : "s"} mapped${duplicates ? ` · ${duplicates} duplicate${duplicates === 1 ? "" : "s"} skipped` : ""}.`,
+    );
+    setBulkDraft("");
+    setBulkEditorOpen(false);
   }
 
   return createPortal(
@@ -178,28 +140,39 @@ export function ExerciseQaReview({
           </div>
           <div className="exerciseQaProgress"><span style={{ width: `${Math.max(3, completion * 100)}%` }} /></div>
           <strong>{Math.round(completion * 100)}%</strong>
-          <button className="exerciseQaPaste" onClick={pasteTutorSolutions} type="button">
-            Paste tutor solutions
+          <button className="exerciseQaPaste" onClick={() => setBulkEditorOpen((current) => !current)} type="button">
+            {bulkEditorOpen ? "Close tutor import" : "Add tutor answers"}
           </button>
           <button aria-label="Close exercise QA" onClick={onClose} type="button"><X size={18} /></button>
         </header>
+        {bulkEditorOpen ? (
+          <section className="exerciseQaBulkEditor">
+            <header>
+              <div>
+                <strong>One response for the whole chapter</strong>
+                <small>Paste once. Headings such as “## Exercise 6.6” are mapped automatically; shared headings can name several exercises.</small>
+              </div>
+            </header>
+            <DiscussionMarkdownSurface
+              contentType="markdown"
+              editable
+              markdown={bulkDraft}
+              onCancel={() => setBulkEditorOpen(false)}
+              onChange={setBulkDraft}
+              onSave={importTutorSolutions}
+              placeholder="Paste the complete tutor response with Exercise n.m headings…"
+            />
+          </section>
+        ) : null}
         {exercise ? (
           <div className="exerciseQaWorkspace">
             <section className="exerciseQaSource">
-              <header><strong>Exercise {exercise}</strong><span>{pageNumber ? `p. ${pageNumber}` : "Book source"}</span></header>
-              {contextImages.length ? contextImages.map((image, index) => (
-                <img
-                  alt={`Annotated solution area ${index + 1} for Exercise ${exercise}`}
-                  key={image}
-                  src={image}
-                />
-              )) : (
-                <img
-                  alt={`Book statement for Exercise ${exercise}`}
-                  src={taskExerciseSourceUrl(task.id, exercise)}
-                />
-              )}
-              {source?.anchor?.quote ? <blockquote>{source.anchor.quote}</blockquote> : null}
+              <header><strong>Exercise {exercise}</strong><span>Annotated book source</span></header>
+              <img
+                alt={`Annotated solution group containing Exercise ${exercise}`}
+                key={exercise}
+                src={taskExerciseSourceUrl(task.id, exercise)}
+              />
             </section>
             <section className="exerciseQaAnswers">
               <header>
@@ -213,16 +186,21 @@ export function ExerciseQaReview({
               {importMessage ? <p className="exerciseQaImportMessage">{importMessage}</p> : null}
               {notes.length ? notes.map((note, index) => (
                 <EntityNoteEditor
-                  deleteLabel="Unlink tutor answer"
+                  defaultEditing
+                  defaultOpen
+                  deleteLabel="Delete response fully"
                   key={`${note.id}:${note.revision}`}
                   label={`Tutor answer${notes.length > 1 ? ` ${index + 1}` : ""}`}
                   note={note}
                   onDelete={onNoteDelete}
                   onSave={(markdown) => saveSolution(note, markdown)}
                   placeholder="Edit the tutor solution, formulas, or useful highlights…"
+                  showDeleteInSummary
                 />
               )) : (
                 <EntityNoteEditor
+                  defaultEditing
+                  defaultOpen
                   key={`new:${exercise}`}
                   label="Add tutor answer"
                   onSave={(markdown) => saveSolution(undefined, markdown)}

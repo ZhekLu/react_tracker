@@ -25,6 +25,7 @@ from ..schemas.workspace import (
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
+    DiscussionMessageDeleteCommand,
     DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
@@ -61,7 +62,7 @@ from ..services.course_file_service import (
 from ..services.exercise_solution_service import (
     ExerciseSolutionError,
     prepare_exercise_solution_screenshots,
-    render_exercise_statement,
+    render_exercise_source,
 )
 from ..services.pdf_annotation_service import (
     PdfAnnotationError,
@@ -498,12 +499,12 @@ def task_exercise_source(
     connection: Database,
 ) -> Response:
     try:
-        image = render_exercise_statement(connection, task_id, exercise)
+        image = render_exercise_source(connection, task_id, exercise)
         return Response(
             content=image.content,
             media_type="image/png",
             headers={
-                "Cache-Control": "private, max-age=3600",
+                "Cache-Control": "private, no-cache",
                 "X-Exercise-Page": str(image.page),
             },
         )
@@ -809,6 +810,22 @@ def update_discussion_message(
 ) -> MutationResponse:
     try:
         return workspace_repository.update_discussion_message(
+            connection,
+            message_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.delete("/discussion-messages/{message_id}", response_model=MutationResponse)
+def delete_discussion_message(
+    message_id: str,
+    command: DiscussionMessageDeleteCommand,
+    connection: Database,
+) -> MutationResponse:
+    try:
+        return workspace_repository.delete_discussion_message(
             connection,
             message_id,
             command,

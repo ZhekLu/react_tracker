@@ -78,6 +78,7 @@ type DiscussionQaReviewProps = {
     markdown: string,
     questionIds: string[],
   ) => void;
+  onDeleteMessage: (message: DiscussionMessage) => void;
   onQuestionLink: (
     messageId: string,
     annotationId: string,
@@ -579,6 +580,7 @@ export function DiscussionQaReview({
   onAnnotationChange,
   onClose,
   onDeleteAnswer,
+  onDeleteMessage,
   onMapExerciseSolution,
   onToggleImportantAnswer,
   onQuestionLink,
@@ -727,6 +729,7 @@ export function DiscussionQaReview({
   const [savedPulse, setSavedPulse] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDeleteAnswer, setConfirmDeleteAnswer] = useState(false);
+  const [confirmDeleteMessage, setConfirmDeleteMessage] = useState(false);
   const [editingFollowupId, setEditingFollowupId] = useState<string | null>(null);
   const visibleItems = useMemo(
     () =>
@@ -1050,6 +1053,16 @@ export function DiscussionQaReview({
     setActiveIndex((current) => Math.max(0, current - 1));
   }
 
+  function deleteCurrentMessage() {
+    const section = activeItem?.section;
+    if (!section) return;
+    const message = messageById.get(section.messageId);
+    if (!message) return;
+    onDeleteMessage(message);
+    setConfirmDeleteMessage(false);
+    onClose();
+  }
+
   const content = (
     <div className="qaReviewBackdrop">
       <main className="qaReviewSession" role="dialog" aria-modal="true">
@@ -1178,6 +1191,22 @@ export function DiscussionQaReview({
                       type="button"
                     >
                       <Trash2 size={14} /> Delete answer
+                    </button>
+                  ) : null}
+                  {activeItem.section ? (
+                    <button
+                      aria-label="Delete this complete tutor response"
+                      className="qaDeleteResponse"
+                      disabled={hasUnsavedChanges}
+                      onClick={() => setConfirmDeleteMessage(true)}
+                      title={
+                        hasUnsavedChanges
+                          ? "Save the QA session before deleting a complete response"
+                          : "Delete the complete pasted response and reopen all of its questions"
+                      }
+                      type="button"
+                    >
+                      <Trash2 size={14} /> Delete response fully
                     </button>
                   ) : null}
                   {activeItem.questions.length ? (
@@ -1418,6 +1447,15 @@ export function DiscussionQaReview({
           onCancel={() => setConfirmDeleteAnswer(false)}
           onConfirm={deleteCurrentAnswer}
           title="Delete this tutor answer?"
+        />
+      ) : null}
+      {confirmDeleteMessage ? (
+        <ConfirmDialog
+          confirmLabel="Delete response fully"
+          description="The complete pasted tutor response will disappear. Every question it answered will reopen, and follow-ups or highlights created inside it will be removed."
+          onCancel={() => setConfirmDeleteMessage(false)}
+          onConfirm={deleteCurrentMessage}
+          title="Delete this complete tutor response?"
         />
       ) : null}
     </div>

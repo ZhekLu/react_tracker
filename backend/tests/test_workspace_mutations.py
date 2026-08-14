@@ -17,6 +17,7 @@ from tracker_api.repositories.workspace_repository import (
     create_prompt_batch,
     delete_discussion,
     delete_discussion_answer,
+    delete_discussion_message,
     get_workspace,
     link_discussion_question,
     reconcile_toggl_entries,
@@ -40,6 +41,7 @@ from tracker_api.schemas.workspace import (
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
+    DiscussionMessageDeleteCommand,
     DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
     DiscussionQuestionLinkCommand,
@@ -969,6 +971,51 @@ def test_deleting_one_tutor_answer_reopens_and_unlinks_its_question(
     assert updated_message.annotation_links == []
     assert "Bad answer" not in (updated_message.body.markdown or "")
     assert "Useful answer" in (updated_message.body.markdown or "")
+
+
+def test_deleting_complete_tutor_response_reopens_all_answered_questions(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Why does this converge?",
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+            ),
+        )
+        created = create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown="## Q-001\n\nDisposable tutor response.",
+                annotation_links=[
+                    {"annotation_id": question.id, "relation": "answers"}
+                ],
+            ),
+        )
+        before = get_workspace(connection, course_id)
+        message = before.discussions[0].messages[0]
+        delete_discussion_message(
+            connection,
+            created.id,
+            DiscussionMessageDeleteCommand(revision=message.revision),
+        )
+        after = get_workspace(connection, course_id)
+
+    reopened = next(item for item in after.annotations if item.id == question.id)
+    assert reopened.status == "open"
+    assert after.discussions[0].messages == []
 
 
 def test_saving_discussion_message_exports_configured_instruction_tag(
