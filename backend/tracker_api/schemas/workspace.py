@@ -327,6 +327,15 @@ class DrawboardColorRolesResponse(StrictModel):
     roles: dict[str, DrawboardColorRole]
 
 
+class PdfAnnotationCollectionItemResponse(StrictModel):
+    outcome: Literal["created", "updated"]
+    kind: AnnotationKind
+    text: str
+    page: int | None = None
+    section_title: str = ""
+    source_day_id: str | None = None
+
+
 class PdfAnnotationCollectionResponse(StrictModel):
     resource_id: str
     path: str
@@ -342,6 +351,9 @@ class PdfAnnotationCollectionResponse(StrictModel):
         default_factory=list
     )
     requires_color_roles: bool = False
+    changed_items: list[PdfAnnotationCollectionItemResponse] = Field(
+        default_factory=list
+    )
 
 
 class PdfReaderPage(StrictModel):

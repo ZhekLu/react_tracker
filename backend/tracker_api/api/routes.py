@@ -28,8 +28,8 @@ from ..schemas.workspace import (
     DiscussionMessageDeleteCommand,
     DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
-    DiscussionQuestionLinkCommand,
     DiscussionQaReviewCommand,
+    DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
     DrawboardColorRolesCommand,
     DrawboardColorRolesResponse,
@@ -419,6 +419,17 @@ def collect_resource_annotations(
                 for entry in result.color_palette
             ],
             requires_color_roles=result.requires_color_roles,
+            changed_items=[
+                {
+                    "outcome": item.outcome,
+                    "kind": item.kind,
+                    "text": item.text,
+                    "page": item.page,
+                    "section_title": item.section_title,
+                    "source_day_id": item.source_day_id,
+                }
+                for item in result.changed_items
+            ],
         )
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error

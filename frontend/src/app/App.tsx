@@ -46,6 +46,7 @@ import { ExamsView } from "../features/exams/ExamsView";
 import { NotesView } from "../features/notes/NotesView";
 import { ResourcesView } from "../features/resources/ResourcesView";
 import { DrawboardColorPaletteDialog } from "../features/resources/DrawboardColorPaletteDialog";
+import { PdfImportOverviewDialog } from "../features/resources/PdfImportOverviewDialog";
 import { ResourceReader } from "../features/reader/ResourceReader";
 import { RoadmapView } from "../features/roadmap/RoadmapView";
 import { SkillsView } from "../features/skills/SkillsView";
@@ -103,6 +104,7 @@ import type {
   DrawboardColorPaletteEntry,
   DrawboardColorRole,
   PdfAnnotationCollectionResult,
+  PdfAnnotationCollectionItem,
 } from "../api/trackerApi";
 
 const trackerViews = new Set<TrackerView>([
@@ -262,6 +264,10 @@ export function App() {
     resourceTitle: string;
     sourceDayId?: string;
     entries: DrawboardColorPaletteEntry[];
+  } | null>(null);
+  const [pdfImportOverview, setPdfImportOverview] = useState<{
+    items: PdfAnnotationCollectionItem[];
+    resourceTitle: string;
   } | null>(null);
   const broadcastRef = useRef<BroadcastChannel | null>(null);
   const navigationIntentRef = useRef<"push" | "replace">("replace");
@@ -1176,6 +1182,12 @@ export function App() {
         });
         return;
       }
+      if (imported.changedItems.length) {
+        setPdfImportOverview({
+          items: imported.changedItems,
+          resourceTitle: resource.title,
+        });
+      }
       setActionMessage(pdfAnnotationCollectionMessage(imported));
     });
   }
@@ -1195,6 +1207,12 @@ export function App() {
       if (imported.requiresColorRoles) {
         setDrawboardPaletteDraft({ ...draft, entries: imported.colorPalette });
         return;
+      }
+      if (imported.changedItems.length) {
+        setPdfImportOverview({
+          items: imported.changedItems,
+          resourceTitle: draft.resourceTitle,
+        });
       }
       setActionMessage(pdfAnnotationCollectionMessage(imported));
     });
@@ -1898,6 +1916,14 @@ export function App() {
           onClose={() => setDrawboardPaletteDraft(null)}
           onSave={handleSaveDrawboardColorRoles}
           resourceTitle={drawboardPaletteDraft.resourceTitle}
+        />
+      ) : null}
+      {pdfImportOverview ? (
+        <PdfImportOverviewDialog
+          days={workspace.days}
+          items={pdfImportOverview.items}
+          onClose={() => setPdfImportOverview(null)}
+          resourceTitle={pdfImportOverview.resourceTitle}
         />
       ) : null}
     </>

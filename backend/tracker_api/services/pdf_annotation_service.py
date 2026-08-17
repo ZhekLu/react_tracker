@@ -112,6 +112,16 @@ class DrawboardColorPaletteEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class PdfCollectionItem:
+    outcome: str
+    kind: str
+    text: str
+    page: int | None
+    section_title: str
+    source_day_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class PdfCollection:
     resource_id: str
     path: str
@@ -124,10 +134,33 @@ class PdfCollection:
     kind_counts: dict[str, int]
     color_palette: list[DrawboardColorPaletteEntry] = field(default_factory=list)
     requires_color_roles: bool = False
+    changed_items: list[PdfCollectionItem] = field(default_factory=list)
 
     @property
     def ignored_count(self) -> int:
         return sum(self.ignored.values())
+
+
+def _collection_item(
+    command: AnnotationCreateCommand,
+    outcome: str,
+    source_day_id: str | None,
+) -> PdfCollectionItem:
+    anchor = command.anchor
+    text_value = (
+        (anchor.quote if anchor else None)
+        or command.plain_text
+        or command.markdown
+        or "Screenshot"
+    )
+    return PdfCollectionItem(
+        outcome=outcome,
+        kind=command.kind,
+        text=" ".join(text_value.split())[:280],
+        page=anchor.page_number if anchor else None,
+        section_title=(anchor.section_title or "") if anchor else "",
+        source_day_id=source_day_id,
+    )
 
 
 def drawboard_color_key(rgb: Iterable[float]) -> str:
@@ -838,6 +871,7 @@ def collect_resource_pdf_annotations(
             except PdfInkImageError:
                 annotated_page_urls = {}
         counts = {"created": 0, "existing": 0, "updated": 0}
+        changed_items: list[PdfCollectionItem] = []
         cloud_kind_counts: dict[str, int] = {}
         chapter_study_days = _chapter_study_days(connection, resource_id)
         for cloud_capture in cloud_extraction.captures:
@@ -886,6 +920,10 @@ def collect_resource_pdf_annotations(
                 source_revision=sync_revision,
             )
             counts[outcome] += 1
+            if outcome in {"created", "updated"}:
+                changed_items.append(
+                    _collection_item(command, outcome, capture_day_id)
+                )
         for ink in cloud_extraction.red_ink:
             context = contexts.get(ink.fingerprint)
             capture_day_id = _capture_study_day(
@@ -924,6 +962,10 @@ def collect_resource_pdf_annotations(
                 source_revision=sync_revision,
             )
             counts[outcome] += 1
+            if outcome in {"created", "updated"}:
+                changed_items.append(
+                    _collection_item(command, outcome, capture_day_id)
+                )
         active_cloud_fingerprints = {
             capture.fingerprint for capture in cloud_extraction.captures
         } | {ink.fingerprint for ink in cloud_extraction.red_ink}
@@ -947,6 +989,7 @@ def collect_resource_pdf_annotations(
             ignored=cloud_extraction.ignored,
             kind_counts=cloud_kind_counts,
             color_palette=color_palette,
+            changed_items=changed_items,
         )
 
     if not local_path:
@@ -969,6 +1012,7 @@ def collect_resource_pdf_annotations(
         source_version = "unknown"
 
     counts = {"created": 0, "existing": 0, "updated": 0}
+    changed_items: list[PdfCollectionItem] = []
     kind_counts: dict[str, int] = {}
     chapter_study_days = _chapter_study_days(connection, resource_id)
     for local_capture in local_extraction.captures:
@@ -998,6 +1042,10 @@ def collect_resource_pdf_annotations(
             source_revision=sync_revision,
         )
         counts[outcome] += 1
+        if outcome in {"created", "updated"}:
+            changed_items.append(
+                _collection_item(command, outcome, capture_day_id)
+            )
     return PdfCollection(
         resource_id=resource_id,
         path=str(local_extraction.path),
@@ -1008,4 +1056,5 @@ def collect_resource_pdf_annotations(
         removed_count=0,
         ignored=local_extraction.ignored,
         kind_counts=kind_counts,
+        changed_items=changed_items,
     )

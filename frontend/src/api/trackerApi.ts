@@ -398,6 +398,16 @@ export type PdfAnnotationCollectionResult = {
   kindCounts: Partial<Record<AnnotationKind, number>>;
   colorPalette: DrawboardColorPaletteEntry[];
   requiresColorRoles: boolean;
+  changedItems: PdfAnnotationCollectionItem[];
+};
+
+export type PdfAnnotationCollectionItem = {
+  outcome: "created" | "updated";
+  kind: AnnotationKind;
+  text: string;
+  page: number | null;
+  sectionTitle: string;
+  sourceDayId: string | null;
 };
 
 export type DrawboardColorRole = "question" | "regular";
@@ -1281,6 +1291,14 @@ export async function collectResourcePdfAnnotations(
       suggested_role: DrawboardColorRole;
     }>;
     requires_color_roles: boolean;
+    changed_items: Array<{
+      outcome: "created" | "updated";
+      kind: AnnotationKind;
+      text: string;
+      page: number | null;
+      section_title: string;
+      source_day_id: string | null;
+    }>;
   }>(`/resources/${resourceId}/pdf-annotations/collect${
     sourceDayId ? `?source_day_id=${encodeURIComponent(sourceDayId)}` : ""
   }`, {
@@ -1304,6 +1322,14 @@ export async function collectResourcePdfAnnotations(
       suggestedRole: entry.suggested_role,
     })),
     requiresColorRoles: result.requires_color_roles,
+    changedItems: (result.changed_items ?? []).map((item) => ({
+      outcome: item.outcome,
+      kind: item.kind,
+      text: item.text,
+      page: item.page,
+      sectionTitle: item.section_title,
+      sourceDayId: item.source_day_id,
+    })),
     path: result.path,
     resourceId: result.resource_id,
   };

@@ -394,8 +394,15 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
 
     assert first.created_count == 1
     assert first.updated_count == 0
+    assert len(first.changed_items) == 1
+    assert first.changed_items[0].outcome == "created"
+    assert first.changed_items[0].kind == "question"
+    assert first.changed_items[0].page == 11
+    assert "Why?" in first.changed_items[0].text
     assert second.existing_count == 1
+    assert second.changed_items == []
     assert third.updated_count == 1
+    assert [item.outcome for item in third.changed_items] == ["updated"]
     assert third.created_count == 0
     assert third.ignored_count == 2
     assert row["kind"] == "question"
