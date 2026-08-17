@@ -1439,6 +1439,7 @@ export function App() {
     message: DiscussionMessage,
     markdownInput: string,
     questionIds: string[],
+    archiveQuestions = false,
   ) {
     const markdown = normalizeDiscussionMarkdown(markdownInput);
     void runMutation(async () => {
@@ -1448,9 +1449,12 @@ export function App() {
         markdown,
         plainText: markdown,
         questionIds,
+        archiveQuestions,
       });
       setActionMessage(
-        questionIds.length
+        archiveQuestions
+          ? "The question was archived and its tutor answer was removed."
+          : questionIds.length
           ? "The tutor answer was deleted and its questions are open again."
           : "The tutor answer was deleted.",
       );

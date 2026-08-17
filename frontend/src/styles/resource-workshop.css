@@ -929,6 +929,7 @@
 }
 
 .qaDeleteAnswer,
+.qaArchiveQuestion,
 .qaDeleteResponse {
   min-height: 34px;
   padding: 6px 9px;
@@ -941,6 +942,12 @@
   gap: 5px;
   font-size: 9px;
   font-weight: 800;
+}
+
+.qaArchiveQuestion {
+  border-color: color-mix(in srgb, var(--amber) 32%, var(--line));
+  background: color-mix(in srgb, var(--amber-soft) 48%, #fff);
+  color: var(--amber-deep);
 }
 
 .qaDeleteResponse {
@@ -967,6 +974,7 @@
 }
 
 .qaDeleteAnswer:disabled,
+.qaArchiveQuestion:disabled,
 .qaDeleteResponse:disabled {
   cursor: default;
   opacity: 0.42;
@@ -1344,6 +1352,7 @@
 
   .qaAnsweredToggle,
   .qaDeleteAnswer,
+  .qaArchiveQuestion,
   .qaDeleteResponse {
     width: 34px;
     padding: 0;

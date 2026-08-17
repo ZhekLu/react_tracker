@@ -4134,7 +4134,7 @@ def delete_discussion_answer(
     message_id: str,
     command: DiscussionAnswerDeleteCommand,
 ) -> MutationResponse:
-    """Remove one parsed answer while returning its questions to the open queue."""
+    """Remove one parsed answer and either reopen or archive its questions."""
 
     scope = _one_or_none(
         connection,
@@ -4169,13 +4169,13 @@ def delete_discussion_answer(
                 "annotation_id": annotation_id,
             },
         )
-        if not removed.rowcount:
+        if not removed.rowcount and not command.archive_questions:
             continue
         connection.execute(
             text(
                 """
                 UPDATE annotations
-                SET status = 'open',
+                SET status = :status,
                     answered_at = NULL,
                     updated_at = :updated_at,
                     revision = revision + 1
@@ -4191,6 +4191,7 @@ def delete_discussion_answer(
             {
                 "annotation_id": annotation_id,
                 "course_id": str(scope["course_id"]),
+                "status": "archived" if command.archive_questions else "open",
                 "updated_at": now,
             },
         )

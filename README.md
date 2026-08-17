@@ -225,6 +225,13 @@ must survive a plan revision.
   4` answer headings place the exact prompt-batch questions beside their answers
   with reference, partial, and done controls. Deleting a discussion is a
   recoverable soft deletion rather than destructive database removal.
+- **Copy review** exports a question-centric version of the current discussion:
+  original captures, personal notes, answer rounds, follow-ups, and important
+  marks remain grouped by their stable annotation UUIDs. The reusable requests
+  appended to day prompts and discussion reviews live in
+  `frontend/src/config/promptTemplates.json`; editing them requires only a
+  frontend rebuild and service restart in production. See
+  `frontend/src/config/README.md` for the exact workflow.
 
 ### Drawboard cloud PDFs
 

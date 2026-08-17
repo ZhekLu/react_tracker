@@ -973,6 +973,63 @@ def test_deleting_one_tutor_answer_reopens_and_unlinks_its_question(
     assert "Useful answer" in (updated_message.body.markdown or "")
 
 
+def test_deleting_answer_can_archive_its_question_atomically(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Is this question still useful?",
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+            ),
+        )
+        created = create_discussion_message(
+            connection,
+            discussion.id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown="## Q-001 — obsolete\n\nAn answer to remove.",
+                annotation_links=[
+                    {
+                        "annotation_id": question.id,
+                        "relation": "answers",
+                    }
+                ],
+            ),
+        )
+        before = get_workspace(connection, course_id)
+        message = before.discussions[0].messages[0]
+        delete_discussion_answer(
+            connection,
+            created.id,
+            DiscussionAnswerDeleteCommand(
+                revision=message.revision,
+                document_revision=message.body.revision,
+                markdown="",
+                plain_text="",
+                question_ids=[question.id],
+                archive_questions=True,
+            ),
+        )
+        after = get_workspace(connection, course_id)
+
+    archived = next(item for item in after.annotations if item.id == question.id)
+    updated_message = after.discussions[0].messages[0]
+    assert archived.status == "archived"
+    assert updated_message.annotation_links == []
+    assert not (updated_message.body.markdown or "").strip()
+
+
 def test_deleting_complete_tutor_response_reopens_all_answered_questions(
     tmp_path: Path,
 ) -> None:

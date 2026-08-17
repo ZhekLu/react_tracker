@@ -1,4 +1,5 @@
 import {
+  Archive,
   ArrowLeft,
   ArrowRight,
   BookMarked,
@@ -77,6 +78,7 @@ type DiscussionQaReviewProps = {
     message: DiscussionMessage,
     markdown: string,
     questionIds: string[],
+    archiveQuestions?: boolean,
   ) => void;
   onDeleteMessage: (message: DiscussionMessage) => void;
   onQuestionLink: (
@@ -729,6 +731,7 @@ export function DiscussionQaReview({
   const [savedPulse, setSavedPulse] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDeleteAnswer, setConfirmDeleteAnswer] = useState(false);
+  const [confirmArchiveQuestion, setConfirmArchiveQuestion] = useState(false);
   const [confirmDeleteMessage, setConfirmDeleteMessage] = useState(false);
   const [editingFollowupId, setEditingFollowupId] = useState<string | null>(null);
   const visibleItems = useMemo(
@@ -1029,7 +1032,7 @@ export function DiscussionQaReview({
     onClose();
   }
 
-  function deleteCurrentAnswer() {
+  function removeCurrentAnswer(archiveQuestions = false) {
     const section = activeItem?.section;
     if (!section) return;
     const message = messageById.get(section.messageId);
@@ -1042,6 +1045,7 @@ export function DiscussionQaReview({
       message,
       rebuilt.markdown,
       activeItem.questions.map((question) => question.id),
+      archiveQuestions,
     );
     setHiddenSectionIds((current) => new Set([...current, section.id]));
     setSavedMessageMarkdown((current) => {
@@ -1050,6 +1054,7 @@ export function DiscussionQaReview({
       return next;
     });
     setConfirmDeleteAnswer(false);
+    setConfirmArchiveQuestion(false);
     setActiveIndex((current) => Math.max(0, current - 1));
   }
 
@@ -1191,6 +1196,22 @@ export function DiscussionQaReview({
                       type="button"
                     >
                       <Trash2 size={14} /> Delete answer
+                    </button>
+                  ) : null}
+                  {activeItem.section && activeItem.questions.length ? (
+                    <button
+                      aria-label="Archive this question and remove its tutor answer"
+                      className="qaArchiveQuestion"
+                      disabled={hasUnsavedChanges}
+                      onClick={() => setConfirmArchiveQuestion(true)}
+                      title={
+                        hasUnsavedChanges
+                          ? "Save the QA session before archiving a question"
+                          : "Archive this question and remove its tutor answer"
+                      }
+                      type="button"
+                    >
+                      <Archive size={14} /> Archive question
                     </button>
                   ) : null}
                   {activeItem.section ? (
@@ -1445,8 +1466,17 @@ export function DiscussionQaReview({
           confirmLabel="Delete answer"
           description="Only this tutor answer will be removed. Its linked questions will return to the open queue for your next tutor round."
           onCancel={() => setConfirmDeleteAnswer(false)}
-          onConfirm={deleteCurrentAnswer}
+          onConfirm={() => removeCurrentAnswer(false)}
           title="Delete this tutor answer?"
+        />
+      ) : null}
+      {confirmArchiveQuestion ? (
+        <ConfirmDialog
+          confirmLabel="Archive question"
+          description="This question thread will leave the active queue and this tutor answer will be removed from the discussion. Use this for questions that are no longer useful."
+          onCancel={() => setConfirmArchiveQuestion(false)}
+          onConfirm={() => removeCurrentAnswer(true)}
+          title="Archive this question and answer?"
         />
       ) : null}
       {confirmDeleteMessage ? (

@@ -368,6 +368,7 @@ export type DiscussionMessageReviewInput = DiscussionMessageUpdateInput & {
 };
 
 export type DiscussionAnswerDeleteInput = DiscussionMessageUpdateInput & {
+  archiveQuestions?: boolean;
   questionIds: string[];
 };
 
@@ -1553,6 +1554,7 @@ export async function deleteDiscussionAnswer(
         markdown: input.markdown,
         editor_json: input.editorJson,
         plain_text: input.plainText ?? input.markdown,
+        archive_questions: input.archiveQuestions ?? false,
         question_ids: input.questionIds,
       }),
       method: "DELETE",

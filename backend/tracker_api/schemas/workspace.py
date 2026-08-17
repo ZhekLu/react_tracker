@@ -582,6 +582,7 @@ class DiscussionMessageReviewCommand(DiscussionMessageUpdateCommand):
 
 class DiscussionAnswerDeleteCommand(DiscussionMessageUpdateCommand):
     question_ids: list[str] = Field(default_factory=list)
+    archive_questions: bool = False
 
 
 class DiscussionQuestionLinkCommand(StrictModel):

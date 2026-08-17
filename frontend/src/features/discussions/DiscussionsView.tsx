@@ -65,6 +65,7 @@ import {
 } from "../../lib/discussionHighlights";
 import { discussionExportSegments } from "../../lib/discussionExports";
 import { DiscussionQaReview } from "./DiscussionQaReview";
+import { discussionReviewPrompt } from "./discussionReviewExport";
 
 type DiscussionsViewProps = {
   course: Course;
@@ -99,6 +100,7 @@ type DiscussionsViewProps = {
     message: DiscussionMessage,
     markdown: string,
     questionIds: string[],
+    archiveQuestions?: boolean,
   ) => void;
   onDeleteMessage: (message: DiscussionMessage) => void;
   onDeleteDiscussion: (discussion: Discussion) => void;
@@ -1170,6 +1172,22 @@ export function DiscussionsView({
                   >
                     <Copy size={14} />
                     <span>Copy follow-ups</span>
+                  </button>
+                ) : null}
+                {discussion ? (
+                  <button
+                    className="commandButton subtle"
+                    onClick={() =>
+                      onCopy(
+                        discussionReviewPrompt(course, discussion),
+                        "Structured discussion review copied",
+                      )
+                    }
+                    title="Copy question threads, tutor answers, notes, and follow-ups for an AI review"
+                    type="button"
+                  >
+                    <FileOutput size={14} />
+                    <span>Copy review</span>
                   </button>
                 ) : null}
                 {discussion ? (
