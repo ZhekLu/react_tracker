@@ -373,10 +373,10 @@ function TaskRow({
               .filter((resource) => resource.kind === "book")
               .map((resource) => (
                 <BookExerciseProgress
-                  chapterNumbers={task.chapterNumbers}
                   key={`exercises:${resource.id}`}
                   onChange={onExerciseProgressChange}
                   resource={resource}
+                  task={task}
                 />
               ))}
             {task.status === "later" ? (

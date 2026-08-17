@@ -7,29 +7,31 @@ import {
   nextExerciseStatus,
   parseExerciseProgress,
 } from "../../lib/exerciseProgress";
+import {
+  exerciseNumbersForTask,
+  exerciseVisualStatus,
+} from "../../lib/exerciseReview";
+import type { Task } from "../../types/tracker";
 
 export function BookExerciseProgress({
-  chapterNumbers,
   onChange,
   resource,
+  task,
 }: {
-  chapterNumbers: number[];
   onChange: (
     resource: Resource,
     exercise: string,
     status: ResourceChapterStatus,
   ) => void;
   resource: Resource;
+  task: Task;
 }) {
   const note = resource.notes.find((item) => item.kind === "exercise_progress");
   const progress = parseExerciseProgress(note);
-  const chapters = new Set(chapterNumbers.map(String));
-  const exercises = Object.keys(progress).filter(
-    (exercise) => !chapters.size || chapters.has(exercise.split(".")[0]),
-  );
+  const exercises = exerciseNumbersForTask(task, resource);
   if (!exercises.length) return null;
   const complete = exercises.filter(
-    (exercise) => progress[exercise] === "read_fully",
+    (exercise) => exerciseVisualStatus(exercise, task, resource) === "done",
   ).length;
 
   return (
@@ -40,17 +42,17 @@ export function BookExerciseProgress({
       <div>
         {exercises.map((exercise) => (
           <button
-            aria-label={`Exercise ${exercise}: ${progress[exercise].replaceAll("_", " ")}`}
-            className={`exercise-${progress[exercise]}`}
+            aria-label={`Exercise ${exercise}: ${exerciseVisualStatus(exercise, task, resource).replaceAll("-", " ")}`}
+            className={`exercise-state-${exerciseVisualStatus(exercise, task, resource)}`}
             key={exercise}
             onClick={() =>
               onChange(
                 resource,
                 exercise,
-                nextExerciseStatus(progress[exercise]),
+                nextExerciseStatus(progress[exercise] ?? "unread"),
               )
             }
-            title={`Exercise ${exercise} · ${progress[exercise].replaceAll("_", " ")} · click to update`}
+            title={`Exercise ${exercise} · ${exerciseVisualStatus(exercise, task, resource).replaceAll("-", " ")} · click to update book progress`}
             type="button"
           >
             {exercise.split(".").at(-1)}

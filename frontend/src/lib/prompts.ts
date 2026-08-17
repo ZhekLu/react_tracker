@@ -5,6 +5,15 @@ import type {
   Resource,
   StudyDay,
 } from "../types/tracker";
+import promptTemplates from "../config/promptTemplates.json";
+import {
+  exerciseNumbersInText,
+  parseExerciseReviewProgress,
+} from "./exerciseReview";
+
+export type DayPromptOptions = {
+  includeTutorSolutions?: boolean;
+};
 
 export type PromptPayload = {
   title: string;
@@ -18,9 +27,37 @@ export type PromptPayload = {
 
 function noteText(notes: Note[]): string {
   return notes
-    .map((note) => note.document.plainText.trim())
+    .map((note) =>
+      (note.document.markdown ?? note.document.plainText).trim(),
+    )
     .filter(Boolean)
     .join("\n\n");
+}
+
+function taskNoteText(
+  task: StudyDay["sections"][number]["tasks"][number],
+  options: DayPromptOptions,
+): string {
+  const review = parseExerciseReviewProgress(
+    task.notes.find((note) => note.kind === "exercise_review"),
+  );
+  return noteText(
+    task.notes.filter((note) => {
+      if (["exercise_review", "exercise_progress"].includes(note.kind)) {
+        return false;
+      }
+      if (note.kind === "exercise_solution") {
+        return Boolean(options.includeTutorSolutions);
+      }
+      if (note.kind !== "exercise_my_solution") return true;
+      const numbers = exerciseNumbersInText(
+        note.document.markdown ?? note.document.plainText,
+      );
+      return !numbers.length || numbers.some(
+        (number) => review[number] !== "understood",
+      );
+    }),
+  );
 }
 
 
@@ -127,7 +164,11 @@ function annotationLine(
     .join("\n");
 }
 
-export function dayPrompt(course: Course, day: StudyDay): PromptPayload {
+export function dayPrompt(
+  course: Course,
+  day: StudyDay,
+  options: DayPromptOptions = {},
+): PromptPayload {
   const resourceById = new Map(
     course.resources.map((resource) => [resource.id, resource]),
   );
@@ -146,7 +187,7 @@ export function dayPrompt(course: Course, day: StudyDay): PromptPayload {
         .map((resourceId) => resourceById.get(resourceId)?.title)
         .filter(Boolean)
         .join(", ");
-      const notes = noteText(task.notes);
+      const notes = taskNoteText(task, options);
       return [
         `- [${task.status === "done" ? "x" : " "}] ${task.title}`,
         `  - status: ${task.status}${task.isOptional ? " · optional" : ""}`,
@@ -201,7 +242,7 @@ export function dayPrompt(course: Course, day: StudyDay): PromptPayload {
       : "",
     "## Request",
     "",
-    "Guide me through this day in task order. Use my progress and notes, answer the open questions.",
+    promptTemplates.dayRequest,
   ]
     .filter(Boolean)
     .join("\n\n");

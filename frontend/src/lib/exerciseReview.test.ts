@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Annotation, Note } from "../types/tracker";
+import type { Annotation, Note, Resource, Task } from "../types/tracker";
 import {
   annotationExerciseNumbers,
   exerciseAnswerSections,
   combinedExerciseReviewStatus,
   exerciseReviewCounts,
+  exerciseVisualStatus,
   exerciseNumbersInText,
   parseExerciseReviewProgress,
   serializeExerciseReviewProgress,
@@ -96,5 +97,27 @@ describe("exercise answer review state", () => {
         { "6.2": "understood", "6.6": "later" },
       ),
     ).toBe("mixed");
+  });
+
+  it("derives the exercise map from plan, personal work, tutor work, and review", () => {
+    const document = (markdown: string) => ({ markdown, plainText: markdown });
+    const task = {
+      notes: [
+        { kind: "exercise_my_solution", document: document("# Exercise 6.2") },
+        { kind: "exercise_solution", document: document("# Exercise 6.3") },
+        {
+          kind: "exercise_review",
+          document: document(serializeExerciseReviewProgress({ "6.4": "understood" })),
+        },
+      ],
+      title: "Solve Exercises 6.1 and 6.4",
+    } as unknown as Task;
+    const resource = { notes: [] } as unknown as Resource;
+
+    expect(exerciseVisualStatus("6.1", task, resource)).toBe("planned");
+    expect(exerciseVisualStatus("6.2", task, resource)).toBe("my-solution");
+    expect(exerciseVisualStatus("6.3", task, resource)).toBe("tutor");
+    expect(exerciseVisualStatus("6.4", task, resource)).toBe("done");
+    expect(exerciseVisualStatus("6.5", task, resource)).toBe("unplanned");
   });
 });

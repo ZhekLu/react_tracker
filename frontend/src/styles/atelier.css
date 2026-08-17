@@ -2919,17 +2919,47 @@ button.taskMetaBadge:disabled {
   font-weight: 800;
 }
 
-.bookExerciseProgress button.exercise-read_partially {
-  border-color: #b69ee9;
-  color: #5c428f;
-  background: linear-gradient(135deg, #bfaaf0 50%, transparent 50%);
+.bookExerciseProgress button.exercise-state-unplanned,
+.exerciseQaMap button.exercise-state-unplanned {
+  border-color: #d8dcda;
+  color: #929b97;
+  background: #eef1ef;
 }
 
-.bookExerciseProgress button.exercise-read_fully {
-  border-color: #7456cf;
+.bookExerciseProgress button.exercise-state-planned,
+.exerciseQaMap button.exercise-state-planned {
+  border-color: #789289;
+  color: #60776e;
+  background: transparent;
+}
+
+.bookExerciseProgress button.exercise-state-my-solution,
+.exerciseQaMap button.exercise-state-my-solution {
+  border-color: #dba84e;
+  color: #79561d;
+  background: #ffe6a9;
+}
+
+.bookExerciseProgress button.exercise-state-tutor,
+.exerciseQaMap button.exercise-state-tutor {
+  border-color: #5c91d4;
+  color: #285e9f;
+  background: #ddecff;
+}
+
+.bookExerciseProgress button.exercise-state-done,
+.exerciseQaMap button.exercise-state-done {
+  border-color: #2b9c6d;
   color: white;
-  background: #7456cf;
-  box-shadow: 0 0 0 1px rgba(116, 86, 207, 0.08);
+  background: #37b87f;
+  box-shadow: 0 0 0 1px rgba(43, 156, 109, 0.1);
+}
+
+.bookExerciseProgress button.exercise-state-skipped,
+.exerciseQaMap button.exercise-state-skipped {
+  border-color: #b9b5c0;
+  color: #7d7787;
+  background: repeating-linear-gradient(135deg, #eeeef0 0 3px, #fff 3px 6px);
 }
 
 .summaryNoteActions button,
@@ -5651,13 +5681,13 @@ button.taskMetaBadge:disabled {
   border-radius: 18px;
   background: #fbfdfb;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   box-shadow: 0 22px 70px rgba(32, 61, 50, 0.16);
 }
 
 .exerciseQaSession:has(> .exerciseQaBulkEditor) {
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
 
 .exerciseQaBulkEditor {
@@ -5686,7 +5716,7 @@ button.taskMetaBadge:disabled {
   padding: 11px 16px;
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: auto minmax(170px, auto) minmax(180px, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(150px, auto) minmax(140px, 1fr) auto auto auto auto;
   align-items: center;
   gap: 14px;
 }
@@ -5705,13 +5735,67 @@ button.taskMetaBadge:disabled {
   background: white;
 }
 
-.exerciseQaHeader > .exerciseQaPaste {
+.exerciseQaPaste {
   width: auto;
   padding: 0 10px;
   color: #6744b4;
   font-size: 8px;
   font-weight: 850;
   white-space: nowrap;
+}
+
+.exerciseQaModeButtons,
+.exerciseQaImportButtons {
+  display: flex !important;
+  gap: 4px;
+}
+
+.exerciseQaModeButtons button,
+.exerciseQaImportButtons button {
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 7px;
+  font-weight: 820;
+  white-space: nowrap;
+}
+
+.exerciseQaModeButtons button.active {
+  border-color: #8a70d3;
+  color: #6546b1;
+  background: #f1edff;
+}
+
+.exerciseQaMap {
+  min-height: 35px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  background: rgba(248, 251, 249, 0.96);
+}
+
+.exerciseQaMap button {
+  min-width: 29px;
+  height: 22px;
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 7px;
+  font-weight: 850;
+}
+
+.exerciseQaMap button.current {
+  outline: 2px solid #7653c8;
+  outline-offset: 1px;
 }
 
 .exerciseQaProgress {
@@ -5804,10 +5888,30 @@ button.taskMetaBadge:disabled {
 .exerciseQaStateButtons .understood.active { color: #087d52; background: #e3faef; border-color: #6fcaa3; }
 .exerciseQaStateButtons .skipped.active { color: #6d6a77; background: #eeedf1; border-color: #bab7c1; }
 
-.exerciseQaAnswers > .entityNoteEditor {
+.exerciseQaAnswers > .entityNoteEditor,
+.exerciseQaAnswerGroup > .entityNoteEditor {
   margin: 10px;
   border: 1px solid var(--line);
 }
+
+.exerciseQaAnswerGroup {
+  margin: 10px;
+  padding: 1px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.exerciseQaAnswerGroup > h3 {
+  margin: 0;
+  padding: 8px 10px 0;
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.exerciseQaAnswerGroup.mine { border-color: #ead59d; background: #fffdf5; }
+.exerciseQaAnswerGroup.tutor { border-color: #c9dcf2; background: #f8fbff; }
 
 .noteSummaryDelete {
   margin-left: 4px;
@@ -5890,6 +5994,8 @@ button.taskMetaBadge:disabled {
 @media (max-width: 900px) {
   .exerciseQaHeader { grid-template-columns: auto 1fr auto; }
   .exerciseQaHeader .exerciseQaProgress { grid-column: 1 / -1; }
+  .exerciseQaModeButtons,
+  .exerciseQaImportButtons { grid-column: 1 / -1; }
   .exerciseQaWorkspace { grid-template-columns: minmax(0, 1fr); }
   .exerciseQaSource { max-height: 42vh; }
 }

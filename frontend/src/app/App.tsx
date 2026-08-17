@@ -1628,8 +1628,10 @@ export function App() {
       courses={courses}
       onBack={() => window.history.back()}
       onCourseChange={handleCourseChange}
-      onCopyDayPrompt={(day) =>
-        void handleStartDiscussion(dayPrompt(workspace, day))
+      onCopyDayPrompt={(day, includeTutorSolutions) =>
+        void handleStartDiscussion(
+          dayPrompt(workspace, day, { includeTutorSolutions }),
+        )
       }
       onCopyDayQuestions={(day) =>
         void handleCopyPrompt(

@@ -7,6 +7,13 @@ import type { Annotation, Note, Resource, Task } from "../types/tracker";
 
 export type ExerciseReviewStatus = "later" | "skipped" | "understood";
 export type ExerciseReviewProgress = Record<string, ExerciseReviewStatus>;
+export type ExerciseVisualStatus =
+  | "unplanned"
+  | "planned"
+  | "my-solution"
+  | "tutor"
+  | "done"
+  | "skipped";
 
 const ENTRY = /^- Exercise\s+(\d+(?:\.\d+)+):\s+(later|skipped|understood)$/gm;
 const NUMBER = /\bExercise\s+(\d+(?:\.\d+)+)\b/gi;
@@ -95,7 +102,9 @@ export function exerciseNumbersForTask(task: Task, resource: Resource): string[]
     })
     .flatMap(annotationExerciseNumbers);
   const mappedNumbers = task.notes
-    .filter((note) => note.kind === "exercise_solution")
+    .filter((note) =>
+      ["exercise_solution", "exercise_my_solution"].includes(note.kind),
+    )
     .flatMap((note) =>
       exerciseNumbersInText(note.document.markdown ?? note.document.plainText),
     );
@@ -107,6 +116,42 @@ export function exerciseNumbersForTask(task: Task, resource: Resource): string[]
   ])]
     .filter(inTaskChapter)
     .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+}
+
+export function exerciseVisualStatus(
+  exercise: string,
+  task: Task,
+  resource: Resource,
+): ExerciseVisualStatus {
+  const review = parseExerciseReviewProgress(
+    task.notes.find((note) => note.kind === "exercise_review"),
+  );
+  if (review[exercise] === "understood") return "done";
+  if (review[exercise] === "skipped") return "skipped";
+
+  const noteContains = (kind: string) =>
+    task.notes
+      .filter((note) => note.kind === kind)
+      .some((note) =>
+        exerciseNumbersInText(
+          note.document.markdown ?? note.document.plainText,
+        ).includes(exercise),
+      );
+  if (noteContains("exercise_solution")) return "tutor";
+
+  const resourceProgress = parseExerciseProgress(
+    resource.notes.find((note) => note.kind === "exercise_progress"),
+  );
+  if (
+    noteContains("exercise_my_solution") ||
+    resourceProgress[exercise] === "read_partially" ||
+    resourceProgress[exercise] === "read_fully"
+  ) {
+    return "my-solution";
+  }
+  return exerciseNumbersInText(task.title).includes(exercise)
+    ? "planned"
+    : "unplanned";
 }
 
 export function combinedExerciseReviewStatus(

@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  BookMarked,
   BookOpen,
   CheckCheck,
   CircleHelp,
@@ -11,6 +12,7 @@ import {
   StickyNote,
   Timer,
 } from "lucide-react";
+import { useState } from "react";
 import type { Course, StudyDay, TrackerView } from "../types/tracker";
 
 type RoadmapHeaderActionsProps = {
@@ -18,7 +20,7 @@ type RoadmapHeaderActionsProps = {
   course: Course;
   currentView: TrackerView;
   onBack: () => void;
-  onCopyDayPrompt: (day: StudyDay) => void;
+  onCopyDayPrompt: (day: StudyDay, includeTutorSolutions: boolean) => void;
   onCopyDayQuestions: (day: StudyDay) => void;
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
   onOpenDay: (dayId: string) => void;
@@ -58,6 +60,7 @@ export function RoadmapHeaderActions({
   onViewChange,
   toggl,
 }: RoadmapHeaderActionsProps) {
+  const [includeTutorSolutions, setIncludeTutorSolutions] = useState(false);
   const today = course.days.find((day) => day.date === localDate());
   const nextOpen = course.days.find(isOpenDay);
   const currentTaskDay = toggl.activeTaskId
@@ -123,11 +126,21 @@ export function RoadmapHeaderActions({
       </button>
       <button
         aria-label="Copy day prompt and start discussion"
-        onClick={() => onCopyDayPrompt(activeDay)}
+        onClick={() => onCopyDayPrompt(activeDay, includeTutorSolutions)}
         title="Copy structured day prompt and start its discussion"
         type="button"
       >
         <ClipboardCopy size={15} />
+      </button>
+      <button
+        aria-label="Include mapped tutor exercise solutions in day prompt"
+        aria-pressed={includeTutorSolutions}
+        className={includeTutorSolutions ? "active" : ""}
+        onClick={() => setIncludeTutorSolutions((current) => !current)}
+        title={includeTutorSolutions ? "Tutor solutions will be included" : "Tutor solutions are excluded (click to include)"}
+        type="button"
+      >
+        <BookMarked size={15} />
       </button>
       <button
         aria-label="Copy day questions"

@@ -1,0 +1,4 @@
+{
+  "dayRequest": "Guide me through this day in task order. Use my progress and notes, check my unfinished exercise solutions, and answer the open questions.",
+  "discussionReviewRequest": "Rewrite this study discussion into compact, coherent revision notes. Preserve the question threads, mathematical notation, my follow-ups, corrections, and any unresolved weak points. Remove repetition and conversational filler."
+}
