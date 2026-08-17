@@ -37,10 +37,10 @@ from ..schemas.workspace import (
     DiscussionMessageDeleteCommand,
     DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
-    DiscussionQuestionLabel,
-    DiscussionQuestionLinkCommand,
     DiscussionQaReview,
     DiscussionQaReviewCommand,
+    DiscussionQuestionLabel,
+    DiscussionQuestionLinkCommand,
     DiscussionStatusCommand,
     DocumentContent,
     Exam,
@@ -443,6 +443,25 @@ def _open_question_count(annotations: Iterable[Annotation]) -> int:
             annotation.kind not in {"question", "todo"}
             or annotation.status != "open"
             or annotation.postponed
+        ):
+            continue
+        metadata = annotation.anchor.metadata if annotation.anchor else {}
+        context_group = metadata.get("contextGroupId")
+        logical_questions.add(
+            f"{annotation.resource_id}:{context_group}"
+            if isinstance(context_group, str) and context_group.strip()
+            else annotation.id
+        )
+    return len(logical_questions)
+
+
+def _postponed_question_count(annotations: Iterable[Annotation]) -> int:
+    logical_questions: set[str] = set()
+    for annotation in annotations:
+        if (
+            annotation.kind not in {"question", "todo"}
+            or annotation.status != "open"
+            or not annotation.postponed
         ):
             continue
         metadata = annotation.anchor.metadata if annotation.anchor else {}
@@ -868,6 +887,9 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
                 notes=notes_by_entity.get(("day", day_id), []),
                 skill_ids=day_to_skills.get(day_id, []),
                 open_question_count=_open_question_count(linked_annotations),
+                postponed_question_count=_postponed_question_count(
+                    linked_annotations
+                ),
                 tracked_seconds=day_time.get(day_id, 0),
                 progress=day_progress.get(day_id, _empty_day_progress()),
             )

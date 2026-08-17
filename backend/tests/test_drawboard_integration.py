@@ -23,8 +23,10 @@ from tracker_api.services.drawboard_service import (
 )
 from tracker_api.services.pdf_annotation_service import (
     _chapter_study_days,
+    _merge_ink_groups_by_paragraph,
     collect_resource_pdf_annotations,
 )
+from tracker_api.services.pdf_context_service import PdfAnnotationContext
 from tracker_api.services.resource_open_service import open_resource
 from tracker_api.services.study_plan_service import sync_study_plan
 
@@ -547,6 +549,50 @@ def test_red_highlight_inside_handwriting_group_is_not_a_second_question(
         {"kind": "highlight", "origin": "drawboard_cloud"},
         {"kind": "question", "origin": "drawboard_cloud_ink"},
     ]
+
+
+def test_ink_groups_in_the_same_pdf_paragraph_become_one_capture() -> None:
+    first = DrawboardInk(
+        fingerprint="ink-one",
+        source_revision="rev-one",
+        page=172,
+        color="red",
+        rgb=[1.0, 0.0, 0.0],
+        created_at="2026-08-17T10:00:00Z",
+        rect=[5.0, 531.0, 32.0, 548.0],
+        ink_vertex_sets=([[5.0, 531.0], [32.0, 548.0]],),
+        member_fingerprints=("ink-one",),
+    )
+    second = DrawboardInk(
+        fingerprint="ink-two",
+        source_revision="rev-two",
+        page=172,
+        color="red",
+        rgb=[1.0, 0.0, 0.0],
+        created_at="2026-08-17T10:01:00Z",
+        rect=[5.0, 552.0, 34.0, 573.0],
+        ink_vertex_sets=([[5.0, 552.0], [34.0, 573.0]],),
+        member_fingerprints=("ink-two",),
+    )
+    context = PdfAnnotationContext(
+        chapter_number=7,
+        chapter_title="n-step Bootstrapping",
+        context_after="",
+        context_before="",
+        context_sentence="Expected Sarsa uses one fewer ratio.",
+        match_method="paragraph",
+        subchapter_title="Per-decision Methods",
+        paragraph_id="paragraph-172-a",
+    )
+
+    merged = _merge_ink_groups_by_paragraph(
+        [first, second],
+        {first.fingerprint: context, second.fingerprint: context},
+    )
+
+    assert len(merged) == 1
+    assert merged[0].rect == [5.0, 531.0, 34.0, 573.0]
+    assert set(merged[0].member_fingerprints) == {"ink-one", "ink-two"}
 
 
 def test_book_chapters_map_to_their_explicit_study_days(tmp_path: Path) -> None:

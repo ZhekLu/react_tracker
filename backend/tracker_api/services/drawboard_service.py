@@ -775,6 +775,14 @@ def _merge_red_ink_group(members: list[DrawboardInk]) -> DrawboardInk:
     )
 
 
+def merge_ink_annotation_groups(groups: list[DrawboardInk]) -> DrawboardInk:
+    """Merge already grouped ink captures into one stable logical capture."""
+
+    if not groups:
+        raise ValueError("At least one ink group is required.")
+    return _merge_red_ink_group(groups)
+
+
 def _rect_area(rect: list[float]) -> float:
     if len(rect) != 4:
         return 0.0

@@ -134,6 +134,7 @@ class StudyDay(StrictModel):
     notes: list[Note]
     skill_ids: list[str]
     open_question_count: int
+    postponed_question_count: int
     tracked_seconds: int
     progress: DayProgress
 

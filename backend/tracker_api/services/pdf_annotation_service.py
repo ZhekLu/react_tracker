@@ -28,6 +28,7 @@ from .drawboard_service import (
     extract_drawboard_annotations,
     group_red_ink_annotations,
     is_drawboard_cloud_url,
+    merge_ink_annotation_groups,
 )
 from .pdf_context_service import (
     PdfAnnotationContext,
@@ -45,6 +46,34 @@ from .resource_open_service import ResourceOpenError, safe_local_resource_path
 MARKUP_KINDS = {"Highlight", "Underline", "Squiggly", "StrikeOut"}
 DRAWBOARD_COLOR_ROLE_PREFIX = "drawboard_color_roles"
 DRAWBOARD_COLOR_ROLE_VERSION = "drawboard-color-role-v2"
+
+
+def _merge_ink_groups_by_paragraph(
+    inks: list[DrawboardInk],
+    contexts: dict[str, PdfAnnotationContext],
+) -> list[DrawboardInk]:
+    """Collapse screenshot questions that PDF extraction maps to one paragraph."""
+
+    buckets: dict[tuple[int, str], list[DrawboardInk]] = {}
+    ungrouped: list[DrawboardInk] = []
+    for ink in inks:
+        context = contexts.get(ink.fingerprint)
+        if context is None or not context.paragraph_id:
+            ungrouped.append(ink)
+            continue
+        buckets.setdefault((ink.page, context.paragraph_id), []).append(ink)
+    merged = [
+        merge_ink_annotation_groups(bucket)
+        for _key, bucket in sorted(buckets.items())
+    ]
+    return sorted(
+        [*merged, *ungrouped],
+        key=lambda ink: (
+            ink.page,
+            ink.rect[1] if len(ink.rect) == 4 else 0.0,
+            ink.rect[0] if len(ink.rect) == 4 else 0.0,
+        ),
+    )
 
 
 class PdfAnnotationError(RuntimeError):
@@ -659,7 +688,7 @@ def _drawboard_ink_command(
         "createdAt": ink.created_at,
         "drawboardDocumentId": document_id,
         "inkGroupSize": len(ink.member_fingerprints),
-        "inkGrouping": "guide-bands-v3",
+        "inkGrouping": "guide-paragraph-v4",
         "inkMemberFingerprints": list(ink.member_fingerprints),
         "sourceContent": "",
         "sourceLabel": "Drawboard cloud PDF",
@@ -752,6 +781,23 @@ def collect_resource_pdf_annotations(
                 )
             except PdfContextError:
                 contexts = {}
+            merged_question_ink = _merge_ink_groups_by_paragraph(
+                cloud_extraction.red_ink,
+                contexts,
+            )
+            if merged_question_ink != cloud_extraction.red_ink:
+                cloud_extraction = replace(
+                    cloud_extraction,
+                    red_ink=merged_question_ink,
+                )
+                try:
+                    contexts = extract_pdf_annotation_contexts(
+                        safe_path,
+                        [*cloud_extraction.captures, *cloud_extraction.red_ink],
+                        drawboard_coordinates=True,
+                    )
+                except PdfContextError:
+                    contexts = {}
             if cloud_extraction.red_ink:
                 try:
                     image_urls = render_ink_context_images(
@@ -853,7 +899,7 @@ def collect_resource_pdf_annotations(
             )
             sync_revision = (
                 f"{ink.source_revision}:"
-                f"{'ink-paragraph-context-v3' if context else 'ink-plain-v4'}:"
+                f"{'ink-paragraph-context-v4' if context else 'ink-plain-v4'}:"
                 f"{INK_RENDERER_VERSION}:study-day-v1:{capture_day_id or '-'}:"
                 f"{color_role_revision}"
             )

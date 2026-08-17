@@ -168,6 +168,7 @@ type ApiStudyDay = {
   notes: ApiNote[];
   skill_ids: string[];
   open_question_count: number;
+  postponed_question_count: number;
   tracked_seconds: number;
   progress: ApiDayProgress;
 };
@@ -740,6 +741,7 @@ function studyDay(api: ApiStudyDay): StudyDay {
     notes: api.notes.map(note),
     skillIds: api.skill_ids,
     openQuestionCount: api.open_question_count,
+    postponedQuestionCount: api.postponed_question_count ?? 0,
     trackedSeconds: api.tracked_seconds,
     progress: dayProgress(api.progress),
   };

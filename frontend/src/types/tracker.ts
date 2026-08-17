@@ -172,6 +172,7 @@ export type StudyDay = {
   notes: Note[];
   skillIds: string[];
   openQuestionCount: number;
+  postponedQuestionCount: number;
   trackedSeconds: number;
   progress: DayProgress;
 };

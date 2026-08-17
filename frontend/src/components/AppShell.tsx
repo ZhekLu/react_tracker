@@ -113,7 +113,9 @@ export function AppShell({
                   <strong>Day {activeDay.number}: {dayDisplayTopic(activeDay)}</strong>
                   <span>{activeDayDone}/{activeDayTasks.length} tasks</span>
                   {activeDay.openQuestionCount ? <span>{activeDay.openQuestionCount} questions</span> : null}
-                  {activeDay.progress.later ? <span>{activeDay.progress.later} later</span> : null}
+                  {activeDay.progress.later + activeDay.postponedQuestionCount ? (
+                    <span>{activeDay.progress.later + activeDay.postponedQuestionCount} later</span>
+                  ) : null}
                   {catchUpDays ? (
                     <span className="catchUpProgress">
                       {catchUpDays} day{catchUpDays === 1 ? "" : "s"} to catch up

@@ -44,8 +44,8 @@ from tracker_api.schemas.workspace import (
     DiscussionMessageDeleteCommand,
     DiscussionMessageReviewCommand,
     DiscussionMessageUpdateCommand,
-    DiscussionQuestionLinkCommand,
     DiscussionQaReviewCommand,
+    DiscussionQuestionLinkCommand,
     DiscussionReviewItem,
     NoteUpsertCommand,
     PromptBatchCreateCommand,
@@ -1679,6 +1679,7 @@ def test_postponed_question_groups_leave_active_counts_without_losing_state(
         ]
         assert all(annotation.postponed for annotation in postponed_questions)
         assert postponed.days[0].open_question_count == 0
+        assert postponed.days[0].postponed_question_count == 1
         postponed_resource = next(
             resource for resource in postponed.resources if resource.id == resource_id
         )

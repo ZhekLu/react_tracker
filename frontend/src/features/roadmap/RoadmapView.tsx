@@ -1070,7 +1070,9 @@ function DayCard({
       <div className="daySummary">
         <span><Check size={14} /> {day.progress.done}/{day.progress.required} core</span>
         <span><CircleHelp size={14} /> {day.openQuestionCount} questions</span>
-        <span><Clock3 size={14} /> {tasks.filter((task) => task.status === "later").length} later</span>
+        <span>
+          <Clock3 size={14} /> {tasks.filter((task) => task.status === "later").length + day.postponedQuestionCount} later
+        </span>
         {plannedMinutes ? (
           <span
             className={`dayTimeBudget ${timeRatio >= 1 ? "complete" : ""}`}

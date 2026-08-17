@@ -9,6 +9,7 @@ function day(date: string, taskStatus: Task["status"]): StudyDay {
     notes: [],
     number: 1,
     openQuestionCount: 0,
+    postponedQuestionCount: 0,
     progress: { done: 0, later: 0, optional: 0, ratio: 0, required: 1, skipped: 0 },
     revision: 1,
     sections: [{

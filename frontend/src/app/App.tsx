@@ -1005,7 +1005,7 @@ export function App() {
           metadata: {
             captureSource: "lecture_reader",
             createdDayId: activeDay?.id,
-            contextImageUrl: ["question", "todo"].includes(kind)
+            contextImageUrl: includeScreenshot || ["question", "todo"].includes(kind)
               ? pdfReaderPageUrl(resourceId, pageNumber)
               : undefined,
             includeSlideScreenshot: includeScreenshot,
