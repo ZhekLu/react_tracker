@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pymupdf
+
 from tracker_api.services.drawboard_service import DrawboardInk
+from tracker_api.services import exercise_solution_service
 from tracker_api.services.exercise_solution_service import (
     ExerciseLocation,
     StoredExerciseImage,
     _stored_exercise_image,
     _plan_exercise_captures,
+    chapter_exercises_for_task,
     exercise_chapters,
     exercise_numbers,
 )
@@ -28,6 +34,38 @@ def test_exercise_chapters_expand_task_numbers_to_unique_book_chapters() -> None
     assert exercise_chapters(
         "Solve Exercises 5.3, 5.5, 5.10, and optional Exercise 6.2"
     ) == ["5", "6"]
+
+
+def test_chapter_exercise_index_includes_unannotated_pdf_exercises(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "book.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 90), "Exercise 6.1 First exercise")
+    page.insert_text((72, 150), "Exercise 6.2 Second exercise")
+    page.insert_text((72, 210), "Exercise 7.1 Different chapter")
+    document.save(source)
+    document.close()
+
+    monkeypatch.setattr(
+        exercise_solution_service,
+        "_task_resource_ids",
+        lambda connection, task_id: ("Solve Exercises 6.1 and 6.2", ["book"]),
+    )
+    monkeypatch.setattr(
+        exercise_solution_service.workspace_repository,
+        "resource_open_target",
+        lambda connection, resource_id: (str(source), None),
+    )
+    monkeypatch.setattr(
+        exercise_solution_service,
+        "safe_local_resource_path",
+        lambda local_path: Path(local_path),
+    )
+
+    assert chapter_exercises_for_task(object(), "task") == ["6.1", "6.2"]
 
 
 def _ink(

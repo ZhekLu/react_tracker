@@ -5949,13 +5949,29 @@ button.taskMetaBadge:disabled {
   border-radius: 12px;
 }
 
-.exerciseQaAnswerGroup > h3 {
-  margin: 0;
-  padding: 8px 10px 0;
-  color: var(--muted);
+.exerciseQaAnswerTag {
+  display: inline-flex;
+  margin: 8px 10px 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #8a6507;
+  background: #fff1c8;
   font-size: 8px;
+  font-weight: 820;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.exerciseQaAnswerTag.tutor {
+  color: #355f9d;
+  background: #e8f1ff;
+}
+
+.exerciseQaIndexMessage {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 8px;
+  white-space: nowrap;
 }
 
 .exerciseQaAnswerGroup.mine { border-color: #ead59d; background: #fffdf5; }

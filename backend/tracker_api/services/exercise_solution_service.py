@@ -183,6 +183,47 @@ def _cached_exercise_locations(
         document.close()
 
 
+def chapter_exercises_for_task(
+    connection: Connection,
+    task_id: str,
+) -> list[str]:
+    """List every printed exercise in the book chapters covered by a task."""
+
+    task_title, resource_ids = _task_resource_ids(connection, task_id)
+    chapters = set(exercise_chapters(task_title))
+    if not chapters:
+        raise ExerciseSolutionError(
+            "The task title does not contain exercise numbers such as 5.3 or 5.10."
+        )
+    for resource_id in resource_ids:
+        local_path, _ = workspace_repository.resource_open_target(
+            connection,
+            resource_id,
+        )
+        if not local_path:
+            continue
+        try:
+            source_path = safe_local_resource_path(local_path)
+        except ResourceOpenError:
+            continue
+        if source_path.suffix.casefold() != ".pdf":
+            continue
+        locations = _cached_exercise_locations(
+            str(source_path),
+            source_path.stat().st_mtime_ns,
+        )
+        numbers = [
+            location.number
+            for location in locations
+            if location.number.partition(".")[0] in chapters
+        ]
+        if numbers:
+            return list(dict.fromkeys(numbers))
+    raise ExerciseSolutionError(
+        "No linked local PDF contains the task's chapter exercises."
+    )
+
+
 def render_exercise_statement(
     connection: Connection,
     task_id: str,

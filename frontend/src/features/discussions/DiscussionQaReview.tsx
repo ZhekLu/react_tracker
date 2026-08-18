@@ -80,7 +80,6 @@ type DiscussionQaReviewProps = {
     questionIds: string[],
     archiveQuestions?: boolean,
   ) => void;
-  onDeleteMessage: (message: DiscussionMessage) => void;
   onQuestionLink: (
     messageId: string,
     annotationId: string,
@@ -582,7 +581,6 @@ export function DiscussionQaReview({
   onAnnotationChange,
   onClose,
   onDeleteAnswer,
-  onDeleteMessage,
   onMapExerciseSolution,
   onToggleImportantAnswer,
   onQuestionLink,
@@ -732,7 +730,6 @@ export function DiscussionQaReview({
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDeleteAnswer, setConfirmDeleteAnswer] = useState(false);
   const [confirmArchiveQuestion, setConfirmArchiveQuestion] = useState(false);
-  const [confirmDeleteMessage, setConfirmDeleteMessage] = useState(false);
   const [editingFollowupId, setEditingFollowupId] = useState<string | null>(null);
   const visibleItems = useMemo(
     () =>
@@ -1058,16 +1055,6 @@ export function DiscussionQaReview({
     setActiveIndex((current) => Math.max(0, current - 1));
   }
 
-  function deleteCurrentMessage() {
-    const section = activeItem?.section;
-    if (!section) return;
-    const message = messageById.get(section.messageId);
-    if (!message) return;
-    onDeleteMessage(message);
-    setConfirmDeleteMessage(false);
-    onClose();
-  }
-
   const content = (
     <div className="qaReviewBackdrop">
       <main className="qaReviewSession" role="dialog" aria-modal="true">
@@ -1153,8 +1140,8 @@ export function DiscussionQaReview({
             />
             <section className="qaAnswerPanel">
               <header className="qaAnswerHeading">
-                <div>
-                  <span>
+                <div className="qaAnswerIdentity">
+                  <span className="qaResponseTag">
                     Response #{activeItem.section?.messageSequenceNumber ?? "—"}
                   </span>
                   <h2>{activeItem.section?.title ?? "Unmapped question"}</h2>
@@ -1212,22 +1199,6 @@ export function DiscussionQaReview({
                       type="button"
                     >
                       <Archive size={14} /> Archive question
-                    </button>
-                  ) : null}
-                  {activeItem.section ? (
-                    <button
-                      aria-label="Delete this complete tutor response"
-                      className="qaDeleteResponse"
-                      disabled={hasUnsavedChanges}
-                      onClick={() => setConfirmDeleteMessage(true)}
-                      title={
-                        hasUnsavedChanges
-                          ? "Save the QA session before deleting a complete response"
-                          : "Delete the complete pasted response and reopen all of its questions"
-                      }
-                      type="button"
-                    >
-                      <Trash2 size={14} /> Delete response fully
                     </button>
                   ) : null}
                   {activeItem.questions.length ? (
@@ -1303,7 +1274,7 @@ export function DiscussionQaReview({
                         </div>
                       ))}
                       <div className="qaFollowupAnswer">
-                        <strong>Tutor answer</strong>
+                        <span className="qaTrailRole tutor">Tutor</span>
                         <MarkdownMath>{entry.answerMarkdown}</MarkdownMath>
                       </div>
                       {entry.selectedContext ? (
@@ -1477,15 +1448,6 @@ export function DiscussionQaReview({
           onCancel={() => setConfirmArchiveQuestion(false)}
           onConfirm={() => removeCurrentAnswer(true)}
           title="Archive this question and answer?"
-        />
-      ) : null}
-      {confirmDeleteMessage ? (
-        <ConfirmDialog
-          confirmLabel="Delete response fully"
-          description="The complete pasted tutor response will disappear. Every question it answered will reopen, and follow-ups or highlights created inside it will be removed."
-          onCancel={() => setConfirmDeleteMessage(false)}
-          onConfirm={deleteCurrentMessage}
-          title="Delete this complete tutor response?"
         />
       ) : null}
     </div>

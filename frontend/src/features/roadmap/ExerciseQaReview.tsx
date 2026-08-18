@@ -8,9 +8,12 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { taskExerciseSourceUrl } from "../../api/trackerApi";
+import {
+  fetchTaskChapterExercises,
+  taskExerciseSourceUrl,
+} from "../../api/trackerApi";
 import { DiscussionMarkdownSurface } from "../../components/editor/DiscussionMarkdownSurface";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
 import { importPastedMarkdown } from "../../lib/discussionImport";
@@ -77,7 +80,22 @@ export function ExerciseQaReview({
   );
   const chapterNumbers = task.chapterNumbers;
   const requiredNumbers = exerciseNumbersInText(task.title);
-  const allNumbers = exerciseNumbersForTask(task, resource);
+  const discoveredNumbers = useMemo(
+    () => exerciseNumbersForTask(task, resource),
+    [resource, task],
+  );
+  const [chapterExerciseNumbers, setChapterExerciseNumbers] = useState<string[]>(
+    discoveredNumbers,
+  );
+  const [indexMessage, setIndexMessage] = useState("Loading the chapter exercise index…");
+  const allNumbers = useMemo(
+    () =>
+      [...new Set([...chapterExerciseNumbers, ...discoveredNumbers])].sort(
+        (left, right) =>
+          left.localeCompare(right, undefined, { numeric: true }),
+      ),
+    [chapterExerciseNumbers, discoveredNumbers],
+  );
   const resourceProgress = parseExerciseProgress(
     resource.notes.find((note) => note.kind === "exercise_progress"),
   );
@@ -90,20 +108,43 @@ export function ExerciseQaReview({
   const [importMessage, setImportMessage] = useState("");
   const [bulkKind, setBulkKind] = useState<SolutionKind | null>(null);
   const [bulkDraft, setBulkDraft] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTaskChapterExercises(task.id)
+      .then((numbers) => {
+        if (cancelled) return;
+        setChapterExerciseNumbers(numbers);
+        setIndexMessage("");
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setIndexMessage(
+          error instanceof Error
+            ? `Could not scan the full chapter: ${error.message}`
+            : "Could not scan the full chapter.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id]);
   const reviewNumbers = allNumbers.filter(
     (number) =>
-      requiredNumbers.includes(number) ||
       [...tutorNotes, ...mySolutionNotes].some((note) =>
         noteCoversExercise(note, number),
       ) ||
-      resourceProgress[number] !== "unread",
+      (resourceProgress[number] !== undefined &&
+        resourceProgress[number] !== "unread") ||
+      Boolean(progress[number]),
   );
   const sessionNumbers = sessionMode === "solve"
     ? allNumbers
-    : reviewNumbers.length
-      ? reviewNumbers
-      : requiredNumbers;
-  const exercise = sessionNumbers[activeIndex];
+    : reviewNumbers;
+  const boundedActiveIndex = Math.min(
+    activeIndex,
+    Math.max(0, sessionNumbers.length - 1),
+  );
+  const exercise = sessionNumbers[boundedActiveIndex];
   const answers = exercise
     ? tutorNotes.filter((note) => noteCoversExercise(note, exercise))
     : [];
@@ -118,8 +159,8 @@ export function ExerciseQaReview({
     const next = { ...progress, [exercise]: status };
     setProgress(next);
     onChange(next);
-    if (activeIndex < sessionNumbers.length - 1) {
-      setActiveIndex(activeIndex + 1);
+    if (boundedActiveIndex < sessionNumbers.length - 1) {
+      setActiveIndex(boundedActiveIndex + 1);
     }
   }
 
@@ -214,7 +255,7 @@ export function ExerciseQaReview({
           <button aria-label="Close exercise QA" onClick={onClose} type="button"><X size={18} /></button>
         </header>
         <nav className="exerciseQaMap" aria-label="Chapter exercise map">
-          {allNumbers.map((number) => (
+          {sessionNumbers.map((number) => (
             <button
               aria-label={`Open Exercise ${number}`}
               className={`exercise-state-${exerciseVisualStatus(number, task, resource)} ${number === exercise ? "current" : ""}`}
@@ -226,6 +267,7 @@ export function ExerciseQaReview({
               {number}
             </button>
           ))}
+          {indexMessage ? <small className="exerciseQaIndexMessage">{indexMessage}</small> : null}
         </nav>
         {bulkKind ? (
           <section className="exerciseQaBulkEditor">
@@ -258,7 +300,7 @@ export function ExerciseQaReview({
             </section>
             <section className="exerciseQaAnswers">
               <header>
-                <div><span>{activeIndex + 1} of {sessionNumbers.length}</span><h2>Exercise {exercise}</h2></div>
+                <div><span>{boundedActiveIndex + 1} of {sessionNumbers.length}</span><h2>Exercise {exercise}</h2></div>
                 <div className="exerciseQaStateButtons">
                   <button className={progress[exercise] === "later" ? "later active" : "later"} onClick={() => setStatus("later")} type="button"><Clock3 size={14} /> Review later</button>
                   <button className={progress[exercise] === "understood" ? "understood active" : "understood"} onClick={() => setStatus("understood")} type="button"><CheckCircle2 size={14} /> Understood</button>
@@ -267,14 +309,14 @@ export function ExerciseQaReview({
               </header>
               {importMessage ? <p className="exerciseQaImportMessage">{importMessage}</p> : null}
               <section className="exerciseQaAnswerGroup mine">
-                <h3>My solution</h3>
+                <span className="exerciseQaAnswerTag">My work</span>
                 {mySolutions.map((note, index) => (
                   <EntityNoteEditor
                     defaultEditing
                     defaultOpen
                     deleteLabel="Delete my solution fully"
                     key={`${note.id}:${note.revision}`}
-                    label={`My solution${mySolutions.length > 1 ? ` ${index + 1}` : ""}`}
+                    label={`My work${mySolutions.length > 1 ? ` ${index + 1}` : ""}`}
                     note={note}
                     onDelete={onNoteDelete}
                     onSave={(markdown) => saveSolution(note, markdown, "exercise_my_solution")}
@@ -294,14 +336,14 @@ export function ExerciseQaReview({
                 ) : null}
               </section>
               <section className="exerciseQaAnswerGroup tutor">
-                <h3>Tutor answers</h3>
+                <span className="exerciseQaAnswerTag tutor">Tutor</span>
                 {answers.map((note, index) => (
                   <EntityNoteEditor
                     defaultEditing
                     defaultOpen
                     deleteLabel="Delete response fully"
                     key={`${note.id}:${note.revision}`}
-                    label={`Tutor answer${answers.length > 1 ? ` ${index + 1}` : ""}`}
+                    label={`Tutor${answers.length > 1 ? ` ${index + 1}` : ""}`}
                     note={note}
                     onDelete={onNoteDelete}
                     onSave={(markdown) => saveSolution(note, markdown, "exercise_solution")}
@@ -322,11 +364,17 @@ export function ExerciseQaReview({
               </section>
             </section>
           </div>
-        ) : <div className="exerciseQaEmpty">Collect or map chapter exercises first.</div>}
+        ) : (
+          <div className="exerciseQaEmpty">
+            {sessionMode === "review"
+              ? "No attempted exercises yet. Choose Solve chapter to browse every exercise."
+              : indexMessage || "No exercises were found in this chapter."}
+          </div>
+        )}
         <footer className="exerciseQaNav">
-          <button disabled={activeIndex === 0} onClick={() => setActiveIndex(activeIndex - 1)} type="button"><ArrowLeft size={16} /> Previous</button>
+          <button disabled={boundedActiveIndex === 0} onClick={() => setActiveIndex(boundedActiveIndex - 1)} type="button"><ArrowLeft size={16} /> Previous</button>
           <span>Exercise {exercise ?? "—"} · {exercise ? progress[exercise] ?? "unreviewed" : "unreviewed"}</span>
-          <button disabled={activeIndex >= sessionNumbers.length - 1} onClick={() => setActiveIndex(activeIndex + 1)} type="button">Next <ArrowRight size={16} /></button>
+          <button disabled={boundedActiveIndex >= sessionNumbers.length - 1} onClick={() => setActiveIndex(boundedActiveIndex + 1)} type="button">Next <ArrowRight size={16} /></button>
         </footer>
       </main>
     </div>,

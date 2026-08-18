@@ -37,6 +37,7 @@ import {
   updateTaskStatus,
   upsertNote,
 } from "../api/trackerApi";
+import { withQuestionAnswerReferences } from "../lib/questionAnswerReferences";
 import { AppShell } from "../components/AppShell";
 import type { ResourceCaptureInput } from "../components/annotations/InlineCaptureEditor";
 import type { DiscussionReviewItem } from "../components/editor/DiscussionMarkdownSurface";
@@ -320,7 +321,9 @@ export function App() {
 
   const loadWorkspace = useCallback(async (nextCourseId: string) => {
     if (!nextCourseId) return;
-    const nextWorkspace = await fetchCourseWorkspace(nextCourseId);
+    const nextWorkspace = withQuestionAnswerReferences(
+      await fetchCourseWorkspace(nextCourseId),
+    );
     setWorkspace(nextWorkspace);
     setActiveDayId((current) =>
       nextWorkspace.days.some((day) => day.id === current)
@@ -380,7 +383,9 @@ export function App() {
       setLoading(true);
       setError(null);
       try {
-        const nextWorkspace = await fetchCourseWorkspace(activeCourseId);
+        const nextWorkspace = withQuestionAnswerReferences(
+          await fetchCourseWorkspace(activeCourseId),
+        );
         if (!cancelled) {
           setWorkspace(nextWorkspace);
           setActiveDayId((current) =>

@@ -36,6 +36,7 @@ from ..schemas.workspace import (
     ExamStatusCommand,
     ExerciseScreenshotItem,
     ExerciseScreenshotResponse,
+    ExerciseIndexResponse,
     MutationResponse,
     NoteDeleteCommand,
     NoteUpsertCommand,
@@ -60,6 +61,7 @@ from ..services.course_file_service import (
     open_course_file,
 )
 from ..services.exercise_solution_service import (
+    chapter_exercises_for_task,
     ExerciseSolutionError,
     prepare_exercise_solution_screenshots,
     render_exercise_source,
@@ -518,6 +520,28 @@ def task_exercise_source(
                 "Cache-Control": "private, no-cache",
                 "X-Exercise-Page": str(image.page),
             },
+        )
+    except (
+        ExerciseSolutionError,
+        workspace_repository.WorkspaceRepositoryError,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.get(
+    "/tasks/{task_id}/chapter-exercises",
+    response_model=ExerciseIndexResponse,
+)
+def task_chapter_exercises(
+    task_id: str,
+    connection: Database,
+) -> ExerciseIndexResponse:
+    try:
+        return ExerciseIndexResponse(
+            exercises=chapter_exercises_for_task(connection, task_id),
         )
     except (
         ExerciseSolutionError,

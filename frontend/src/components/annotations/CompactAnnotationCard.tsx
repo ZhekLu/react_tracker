@@ -21,6 +21,7 @@ import {
   annotationSubchapter,
   metadataText,
 } from "./annotationDisplay";
+import { QuestionAnswerReferences } from "./QuestionAnswerReferences";
 
 type CompactAnnotationCardProps = {
   annotation: Annotation;
@@ -56,7 +57,10 @@ export function CompactAnnotationCard({
   const canPostpone = canAnswer && annotation.status === "open";
   const hasContext =
     showExtendedContext && annotationHasExtendedContext(annotation);
-  const canExpand = hasContext || Boolean(onNoteSave);
+  const canExpand =
+    hasContext ||
+    Boolean(onNoteSave) ||
+    Boolean(annotation.answerReferences?.length);
 
   return (
     <article
@@ -188,6 +192,7 @@ export function CompactAnnotationCard({
               placeholder="Add your interpretation, confusion, or a useful answer..."
             />
           ) : null}
+          <QuestionAnswerReferences references={annotation.answerReferences} />
         </div>
       ) : null}
     </article>

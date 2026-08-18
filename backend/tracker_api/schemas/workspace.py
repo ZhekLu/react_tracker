@@ -670,3 +670,7 @@ class ExerciseScreenshotResponse(StrictModel):
     exercises: list[str] = Field(default_factory=list)
     screenshots: list[ExerciseScreenshotItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class ExerciseIndexResponse(StrictModel):
+    exercises: list[str] = Field(default_factory=list)

@@ -105,6 +105,17 @@ export type AnnotationAnchor = {
   metadata: Record<string, unknown>;
 };
 
+export type AnnotationAnswerReference = {
+  id: string;
+  discussionId: string;
+  discussionTitle: string;
+  messageId: string;
+  messageSequenceNumber: number;
+  sectionLabel: string;
+  title: string;
+  markdown: string;
+};
+
 export type Annotation = {
   id: string;
   resourceId: string;
@@ -117,6 +128,12 @@ export type Annotation = {
   body?: DocumentContent | null;
   anchor?: AnnotationAnchor | null;
   notes: Note[];
+  /**
+   * Read-only views of canonical discussion sections that answered this
+   * question. They are derived while hydrating the workspace and are never
+   * persisted as duplicate annotation notes.
+   */
+  answerReferences?: AnnotationAnswerReference[];
   createdAt: string;
   updatedAt: string;
 };

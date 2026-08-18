@@ -1544,7 +1544,6 @@ export function DiscussionsView({
           onAnnotationChange={onAnnotationChange}
           onClose={() => setQaReviewDiscussionId("")}
           onDeleteAnswer={onDeleteAnswer}
-          onDeleteMessage={onDeleteMessage}
           onMapExerciseSolution={onMapExerciseSolution}
           onToggleImportantAnswer={onToggleImportantAnswer}
           onQuestionLink={onQuestionLink}

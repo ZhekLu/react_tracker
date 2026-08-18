@@ -879,22 +879,31 @@
 
 .qaAnswerHeading {
   margin-bottom: 10px;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   gap: 12px;
 }
 
-.qaAnswerHeading > div {
+.qaAnswerIdentity {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .qaAnswerActions {
-  flex: 0 0 auto;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
-.qaAnswerHeading span {
+.qaAnswerHeading .qaResponseTag {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #7653c8 10%, #fff);
   color: #7653c8;
   font-size: 9px;
   font-weight: 820;
@@ -903,10 +912,11 @@
 }
 
 .qaAnswerHeading h2 {
-  margin: 3px 0 0;
+  min-width: 0;
+  margin: 0;
   color: var(--ink);
-  font-size: clamp(17px, 1.5vw, 23px);
-  line-height: 1.2;
+  font-size: clamp(14px, 1.15vw, 18px);
+  line-height: 1.25;
 }
 
 .qaAnsweredToggle {
@@ -929,8 +939,7 @@
 }
 
 .qaDeleteAnswer,
-.qaArchiveQuestion,
-.qaDeleteResponse {
+.qaArchiveQuestion {
   min-height: 34px;
   padding: 6px 9px;
   border: 1px solid color-mix(in srgb, var(--red) 28%, var(--line));
@@ -948,10 +957,6 @@
   border-color: color-mix(in srgb, var(--amber) 32%, var(--line));
   background: color-mix(in srgb, var(--amber-soft) 48%, #fff);
   color: var(--amber-deep);
-}
-
-.qaDeleteResponse {
-  background: #fff;
 }
 
 .qaImportantAnswer {
@@ -974,8 +979,7 @@
 }
 
 .qaDeleteAnswer:disabled,
-.qaArchiveQuestion:disabled,
-.qaDeleteResponse:disabled {
+.qaArchiveQuestion:disabled {
   cursor: default;
   opacity: 0.42;
 }
@@ -1099,7 +1103,6 @@
 }
 
 .qaFollowupOriginal > strong,
-.qaFollowupAnswer > strong,
 .qaFollowupAsked > strong {
   display: block;
   margin-bottom: 4px;
@@ -1107,6 +1110,62 @@
   font-size: 8px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.qaTrailRole {
+  display: inline-flex;
+  margin-bottom: 5px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--paper-2);
+  font-size: 8px;
+  font-weight: 820;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.qaTrailRole.tutor {
+  color: #6540b6;
+  background: #f1edff;
+}
+
+.questionAnswerReferences {
+  display: grid;
+  gap: 8px;
+}
+
+.questionAnswerReference {
+  padding: 9px 10px 10px;
+  border-top: 2px solid color-mix(in srgb, #7653c8 32%, var(--line));
+  background: color-mix(in srgb, #f1edff 22%, #fff);
+}
+
+.questionAnswerReference > header {
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+}
+
+.questionAnswerReference > header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f1edff;
+  color: #6540b6;
+  font-size: 8px;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.questionAnswerReference > header small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .qaExerciseMapper {
@@ -1346,14 +1405,14 @@
   }
 
   .qaAnswerActions {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
   }
 
   .qaAnsweredToggle,
   .qaDeleteAnswer,
   .qaArchiveQuestion,
-  .qaDeleteResponse {
+  .qaImportantAnswer {
     width: 34px;
     padding: 0;
     justify-content: center;
