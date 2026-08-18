@@ -5,6 +5,7 @@ import {
   exerciseAnswerSections,
   combinedExerciseReviewStatus,
   exerciseReviewCounts,
+  isExerciseTask,
   exerciseVisualStatus,
   exerciseNumbersInText,
   parseExerciseReviewProgress,
@@ -67,6 +68,19 @@ describe("exercise answer review state", () => {
     expect(
       exerciseNumbersInText("Solve Exercises 6.2, 6.6, 6.7, and 6.8"),
     ).toEqual(["6.2", "6.6", "6.7", "6.8"]);
+  });
+
+  it("does not treat decimal parameters after an exercise as more exercises", () => {
+    expect(
+      exerciseNumbersInText(
+        "Exercise 5.13 compares ph = 0.25 and ph = 0.55.",
+      ),
+    ).toEqual(["5.13"]);
+  });
+
+  it("shows the compact map only for an exercise workflow", () => {
+    expect(isExerciseTask({ title: "Solve Exercises 7.1 and 7.3" })).toBe(true);
+    expect(isExerciseTask({ title: "Derive the lambda-return" })).toBe(false);
   });
 
   it("counts only understood and skipped exercises as reviewed", () => {

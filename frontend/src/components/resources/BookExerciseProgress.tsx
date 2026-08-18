@@ -10,6 +10,7 @@ import {
 import {
   exerciseNumbersForTask,
   exerciseVisualStatus,
+  isExerciseTask,
 } from "../../lib/exerciseReview";
 import type { Task } from "../../types/tracker";
 
@@ -26,6 +27,7 @@ export function BookExerciseProgress({
   resource: Resource;
   task: Task;
 }) {
+  if (!isExerciseTask(task)) return null;
   const note = resource.notes.find((item) => item.kind === "exercise_progress");
   const progress = parseExerciseProgress(note);
   const exercises = exerciseNumbersForTask(task, resource);

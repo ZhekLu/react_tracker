@@ -17,7 +17,7 @@ export type ExerciseVisualStatus =
 
 const ENTRY = /^- Exercise\s+(\d+(?:\.\d+)+):\s+(later|skipped|understood)$/gm;
 const NUMBER = /\bExercise\s+(\d+(?:\.\d+)+)\b/gi;
-const NUMBER_LIST = /\bExercises?\s+([^;:\n]+)/gi;
+const NUMBER_LIST = /\bExercises\s+(\d+(?:\.\d+)+(?:\s*(?:,\s*(?:and\s+)?|and\s+)\d+(?:\.\d+)+)*)/gi;
 
 export function parseExerciseReviewProgress(note?: Note): ExerciseReviewProgress {
   const markdown = note?.document.markdown ?? note?.document.plainText ?? "";
@@ -49,6 +49,10 @@ export function exerciseNumbersInText(value: string): string[] {
     [...match[1].matchAll(/\d+(?:\.\d+)+/g)].map((number) => number[0]),
   );
   return [...new Set([...singles, ...lists])];
+}
+
+export function isExerciseTask(task: Pick<Task, "title">): boolean {
+  return /\bexercises?\b/i.test(task.title);
 }
 
 export type ExerciseAnswerSection = {
