@@ -194,6 +194,83 @@ describe("focused discussion QA review units", () => {
     ]);
   });
 
+  it("keeps tutor response order after an earlier question receives an update", () => {
+    const firstRoot = annotation("z-first-root", { status: "answered" });
+    const secondRoot = annotation("a-second-root");
+    const thirdRoot = annotation("m-third-root");
+    const followup = annotation("followup-to-first", {
+      anchor: {
+        anchorType: "discussion_selection",
+        discussionMessageId: "original-response",
+        metadata: { rootQuestionIds: [firstRoot.id], sectionLabel: "Q-001" },
+        quote: "First answer.",
+      },
+      origin: "discussion_review_followup",
+    });
+    const original = {
+      id: "original",
+      messages: [{
+        annotationLinks: [firstRoot, secondRoot, thirdRoot].map((question) => ({
+          annotationId: question.id,
+          relation: "answers",
+        })),
+        body: {
+          markdown: [
+            "## Q-001\n\nFirst answer.",
+            "## Q-002\n\nSecond answer.",
+            "## Q-003\n\nThird answer.",
+          ].join("\n\n"),
+        },
+        createdAt: "2026-07-23T01:00:00Z",
+        id: "original-response",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [{
+        annotationId: firstRoot.id,
+        messageId: "original-response",
+        messageRevision: 1,
+        viewedAt: "2026-07-23T01:30:00Z",
+      }],
+      questionIds: [firstRoot.id, secondRoot.id, thirdRoot.id],
+      questionLabels: [
+        { annotationIds: [firstRoot.id], label: "Q-001" },
+        { annotationIds: [secondRoot.id], label: "Q-002" },
+        { annotationIds: [thirdRoot.id], label: "Q-003" },
+      ],
+    } as unknown as Discussion;
+    const update = {
+      id: "update",
+      messages: [{
+        annotationLinks: [{ annotationId: followup.id, relation: "answers" }],
+        body: { markdown: "## Q-101\n\nUpdated first answer." },
+        createdAt: "2026-07-23T02:00:00Z",
+        id: "update-response",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [followup.id],
+      questionLabels: [{ annotationIds: [followup.id], label: "Q-101" }],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads(
+      [original, update],
+      [firstRoot, secondRoot, thirdRoot, followup],
+      update,
+    );
+
+    expect(threads.map((item) => item.rootQuestions?.[0].id)).toEqual([
+      firstRoot.id,
+      secondRoot.id,
+      thirdRoot.id,
+    ]);
+    expect(threads[0].answers?.map((answer) => answer.section.bodyMarkdown)).toEqual([
+      "First answer.",
+      "Updated first answer.",
+    ]);
+  });
+
   it("recovers a parent thread from the selected answer when roots were not stored", () => {
     const root = annotation("root-question");
     const followup = annotation("legacy-followup", {

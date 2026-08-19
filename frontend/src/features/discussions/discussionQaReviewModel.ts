@@ -23,6 +23,21 @@ export type QaReviewItem = {
   sectionDiscussionId?: string;
 };
 
+function compareAnswerRecords(
+  left: { section: DiscussionQaSection },
+  right: { section: DiscussionQaSection },
+  messageCreatedAt: ReadonlyMap<string, string>,
+): number {
+  return (
+    (messageCreatedAt.get(left.section.messageId) ?? "").localeCompare(
+      messageCreatedAt.get(right.section.messageId) ?? "",
+    ) ||
+    left.section.messageSequenceNumber - right.section.messageSequenceNumber ||
+    left.section.sectionOrder - right.section.sectionOrder ||
+    left.section.id.localeCompare(right.section.id)
+  );
+}
+
 function rootQuestionIds(
   annotation: Annotation,
   annotationById: Map<string, Annotation>,
@@ -324,11 +339,8 @@ export function qaReviewThreads(
             ),
           ),
         )
-        .sort(
-          (left, right) =>
-            (messageCreatedAt.get(left.section.messageId) ?? "").localeCompare(
-              messageCreatedAt.get(right.section.messageId) ?? "",
-            ) || left.section.id.localeCompare(right.section.id),
+        .sort((left, right) =>
+          compareAnswerRecords(left, right, messageCreatedAt),
         );
       const latest = answers.at(-1);
       return {
@@ -345,13 +357,11 @@ export function qaReviewThreads(
     })
     .filter((item) => item.answers.length > 0)
     .sort((left, right) => {
-      const leftAnswer = left.answers.at(-1)?.section;
-      const rightAnswer = right.answers.at(-1)?.section;
-      return (
-        (messageCreatedAt.get(leftAnswer?.messageId ?? "") ?? "").localeCompare(
-          messageCreatedAt.get(rightAnswer?.messageId ?? "") ?? "",
-        ) || left.id.localeCompare(right.id)
-      );
+      const leftAnswer = left.answers[0];
+      const rightAnswer = right.answers[0];
+      return leftAnswer && rightAnswer
+        ? compareAnswerRecords(leftAnswer, rightAnswer, messageCreatedAt)
+        : left.id.localeCompare(right.id);
     });
   // Tutor replies about exercises are useful even when the prompt was a free-form
   // request rather than a Q-### batch. Keep those sections in the active QA
@@ -380,12 +390,10 @@ export function qaReviewThreads(
       sectionDiscussionId: discussionId,
     } satisfies QaReviewItem));
   return [...questionThreads, ...exerciseSections].sort((left, right) => {
-    const leftAnswer = left.answers?.at(-1)?.section;
-    const rightAnswer = right.answers?.at(-1)?.section;
-    return (
-      (messageCreatedAt.get(leftAnswer?.messageId ?? "") ?? "").localeCompare(
-        messageCreatedAt.get(rightAnswer?.messageId ?? "") ?? "",
-      ) || left.id.localeCompare(right.id)
-    );
+    const leftAnswer = left.answers?.[0];
+    const rightAnswer = right.answers?.[0];
+    return leftAnswer && rightAnswer
+      ? compareAnswerRecords(leftAnswer, rightAnswer, messageCreatedAt)
+      : left.id.localeCompare(right.id);
   });
 }

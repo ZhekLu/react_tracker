@@ -18,6 +18,7 @@ export type DiscussionQaSection = {
   messageId: string;
   messageSequenceNumber: number;
   questionIds: string[];
+  sectionOrder: number;
   title: string;
 };
 
@@ -194,6 +195,7 @@ export function discussionQaSections(
           messageId: message.id,
           messageSequenceNumber: message.sequenceNumber,
           questionIds: questions.map((question) => question.id),
+          sectionOrder: 0,
           title: `Response #${message.sequenceNumber}`,
         },
       ];
@@ -275,6 +277,7 @@ export function discussionQaSections(
         messageId: message.id,
         messageSequenceNumber: message.sequenceNumber,
         questionIds: [],
+        sectionOrder: -1,
         title: "Introduction",
       });
     }
@@ -292,6 +295,7 @@ export function discussionQaSections(
         messageId: message.id,
         messageSequenceNumber: message.sequenceNumber,
         questionIds: questionIdsByLabel.get(section.label) ?? [],
+        sectionOrder: index,
         title:
           headingLine.match(/^#{1,6}\s+(.+)$/)?.[1] ?? section.label,
       });
