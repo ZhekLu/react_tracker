@@ -5614,6 +5614,17 @@ button.taskMetaBadge:disabled {
   color: var(--purple, #7661c7);
 }
 
+.taskLinkIcon.lectureNoteImport.armed,
+.taskLinkIcon.lectureNoteImport:focus-visible {
+  border-color: var(--purple, #7661c7);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--purple, #7661c7) 18%, transparent);
+  color: var(--purple, #7661c7);
+}
+
+.taskLinkIcon .lectureNoteFileInput {
+  display: none !important;
+}
+
 .taskBody > .entityNoteEditor {
   width: 100%;
   margin-top: 9px;

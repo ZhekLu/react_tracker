@@ -2121,6 +2121,22 @@
   white-space: nowrap;
 }
 
+.compactCaptureDiscussionBadge {
+  min-height: 13px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--purple, #7661c7) 10%, #fff);
+  color: color-mix(in srgb, var(--purple, #7661c7) 72%, var(--muted));
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 6px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .compactCaptureActions {
   padding: 5px 5px 5px 0;
   display: flex;

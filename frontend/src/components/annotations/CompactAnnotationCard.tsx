@@ -87,6 +87,15 @@ export function CompactAnnotationCard({
           {annotation.anchor?.pageNumber ? (
             <span>p. {annotation.anchor.pageNumber}</span>
           ) : null}
+          {canAnswer && annotation.discussionResponseCount ? (
+            <span
+              className="compactCaptureDiscussionBadge"
+              title={`${annotation.discussionResponseCount} mapped tutor ${annotation.discussionResponseCount === 1 ? "response" : "responses"}`}
+            >
+              <MessageSquareText aria-hidden="true" size={9} />
+              mapped
+            </span>
+          ) : null}
         </span>
         <MarkdownMath>{displayText}</MarkdownMath>
         {canExpand ? (

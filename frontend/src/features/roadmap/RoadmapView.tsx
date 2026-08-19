@@ -227,6 +227,7 @@ function TaskRow({
   const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
   const [quickCaptureResourceId, setQuickCaptureResourceId] = useState("");
   const [exerciseQaOpen, setExerciseQaOpen] = useState(false);
+  const [armedMaccyResourceId, setArmedMaccyResourceId] = useState("");
   const completed = task.status === "done";
   const linkedResources = task.resourceIds
     .map((resourceId) => resourceById.get(resourceId))
@@ -506,9 +507,25 @@ function TaskRow({
                   <MessageCircleQuestion size={12} />
                 </button>
                 <button
-                  className="taskLinkIcon lectureNoteImport"
-                  onClick={() => onImportMaccyImages(resource.id, task.id, 5)}
-                  title={`Load the last 5 pictures from Maccy as questions about ${resource.title}`}
+                  aria-label={`Choose how many recent Maccy pictures to load for ${resource.title}`}
+                  className={`taskLinkIcon lectureNoteImport ${armedMaccyResourceId === resource.id ? "armed" : ""}`}
+                  onBlur={() => setArmedMaccyResourceId("")}
+                  onClick={() => setArmedMaccyResourceId(resource.id)}
+                  onKeyDown={(event) => {
+                    if (armedMaccyResourceId !== resource.id) return;
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setArmedMaccyResourceId("");
+                      event.currentTarget.blur();
+                      return;
+                    }
+                    if (!/^[1-9]$/.test(event.key)) return;
+                    event.preventDefault();
+                    onImportMaccyImages(resource.id, task.id, Number(event.key));
+                    setArmedMaccyResourceId("");
+                    event.currentTarget.blur();
+                  }}
+                  title={`Click, then press 1–9 to load that many recent Maccy pictures for ${resource.title}`}
                   type="button"
                 >
                   <ClipboardPaste size={12} />
@@ -520,6 +537,8 @@ function TaskRow({
                   <Images size={12} />
                   <input
                     accept="image/png,image/jpeg,image/tiff,image/heic,image/heif"
+                    className="lectureNoteFileInput"
+                    hidden
                     multiple
                     onChange={(event) => {
                       const files = Array.from(event.currentTarget.files ?? []);

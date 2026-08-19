@@ -134,6 +134,12 @@ export type Annotation = {
    * persisted as duplicate annotation notes.
    */
   answerReferences?: AnnotationAnswerReference[];
+  /**
+   * Number of tutor-response sections currently mapped to this annotation.
+   * This is derived while hydrating the workspace and can be non-zero while
+   * the question is still open and before an answer becomes canonical.
+   */
+  discussionResponseCount?: number;
   createdAt: string;
   updatedAt: string;
 };

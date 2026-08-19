@@ -77,13 +77,16 @@ describe("question answer references", () => {
   });
 
   it("does not expose a merely referenced or still-open answer", () => {
-    expect(
-      withQuestionAnswerReferences(courseWith("references", "answered"))
-        .annotations[0].answerReferences,
-    ).toEqual([]);
-    expect(
-      withQuestionAnswerReferences(courseWith("answers", "open"))
-        .annotations[0].answerReferences,
-    ).toEqual([]);
+    const referenced = withQuestionAnswerReferences(
+      courseWith("references", "answered"),
+    ).annotations[0];
+    const stillOpen = withQuestionAnswerReferences(
+      courseWith("answers", "open"),
+    ).annotations[0];
+
+    expect(referenced.answerReferences).toEqual([]);
+    expect(referenced.discussionResponseCount).toBe(1);
+    expect(stillOpen.answerReferences).toEqual([]);
+    expect(stillOpen.discussionResponseCount).toBe(1);
   });
 });

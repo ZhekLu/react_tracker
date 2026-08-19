@@ -48,6 +48,28 @@ function answerReferencesByAnnotation(
   return references;
 }
 
+function discussionResponseCountsByAnnotation(course: Course): Map<string, number> {
+  const sectionIdsByAnnotation = new Map<string, Set<string>>();
+
+  for (const discussion of course.discussions) {
+    for (const section of discussionQaSections(discussion, course.annotations)) {
+      if (section.kind === "preamble") continue;
+      for (const annotationId of section.questionIds) {
+        const current = sectionIdsByAnnotation.get(annotationId) ?? new Set<string>();
+        current.add(section.id);
+        sectionIdsByAnnotation.set(annotationId, current);
+      }
+    }
+  }
+
+  return new Map(
+    [...sectionIdsByAnnotation].map(([annotationId, sectionIds]) => [
+      annotationId,
+      sectionIds.size,
+    ]),
+  );
+}
+
 /**
  * Attach read-only discussion answer views to every annotation projection.
  * The database remains normalized: the discussion message and its `answers`
@@ -55,9 +77,11 @@ function answerReferencesByAnnotation(
  */
 export function withQuestionAnswerReferences(course: Course): Course {
   const references = answerReferencesByAnnotation(course);
+  const discussionResponseCounts = discussionResponseCountsByAnnotation(course);
   const enrich = (annotation: Annotation): Annotation => ({
     ...annotation,
     answerReferences: references.get(annotation.id) ?? [],
+    discussionResponseCount: discussionResponseCounts.get(annotation.id) ?? 0,
   });
   return {
     ...course,
