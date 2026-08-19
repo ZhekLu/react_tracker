@@ -4,6 +4,7 @@ import type {
   Note,
   Resource,
   StudyDay,
+  Task,
 } from "../types/tracker";
 import promptTemplates from "../config/promptTemplates.json";
 import {
@@ -23,6 +24,8 @@ export type PromptPayload = {
   sourceDayId?: string;
   sourceResourceId?: string;
   sourceTaskId?: string;
+  parentDiscussionId?: string;
+  questionLabelStart?: number;
 };
 
 function noteText(notes: Note[]): string {
@@ -136,6 +139,26 @@ function activeQuestions(annotations: Annotation[]): Annotation[] {
   );
 }
 
+export function taskScopedAnnotations(
+  course: Course,
+  day: StudyDay,
+  task: Task,
+): Annotation[] {
+  const resourceIds = new Set(task.resourceIds);
+  const chapterScope = new Set(task.chapterNumbers);
+  const resourceById = new Map(
+    course.resources.map((resource) => [resource.id, resource]),
+  );
+  return course.annotations.filter((annotation) => {
+    if (!resourceIds.has(annotation.resourceId)) return false;
+    const resource = resourceById.get(annotation.resourceId);
+    if (resource?.kind !== "book") return true;
+    if (annotationMetadata(annotation).createdDayId === day.id) return true;
+    const chapter = annotationChapterNumber(annotation);
+    return chapter !== null && chapterScope.has(chapter);
+  });
+}
+
 function annotationLine(
   annotation: Annotation,
   resource: Resource | undefined,
@@ -162,6 +185,58 @@ function annotationLine(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+export function taskQuestions(
+  course: Course,
+  day: StudyDay,
+  task: Task,
+  options: {
+    annotationIds?: readonly string[];
+    parentDiscussionId?: string;
+    questionLabelStart?: number;
+    unansweredOnly?: boolean;
+  } = {},
+): PromptPayload {
+  const resourceById = new Map(
+    course.resources.map((resource) => [resource.id, resource]),
+  );
+  const requestedIds = options.annotationIds
+    ? new Set(options.annotationIds)
+    : null;
+  const questions = activeQuestions(taskScopedAnnotations(course, day, task))
+    .filter(
+      (annotation) =>
+        (!requestedIds || requestedIds.has(annotation.id)) &&
+        (!options.unansweredOnly ||
+          (annotation.discussionResponseCount ?? 0) === 0),
+    );
+  const labelStart = options.questionLabelStart ?? 1;
+  const markdown = [
+    `# ${course.title} · Day ${day.number} · ${task.title}`,
+    "",
+    questions.length
+      ? questions
+          .map((annotation, index) =>
+            annotationLine(
+              annotation,
+              resourceById.get(annotation.resourceId),
+              labelStart + index,
+            ),
+          )
+          .join("\n\n")
+      : "No unanswered questions are attached to this task.",
+  ].join("\n");
+  return {
+    annotationIds: questions.map((annotation) => annotation.id),
+    markdown,
+    parentDiscussionId: options.parentDiscussionId,
+    questionLabelStart: labelStart,
+    sourceDayId: day.id,
+    sourceScope: "task_questions_continuation",
+    sourceTaskId: task.id,
+    title: `${course.shortCode} Day ${day.number} · ${task.title}`,
+  };
 }
 
 export function dayPrompt(

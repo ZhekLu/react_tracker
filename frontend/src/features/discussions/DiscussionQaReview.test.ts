@@ -412,6 +412,47 @@ describe("focused discussion QA review units", () => {
       .not.toContain(leaked.id);
   });
 
+  it("filters the shared QA model to an explicit task question scope", () => {
+    const lectureQuestion = annotation("lecture-question");
+    const bookQuestion = annotation("book-question");
+    const discussion = {
+      id: "mixed-day-discussion",
+      messages: [{
+        annotationLinks: [lectureQuestion, bookQuestion].map((item) => ({
+          annotationId: item.id,
+          relation: "references",
+        })),
+        body: {
+          markdown:
+            "## Q-001\n\nLecture answer.\n\n## Q-002\n\nBook answer.",
+        },
+        createdAt: "2026-07-23T01:00:00Z",
+        id: "mixed-response",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [lectureQuestion.id, bookQuestion.id],
+      questionLabels: [
+        { annotationIds: [lectureQuestion.id], label: "Q-001" },
+        { annotationIds: [bookQuestion.id], label: "Q-002" },
+      ],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads(
+      [discussion],
+      [lectureQuestion, bookQuestion],
+      discussion,
+      [bookQuestion.id],
+    );
+
+    expect(threads).toHaveLength(1);
+    expect(threads[0].rootQuestions?.map((question) => question.id)).toEqual([
+      bookQuestion.id,
+    ]);
+    expect(threads[0].answers?.[0].section.title).toContain("Q-002");
+  });
+
   it("keeps unlabelled tutor exercise sections reviewable and mappable", () => {
     const discussion = {
       id: "exercise-check",

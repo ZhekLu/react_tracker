@@ -61,6 +61,8 @@ import {
 type DiscussionQaReviewProps = {
   course: Course;
   discussion: Discussion;
+  questionIds?: string[];
+  scopeLabel?: string;
   onAnnotationChange: (
     annotation: Annotation,
     changes: {
@@ -578,6 +580,8 @@ function SourcePreview({
 export function DiscussionQaReview({
   course,
   discussion,
+  questionIds,
+  scopeLabel,
   onAnnotationChange,
   onClose,
   onDeleteAnswer,
@@ -667,11 +671,16 @@ export function DiscussionQaReview({
   );
   const allItems = useMemo(
     () =>
-      qaReviewThreads(course.discussions, course.annotations, discussion).filter(
+      qaReviewThreads(
+        course.discussions,
+        course.annotations,
+        discussion,
+        questionIds,
+      ).filter(
         (item) =>
           !item.answers?.every((answer) => hiddenSectionIds.has(answer.section.id)),
       ),
-    [course.annotations, course.discussions, discussion, hiddenSectionIds],
+    [course.annotations, course.discussions, discussion, hiddenSectionIds, questionIds],
   );
   const editableMessageIds = useMemo(
     () =>
@@ -723,7 +732,7 @@ export function DiscussionQaReview({
   const [reviewItemsBySection, setReviewItemsBySection] = useState(
     new Map<string, DiscussionReviewItem[]>(),
   );
-  const [openQuestionsOnly, setOpenQuestionsOnly] = useState(true);
+  const [openQuestionsOnly, setOpenQuestionsOnly] = useState(!questionIds?.length);
   const [activeIndex, setActiveIndex] = useState(0);
   const [editorGeneration, setEditorGeneration] = useState(0);
   const [savedPulse, setSavedPulse] = useState(false);
@@ -809,7 +818,18 @@ export function DiscussionQaReview({
         qaReviewByAnnotationId.has(question.id),
       )),
   ).length;
-  const remainingOpenQuestions = course.stats.openQuestionCount;
+  const scopedQuestionIdSet = useMemo(
+    () => new Set(questionIds ?? []),
+    [questionIds],
+  );
+  const remainingOpenQuestions = questionIds?.length
+    ? course.annotations.filter(
+        (annotation) =>
+          scopedQuestionIdSet.has(annotation.id) &&
+          annotation.status === "open" &&
+          !annotation.postponed,
+      ).length
+    : course.stats.openQuestionCount;
   const completionRatio = reviewUnits.length
     ? visitedUnits / reviewUnits.length
     : 0;
@@ -1064,11 +1084,13 @@ export function DiscussionQaReview({
               <Sparkles size={15} /> QA review
             </span>
             <div>
-              <p>{discussion.title}</p>
+              <p>{scopeLabel ?? discussion.title}</p>
               <strong>
                 {visitedUnits} of {reviewUnits.length} groups reviewed in this response
               </strong>
-              <small>{remainingOpenQuestions} questions still open overall</small>
+              <small>
+                {remainingOpenQuestions} questions still open {questionIds?.length ? "in this task" : "overall"}
+              </small>
             </div>
           </div>
           <div className="qaReviewProgressBlock">

@@ -196,6 +196,7 @@ export function qaReviewThreads(
   discussions: Discussion[],
   annotations: Annotation[],
   activeDiscussion: Discussion,
+  scopedQuestionIds?: readonly string[],
 ): QaReviewItem[] {
   const annotationById = new Map(annotations.map((item) => [item.id, item]));
   const messageCreatedAt = new Map(
@@ -265,9 +266,11 @@ export function qaReviewThreads(
   const promptQuestionIds = activeDiscussion.questionLabels.flatMap(
     (item) => item.annotationIds,
   );
-  const immutableScopeIds = promptQuestionIds.length
-    ? promptQuestionIds
-    : activeDiscussion.questionIds;
+  const immutableScopeIds = scopedQuestionIds?.length
+    ? [...scopedQuestionIds]
+    : promptQuestionIds.length
+      ? promptQuestionIds
+      : activeDiscussion.questionIds;
   const activeSectionQuestionIds = sectionRecords
     .filter(({ discussionId }) => discussionId === activeDiscussion.id)
     .flatMap(({ section }) => section.questionIds);
@@ -371,7 +374,7 @@ export function qaReviewThreads(
       (item.answers ?? []).map((answer) => answer.section.id),
     ),
   );
-  const exerciseSections = allSectionRecords
+  const exerciseSections = scopedQuestionIds?.length ? [] : allSectionRecords
     .filter(
       ({ discussionId, section }) =>
         discussionId === activeDiscussion.id &&

@@ -1295,6 +1295,18 @@ button:disabled {
   color: var(--amber-deep);
 }
 
+.taskMetaBadge.copyNextQuestions {
+  border-color: color-mix(in srgb, var(--blue) 34%, var(--line));
+  background: color-mix(in srgb, var(--blue) 9%, #fff);
+  color: var(--blue-deep);
+}
+
+.taskMetaBadge.taskQaLaunch {
+  border-color: color-mix(in srgb, #7656d8 32%, var(--line));
+  background: color-mix(in srgb, #7656d8 8%, #fff);
+  color: #5f42bd;
+}
+
 button.taskMetaBadge {
   font-family: inherit;
   cursor: pointer;

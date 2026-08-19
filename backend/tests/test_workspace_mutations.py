@@ -553,6 +553,82 @@ def test_prompt_discussion_tracks_question_coverage_and_answer_state(
     assert followup.id in after.discussions[0].question_ids
 
 
+def test_discussion_accepts_continuation_prompt_batches_with_stable_labels(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        questions = [
+            create_annotation(
+                connection,
+                AnnotationCreateCommand(
+                    resource_id=resource_id,
+                    kind="question",
+                    markdown=markdown,
+                    plain_text=markdown,
+                ),
+            )
+            for markdown in ("First question", "Next task question")
+        ]
+        initial = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Day prompt",
+                source_scope="day",
+                markdown="# Q-001\n\nFirst question",
+                annotation_ids=[questions[0].id],
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+                initial_prompt_batch_id=initial.id,
+            ),
+        )
+        continuation = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Next task questions",
+                source_scope="task_questions_continuation",
+                source_resource_id=resource_id,
+                parent_discussion_thread_id=discussion.id,
+                question_label_start=2,
+                markdown="# Q-002\n\nNext task question",
+                annotation_ids=[questions[1].id],
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+        rows = connection.execute(
+            text(
+                """
+                SELECT id, parent_discussion_thread_id
+                FROM prompt_batches
+                WHERE id IN (:initial_id, :continuation_id)
+                ORDER BY id
+                """
+            ),
+            {
+                "initial_id": initial.id,
+                "continuation_id": continuation.id,
+            },
+        ).mappings().all()
+
+    thread = workspace.discussions[0]
+    assert thread.question_ids == [questions[0].id, questions[1].id]
+    assert [item.label for item in thread.question_labels] == ["Q-001", "Q-002"]
+    assert [item.annotation_ids for item in thread.question_labels] == [
+        [questions[0].id],
+        [questions[1].id],
+    ]
+    assert {str(row["parent_discussion_thread_id"]) for row in rows} == {
+        discussion.id
+    }
+
+
 def test_qa_review_state_is_persisted_per_discussion_question(
     tmp_path: Path,
 ) -> None:

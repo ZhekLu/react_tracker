@@ -65,6 +65,8 @@ import {
   meetingAgenda,
   resourceInventory,
   resourceQuestions,
+  taskQuestions,
+  taskScopedAnnotations,
   type PromptPayload,
 } from "../lib/prompts";
 import { normalizeDiscussionMarkdown } from "../lib/discussionText";
@@ -100,6 +102,7 @@ import type {
   ResourceStatus,
   ResourceChapterStatus,
   StudyDay,
+  Task,
   TaskStatus,
   TrackerView,
 } from "../types/tracker";
@@ -242,6 +245,12 @@ export function App() {
   const [promptProgress, setPromptProgress] = useState<{
     progress: number;
     stage: string;
+  } | null>(null);
+  const [taskQaLaunch, setTaskQaLaunch] = useState<{
+    discussionId: string;
+    label: string;
+    questionIds: string[];
+    token: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
@@ -667,6 +676,8 @@ export function App() {
           sourceResourceId: payload.sourceResourceId,
           sourceScope: payload.sourceScope,
           sourceTaskId: payload.sourceTaskId,
+          parentDiscussionId: payload.parentDiscussionId,
+          questionLabelStart: payload.questionLabelStart,
           title: payload.title,
         });
       } catch {
@@ -699,6 +710,8 @@ export function App() {
         sourceResourceId: payload.sourceResourceId,
         sourceScope: payload.sourceScope,
         sourceTaskId: payload.sourceTaskId,
+        parentDiscussionId: payload.parentDiscussionId,
+        questionLabelStart: payload.questionLabelStart,
         title: payload.title,
       }, setPromptProgress);
     } catch (caught) {
@@ -772,6 +785,115 @@ export function App() {
     setFocusedTaskId(payload.sourceTaskId ?? "");
     setView("discussions");
     setActionMessage("Prompt copied. Paste the tutor response into this discussion.");
+  }
+
+  function discussionForTaskQuestions(
+    day: StudyDay,
+    questionIds: string[],
+  ): Discussion | undefined {
+    if (!workspace) return undefined;
+    const questionIdSet = new Set(questionIds);
+    return [...workspace.discussions]
+      .filter((discussion) => discussion.status !== "archived")
+      .sort((left, right) => {
+        const score = (discussion: Discussion) => {
+          const promptMatches = discussion.questionIds.filter((id) =>
+            questionIdSet.has(id),
+          ).length;
+          const answerMatches = discussion.messages.flatMap((message) =>
+            message.annotationLinks,
+          ).filter((link) => questionIdSet.has(link.annotationId)).length;
+          const dayMatch = new RegExp(`\\bDay\\s+${day.number}\\b`, "i").test(
+            discussion.title,
+          );
+          return promptMatches * 10 + answerMatches * 20 + (dayMatch ? 1 : 0);
+        };
+        return score(right) - score(left);
+      })
+      .find((discussion) => {
+        const linked = discussion.questionIds.some((id) => questionIdSet.has(id)) ||
+          discussion.messages.some((message) =>
+            message.annotationLinks.some((link) => questionIdSet.has(link.annotationId)),
+          );
+        return linked || new RegExp(`\\bDay\\s+${day.number}\\b`, "i").test(
+          discussion.title,
+        );
+      });
+  }
+
+  async function handleCopyNextTaskQuestions(dayId: string, task: Task) {
+    if (!workspace) return;
+    const day = workspace.days.find((candidate) => candidate.id === dayId);
+    if (!day) return;
+    const scopedAnnotations = taskScopedAnnotations(workspace, day, task);
+    const discussion = discussionForTaskQuestions(
+      day,
+      scopedAnnotations.map((annotation) => annotation.id),
+    );
+    if (!discussion) {
+      setError("Create the day discussion first, then copy this task's next questions into it.");
+      return;
+    }
+    const includedQuestionIds = new Set(discussion.questionIds);
+    const nextQuestions = scopedAnnotations.filter(
+      (annotation) =>
+        ["question", "todo"].includes(annotation.kind) &&
+        annotation.status === "open" &&
+        !annotation.postponed &&
+        (annotation.discussionResponseCount ?? 0) === 0 &&
+        !includedQuestionIds.has(annotation.id),
+    );
+    if (!nextQuestions.length) {
+      setActionMessage("Every open question in this task is already in the day discussion.");
+      return;
+    }
+    const labelStart = Math.max(
+      0,
+      ...discussion.questionLabels.map((item) =>
+        Number(item.label.match(/Q-(\d+)/i)?.[1] ?? 0),
+      ),
+    ) + 1;
+    const payload = taskQuestions(workspace, day, task, {
+      annotationIds: nextQuestions.map((annotation) => annotation.id),
+      parentDiscussionId: discussion.id,
+      questionLabelStart: labelStart,
+      unansweredOnly: true,
+    });
+    const promptBatchId = await savePromptBatch(
+      payload,
+      `Next ${nextQuestions.length} task question${nextQuestions.length === 1 ? "" : "s"} copied into “${discussion.title}”.`,
+    );
+    if (promptBatchId) await loadWorkspace(workspace.id);
+  }
+
+  function handleOpenTaskQa(dayId: string, task: Task) {
+    if (!workspace) return;
+    const day = workspace.days.find((candidate) => candidate.id === dayId);
+    if (!day) return;
+    const questionIds = taskScopedAnnotations(workspace, day, task)
+      .filter(
+        (annotation) =>
+          ["question", "todo"].includes(annotation.kind) &&
+          annotation.status !== "archived" &&
+          (annotation.discussionResponseCount ?? 0) > 0,
+      )
+      .map((annotation) => annotation.id);
+    const discussion = discussionForTaskQuestions(day, questionIds);
+    if (!discussion || !questionIds.length) {
+      setActionMessage("No tutor answers are mapped to this task yet.");
+      return;
+    }
+    navigationIntentRef.current = "push";
+    setFocusedResourceId(discussion.id);
+    setFocusedTaskId(task.id);
+    setTaskQaLaunch({
+      discussionId: discussion.id,
+      label: `Day ${day.number} · ${task.title}`,
+      questionIds,
+      token: Date.now(),
+    });
+    setView("discussions");
+    resetWorkspaceScroll();
   }
 
   function handleDayClosedChange(day: StudyDay, closed: boolean) {
@@ -1805,6 +1927,10 @@ export function App() {
           onNoteDelete={handleNoteDelete}
           onNoteAttentionChange={handleNoteAttentionChange}
           onOpenDiscussion={handleOpenDiscussion}
+          onCopyNextQuestions={(dayId, task) =>
+            void handleCopyNextTaskQuestions(dayId, task)
+          }
+          onOpenTaskQa={handleOpenTaskQa}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
           onPrepareExerciseScreenshots={handlePrepareExerciseScreenshots}
           onUploadImageQuestions={handleUploadImageQuestions}
@@ -1911,6 +2037,8 @@ export function App() {
           course={workspace}
           focusedResourceId={focusedResourceId}
           focusedTaskId={focusedTaskId}
+          taskQaLaunch={taskQaLaunch}
+          onTaskQaClose={() => setTaskQaLaunch(null)}
           onAddMessage={handleAddDiscussionMessage}
           onDeleteMessage={handleDeleteDiscussionMessage}
           onUpdateMessage={handleUpdateDiscussionMessage}

@@ -822,7 +822,7 @@ def prepare_prompt_attachments(
             if image_bytes is None:
                 completed_work += 1
                 continue
-            question_label = f"Q-{index:03d}"
+            question_label = f"Q-{command.question_label_start + index - 1:03d}"
             preferred_name = _question_attachment_name(
                 question_label=question_label,
                 resource_title=str(row["resource_title"]),

@@ -71,6 +71,13 @@ type DiscussionsViewProps = {
   course: Course;
   focusedResourceId: string;
   focusedTaskId: string;
+  taskQaLaunch?: {
+    discussionId: string;
+    label: string;
+    questionIds: string[];
+    token: number;
+  } | null;
+  onTaskQaClose?: () => void;
   onAddMessage: (discussionId: string, input: DiscussionMessageInput) => void;
   onUpdateMessage: (
     message: DiscussionMessage,
@@ -868,6 +875,8 @@ export function DiscussionsView({
   course,
   focusedResourceId,
   focusedTaskId,
+  taskQaLaunch,
+  onTaskQaClose,
   onAddMessage,
   onUpdateMessage,
   onAnnotationChange,
@@ -899,6 +908,8 @@ export function DiscussionsView({
   const [qaReviewDiscussionId, setQaReviewDiscussionId] = useState("");
   const [highlightOnlyDiscussionId, setHighlightOnlyDiscussionId] =
     useState("");
+  const activeQaReviewDiscussionId =
+    taskQaLaunch?.discussionId ?? qaReviewDiscussionId;
   const sourceResources = course.resources.filter(
     (resource) =>
       !["discussion", "exam_question"].includes(resource.kind),
@@ -1193,7 +1204,10 @@ export function DiscussionsView({
                 {discussion ? (
                   <button
                     className="commandButton qaReviewLaunch"
-                    onClick={() => setQaReviewDiscussionId(discussion.id)}
+                    onClick={() => {
+                      onTaskQaClose?.();
+                      setQaReviewDiscussionId(discussion.id);
+                    }}
                     title="Review every mapped answer in a focused workspace"
                     type="button"
                   >
@@ -1537,12 +1551,25 @@ export function DiscussionsView({
           title="Delete this tutor response?"
         />
       ) : null}
-      {discussion && qaReviewDiscussionId === discussion.id ? (
+      {discussion && activeQaReviewDiscussionId === discussion.id ? (
         <DiscussionQaReview
           course={course}
           discussion={discussion}
+          questionIds={
+            taskQaLaunch?.discussionId === discussion.id
+              ? taskQaLaunch.questionIds
+              : undefined
+          }
+          scopeLabel={
+            taskQaLaunch?.discussionId === discussion.id
+              ? taskQaLaunch.label
+              : undefined
+          }
           onAnnotationChange={onAnnotationChange}
-          onClose={() => setQaReviewDiscussionId("")}
+          onClose={() => {
+            setQaReviewDiscussionId("");
+            onTaskQaClose?.();
+          }}
           onDeleteAnswer={onDeleteAnswer}
           onMapExerciseSolution={onMapExerciseSolution}
           onToggleImportantAnswer={onToggleImportantAnswer}

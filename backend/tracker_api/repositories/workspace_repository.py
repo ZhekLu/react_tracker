@@ -1274,25 +1274,28 @@ def _discussions(
         if annotation_id not in linked_followup_ids[thread_id]:
             linked_followup_ids[thread_id].append(annotation_id)
 
-    initial_question_ids: dict[str, list[str]] = defaultdict(list)
-    initial_question_labels: dict[str, dict[str, list[str]]] = defaultdict(dict)
+    prompt_question_ids: dict[str, list[str]] = defaultdict(list)
+    prompt_question_labels: dict[str, dict[str, list[str]]] = defaultdict(dict)
     for row in _rows(
         connection,
         """
         SELECT dt.id AS thread_id, pbi.annotation_id, pbi.question_label
         FROM discussion_threads dt
+        JOIN prompt_batches pb
+          ON pb.parent_discussion_thread_id = dt.id
+         AND pb.deleted_at IS NULL
         JOIN prompt_batch_items pbi
-          ON pbi.prompt_batch_id = dt.initial_prompt_batch_id
+          ON pbi.prompt_batch_id = pb.id
         WHERE dt.course_id = :course_id AND dt.deleted_at IS NULL
-        ORDER BY dt.id, pbi.order_index
+        ORDER BY dt.id, pb.created_at, pbi.order_index
         """,
         {"course_id": course_id},
     ):
         thread_id = str(row["thread_id"])
         annotation_id = str(row["annotation_id"])
         question_label = str(row["question_label"])
-        initial_question_ids[thread_id].append(annotation_id)
-        initial_question_labels[thread_id].setdefault(question_label, []).append(
+        prompt_question_ids[thread_id].append(annotation_id)
+        prompt_question_labels[thread_id].setdefault(question_label, []).append(
             annotation_id
         )
 
@@ -1388,7 +1391,7 @@ def _discussions(
             question_ids=list(
                 dict.fromkeys(
                     [
-                        *initial_question_ids.get(str(row["id"]), []),
+                        *prompt_question_ids.get(str(row["id"]), []),
                         *(
                             linked_followup_ids.get(str(row["id"]), [])
                             if row["initial_prompt_batch_id"]
@@ -1399,7 +1402,7 @@ def _discussions(
             ),
             question_labels=[
                 DiscussionQuestionLabel(label=label, annotation_ids=annotation_ids)
-                for label, annotation_ids in initial_question_labels.get(
+                for label, annotation_ids in prompt_question_labels.get(
                     str(row["id"]), {}
                 ).items()
             ],
@@ -2451,6 +2454,26 @@ def create_prompt_batch(
     )
     if course is None:
         raise EntityNotFoundError(f"Course does not exist: {command.course_id}")
+    if command.parent_discussion_thread_id is not None:
+        parent_discussion = _one_or_none(
+            connection,
+            """
+            SELECT id
+            FROM discussion_threads
+            WHERE id = :id
+              AND course_id = :course_id
+              AND deleted_at IS NULL
+            """,
+            {
+                "course_id": command.course_id,
+                "id": command.parent_discussion_thread_id,
+            },
+        )
+        if parent_discussion is None:
+            raise EntityNotFoundError(
+                "Parent discussion does not exist in course: "
+                f"{command.parent_discussion_thread_id}"
+            )
     now = _now()
     document_id = _create_document(
         connection,
@@ -2473,7 +2496,7 @@ def create_prompt_batch(
         VALUES (
           :id, :course_id, :title, :prompt_document_id, :source_scope,
           :source_resource_id, :source_day_id, :source_task_id,
-          NULL, 'copied', :now, NULL,
+          :parent_discussion_thread_id, 'copied', :now, NULL,
           :now, :now, NULL
         )
         RETURNING id, 1 AS revision, updated_at
@@ -2487,6 +2510,7 @@ def create_prompt_batch(
             "source_resource_id": command.source_resource_id,
             "source_day_id": command.source_day_id,
             "source_task_id": command.source_task_id,
+            "parent_discussion_thread_id": command.parent_discussion_thread_id,
             "now": now,
         },
     )
@@ -2542,7 +2566,9 @@ def create_prompt_batch(
             {
                 "prompt_batch_id": prompt_batch_id,
                 "annotation_id": annotation_id,
-                "question_label": f"Q-{order_index:03d}",
+                "question_label": (
+                    f"Q-{command.question_label_start + order_index - 1:03d}"
+                ),
                 "order_index": order_index,
                 "quote_snapshot": annotation["quote"],
                 "question_snapshot_markdown": snapshot,
@@ -3814,10 +3840,12 @@ def create_discussion_message(
                 text(
                     """
                     SELECT pbi.annotation_id
-                    FROM prompt_batch_items pbi
+                    FROM prompt_batches pb
+                    JOIN prompt_batch_items pbi ON pbi.prompt_batch_id = pb.id
                     JOIN annotations a ON a.id = pbi.annotation_id
                     JOIN resources r ON r.id = a.resource_id
-                    WHERE pbi.prompt_batch_id = :prompt_batch_id
+                    WHERE pb.parent_discussion_thread_id = :discussion_id
+                      AND pb.deleted_at IS NULL
                       AND a.deleted_at IS NULL
                       AND r.deleted_at IS NULL
                       AND r.course_id = :course_id
@@ -3825,7 +3853,7 @@ def create_discussion_message(
                     """
                 ),
                 {
-                    "prompt_batch_id": thread["initial_prompt_batch_id"],
+                    "discussion_id": discussion_id,
                     "course_id": thread["course_id"],
                 },
             ).scalars()
@@ -3861,10 +3889,11 @@ def create_discussion_message(
                 SET status = 'answered',
                     answered_at = COALESCE(answered_at, :now),
                     updated_at = :now
-                WHERE id = :prompt_batch_id
+                WHERE parent_discussion_thread_id = :discussion_id
+                  AND deleted_at IS NULL
                 """
             ),
-            {"prompt_batch_id": thread["initial_prompt_batch_id"], "now": now},
+            {"discussion_id": discussion_id, "now": now},
         )
     try:
         sync_discussion_exports(

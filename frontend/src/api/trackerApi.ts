@@ -493,6 +493,8 @@ export type PromptBatchInput = {
   sourceResourceId?: string;
   sourceDayId?: string;
   sourceTaskId?: string;
+  parentDiscussionId?: string;
+  questionLabelStart?: number;
   annotationIds?: string[];
   attachmentLimit?: number;
 };
@@ -1247,7 +1249,9 @@ function promptBatchCommand(input: PromptBatchInput) {
     attachment_limit: input.attachmentLimit,
     course_id: input.courseId,
     markdown: input.markdown,
+    parent_discussion_thread_id: input.parentDiscussionId,
     plain_text: input.plainText ?? input.markdown,
+    question_label_start: input.questionLabelStart ?? 1,
     source_day_id: input.sourceDayId,
     source_resource_id: input.sourceResourceId,
     source_scope: input.sourceScope,

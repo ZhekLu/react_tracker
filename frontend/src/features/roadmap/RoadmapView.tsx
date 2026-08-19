@@ -18,6 +18,7 @@ import {
   Circle,
   CircleHelp,
   ClipboardPaste,
+  Copy,
   Clock3,
   FileScan,
   FileQuestion,
@@ -129,6 +130,8 @@ type RoadmapViewProps = {
     attention: NonNullable<Task["notes"][number]>["attention"],
   ) => void;
   onOpenDiscussion: (resourceId: string, taskId?: string) => void;
+  onCopyNextQuestions: (dayId: string, task: Task) => void;
+  onOpenTaskQa: (dayId: string, task: Task) => void;
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: (task: Task) => void;
   onUploadImageQuestions: (
@@ -156,6 +159,7 @@ const RichNoteEditor = lazy(() =>
 
 type TaskRowProps = {
   dayId: string;
+  discussionQuestionIds: Set<string>;
   examQuestionById: Map<string, ExamQuestion>;
   resourceById: Map<string, Resource>;
   task: Task;
@@ -170,6 +174,8 @@ type TaskRowProps = {
   onNoteDelete: RoadmapViewProps["onNoteDelete"];
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
+  onCopyNextQuestions: RoadmapViewProps["onCopyNextQuestions"];
+  onOpenTaskQa: RoadmapViewProps["onOpenTaskQa"];
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
   onUploadImageQuestions: RoadmapViewProps["onUploadImageQuestions"];
@@ -200,6 +206,7 @@ function taskTimerText(task: Task, trackedSeconds: number): string {
 
 function TaskRow({
   dayId,
+  discussionQuestionIds,
   examQuestionById,
   resourceById,
   task,
@@ -214,6 +221,8 @@ function TaskRow({
   onNoteDelete,
   onNoteAttentionChange,
   onOpenDiscussion,
+  onCopyNextQuestions,
+  onOpenTaskQa,
   onOpenResource,
   onPrepareExerciseScreenshots,
   onUploadImageQuestions,
@@ -252,6 +261,23 @@ function TaskRow({
       if (leftQuestion !== rightQuestion) return leftQuestion ? -1 : 1;
       return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
     });
+  const taskCaptures = captures.filter((capture) =>
+    isCaptureRelevantToTask(capture, dayId, task.chapterNumbers),
+  );
+  const nextTaskQuestions = taskCaptures.filter(
+    ({ annotation }) =>
+      ["question", "todo"].includes(annotation.kind) &&
+      annotation.status === "open" &&
+      !annotation.postponed &&
+      (annotation.discussionResponseCount ?? 0) === 0 &&
+      !discussionQuestionIds.has(annotation.id),
+  );
+  const mappedTaskQuestions = taskCaptures.filter(
+    ({ annotation }) =>
+      ["question", "todo"].includes(annotation.kind) &&
+      annotation.status !== "archived" &&
+      (annotation.discussionResponseCount ?? 0) > 0,
+  );
   const taskOpenQuestionCount = task.openQuestionCount;
   const taskNote = task.notes.find((note) => note.kind === "task");
   const exerciseSolutionNotes = task.notes.filter(
@@ -373,6 +399,26 @@ function TaskRow({
               >
                 <CircleHelp size={11} /> {taskOpenQuestionCount}
               </span>
+            ) : null}
+            {nextTaskQuestions.length ? (
+              <button
+                className="taskMetaBadge copyNextQuestions"
+                onClick={() => onCopyNextQuestions(dayId, task)}
+                title="Copy this task's next unanswered questions into its existing day discussion"
+                type="button"
+              >
+                <Copy size={11} /> Next {nextTaskQuestions.length}
+              </button>
+            ) : null}
+            {mappedTaskQuestions.length ? (
+              <button
+                className="taskMetaBadge taskQaLaunch"
+                onClick={() => onOpenTaskQa(dayId, task)}
+                title="Review only tutor answers mapped to this task"
+                type="button"
+              >
+                <Sparkles size={11} /> QA {mappedTaskQuestions.length}
+              </button>
             ) : null}
             {linkedResources
               .filter((resource) => resource.kind === "book")
@@ -725,6 +771,24 @@ function TaskRow({
   );
 }
 
+function isCaptureRelevantToTask(
+  {
+    annotation,
+    resource,
+  }: { annotation: Annotation; resource: Resource },
+  dayId: string,
+  chapterNumbers: number[],
+): boolean {
+  if (resource.kind !== "book") return true;
+  if (annotationMetadata(annotation).createdDayId === dayId) return true;
+  const chapterNumber = annotationChapterNumber(annotation);
+  return (
+    chapterNumbers.length > 0 &&
+    chapterNumber !== null &&
+    chapterNumbers.includes(chapterNumber)
+  );
+}
+
 function TaskCapturePanel({
   captures,
   chapterNumbers,
@@ -743,23 +807,10 @@ function TaskCapturePanel({
   onOpenResource: RoadmapViewProps["onOpenResource"];
 }) {
   const chapterScope = new Set(chapterNumbers);
-  const isRelevantToTask = ({
-    annotation,
-    resource,
-  }: {
+  const isRelevantToTask = (capture: {
     annotation: Annotation;
     resource: Resource;
-  }) => {
-    if (resource.kind !== "book") return true;
-    const createdDayId = annotationMetadata(annotation).createdDayId;
-    if (createdDayId === dayId) return true;
-    const chapterNumber = annotationChapterNumber(annotation);
-    return (
-      chapterScope.size > 0 &&
-      chapterNumber !== null &&
-      chapterScope.has(chapterNumber)
-    );
-  };
+  }) => isCaptureRelevantToTask(capture, dayId, chapterNumbers);
   const taskCaptures = captures.filter(isRelevantToTask);
   const activeQuestions = taskCaptures.filter(
     (capture) =>
@@ -1019,6 +1070,7 @@ function ResourceQuestionShelf({
 type DayCardProps = {
   accent: string;
   day: StudyDay;
+  discussionQuestionIds: Set<string>;
   examQuestionById: Map<string, ExamQuestion>;
   resourceById: Map<string, Resource>;
   skillById: Map<string, Skill>;
@@ -1034,6 +1086,8 @@ type DayCardProps = {
   onNoteDelete: RoadmapViewProps["onNoteDelete"];
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
+  onCopyNextQuestions: RoadmapViewProps["onCopyNextQuestions"];
+  onOpenTaskQa: RoadmapViewProps["onOpenTaskQa"];
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
   onUploadImageQuestions: RoadmapViewProps["onUploadImageQuestions"];
@@ -1046,6 +1100,7 @@ type DayCardProps = {
 function DayCard({
   accent,
   day,
+  discussionQuestionIds,
   examQuestionById,
   resourceById,
   skillById,
@@ -1061,6 +1116,8 @@ function DayCard({
   onNoteDelete,
   onNoteAttentionChange,
   onOpenDiscussion,
+  onCopyNextQuestions,
+  onOpenTaskQa,
   onOpenResource,
   onPrepareExerciseScreenshots,
   onUploadImageQuestions,
@@ -1169,6 +1226,7 @@ function DayCard({
             const taskRows = section.tasks.map((task) => (
               <TaskRow
                 dayId={day.id}
+                discussionQuestionIds={discussionQuestionIds}
                 examQuestionById={examQuestionById}
                 key={task.id}
                 onAnnotationChange={onAnnotationChange}
@@ -1183,6 +1241,8 @@ function DayCard({
                 onNoteDelete={onNoteDelete}
                 onNoteAttentionChange={onNoteAttentionChange}
                 onOpenDiscussion={onOpenDiscussion}
+                onCopyNextQuestions={onCopyNextQuestions}
+                onOpenTaskQa={onOpenTaskQa}
                 onOpenResource={onOpenResource}
                 onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
                 onUploadImageQuestions={onUploadImageQuestions}
@@ -1309,6 +1369,8 @@ export function RoadmapView({
   onNoteDelete,
   onNoteAttentionChange,
   onOpenDiscussion,
+  onCopyNextQuestions,
+  onOpenTaskQa,
   onOpenResource,
   onPrepareExerciseScreenshots,
   onUploadImageQuestions,
@@ -1333,6 +1395,13 @@ export function RoadmapView({
         ),
       ),
     [course.exams],
+  );
+  const discussionQuestionIds = useMemo(
+    () =>
+      new Set(
+        course.discussions.flatMap((discussion) => discussion.questionIds),
+      ),
+    [course.discussions],
   );
 
   useLayoutEffect(() => {
@@ -1398,6 +1467,7 @@ export function RoadmapView({
         <DayCard
           accent={course.accent}
           day={day}
+          discussionQuestionIds={discussionQuestionIds}
           examQuestionById={examQuestionById}
           key={day.id}
           onAnnotationChange={onAnnotationChange}
@@ -1413,6 +1483,8 @@ export function RoadmapView({
           onNoteDelete={onNoteDelete}
           onNoteAttentionChange={onNoteAttentionChange}
           onOpenDiscussion={onOpenDiscussion}
+          onCopyNextQuestions={onCopyNextQuestions}
+          onOpenTaskQa={onOpenTaskQa}
           onOpenResource={onOpenResource}
           onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
           onUploadImageQuestions={onUploadImageQuestions}
