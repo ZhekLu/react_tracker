@@ -26,10 +26,16 @@ record.
 2. Open the source or its linked discussion from the resource chip.
 3. Use the question icon beside a resource for a two-line inline capture. Choose
    Note, Question, Highlight, or To do; `Cmd+Enter` saves and Escape cancels.
-4. Mark the task complete. The pet orbits the completion halo, the task receives
+4. Use the clipboard-picture icon beside a resource to import the last five
+   images from Maccy. Each picture becomes an open question attached to this
+   resource and study day, appears in ordinary question lists and QA, and is
+   included as a `Q-###` image in the next tutor prompt. The adjacent image icon
+   provides the same flow with files selected manually (useful for an older
+   Maccy item or when macOS has not granted access to Maccy's private history).
+5. Mark the task complete. The pet orbits the completion halo, the task receives
    a brief colour sweep, and—if it has no open questions—it contracts to one
    line. **Details** restores its resources and note editor.
-5. On a book exercise task, press **Screenshot solutions** after writing the
+6. On a book exercise task, press **Screenshot solutions** after writing the
    answers in Drawboard. The tracker finds each named `Exercise X.Y`, follows
    the connected handwriting below it, and refreshes the existing
    `data/chatgpt_prompt_attachments` folder with full-width solution crops.
@@ -191,3 +197,20 @@ Structured copy actions clean the contents of
 `data/chatgpt_prompt_attachments` but keep the directory itself. Finder tags and
 other folder metadata therefore survive. Upload only the files relevant to the
 current tutor request; question/slide screenshots use the matching `Q-###` name.
+
+When a prompt contains more than 20 question items, its confirmation reports
+both counts: question items in the prompt and real files that will be placed in
+the attachment folder (source/chapter PDFs plus question images). Keeping every
+question is therefore reasonable when the file count still fits the service you
+are using; choosing the short version still keeps only the first 20 questions.
+
+### Maccy image access
+
+The tracker reads Maccy's local SwiftData history without changing or deleting
+it. On macOS, grant **Full Disk Access** to the application that launches the
+tracker service (normally Terminal, iTerm, or the service runner), then restart
+that application and the tracker. If Maccy uses a nonstandard database path,
+set `TRACKER_MACCY_DATABASE_PATH` in `backend/.env`. The manual image chooser is
+always available and does not require access to Maccy's history. Re-importing
+the same pixels for the same resource is safe: the tracker reuses the existing
+question instead of creating a duplicate.

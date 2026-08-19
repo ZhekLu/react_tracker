@@ -5602,6 +5602,18 @@ button.taskMetaBadge:disabled {
   background: color-mix(in srgb, var(--blue-soft) 74%, #fff);
 }
 
+.taskLinkIcon.lectureNoteImport {
+  cursor: pointer;
+  border-color: color-mix(in srgb, var(--purple, #7661c7) 24%, var(--line));
+  background: color-mix(in srgb, var(--purple, #7661c7) 7%, #fff);
+  color: color-mix(in srgb, var(--purple, #7661c7) 72%, var(--muted));
+}
+
+.taskLinkIcon.lectureNoteImport:hover {
+  border-color: color-mix(in srgb, var(--purple, #7661c7) 50%, var(--line));
+  color: var(--purple, #7661c7);
+}
+
 .taskBody > .entityNoteEditor {
   width: 100%;
   margin-top: 9px;

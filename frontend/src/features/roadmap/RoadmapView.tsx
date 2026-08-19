@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Circle,
   CircleHelp,
+  ClipboardPaste,
   Clock3,
   FileScan,
   FileQuestion,
@@ -103,6 +104,11 @@ type RoadmapViewProps = {
   ) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
   onCreateCapture: (resourceId: string, input: ResourceCaptureInput) => void;
+  onImportMaccyImages: (
+    resourceId: string,
+    taskId: string,
+    count: number,
+  ) => void;
   onChapterProgressChange: (
     resource: Resource,
     chapter: Resource["chapters"][number],
@@ -125,6 +131,11 @@ type RoadmapViewProps = {
   onOpenDiscussion: (resourceId: string, taskId?: string) => void;
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: (task: Task) => void;
+  onUploadImageQuestions: (
+    resourceId: string,
+    taskId: string,
+    files: File[],
+  ) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
   onToggleTaskTimer: (day: StudyDay, task: Task, resources: Resource[]) => void;
   taskTimer: {
@@ -152,6 +163,7 @@ type TaskRowProps = {
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
   onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
+  onImportMaccyImages: RoadmapViewProps["onImportMaccyImages"];
   onExerciseProgressChange: RoadmapViewProps["onExerciseProgressChange"];
   onExerciseReviewChange: RoadmapViewProps["onExerciseReviewChange"];
   onNoteSave: (input: EntityNoteSaveInput) => void;
@@ -160,6 +172,7 @@ type TaskRowProps = {
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
+  onUploadImageQuestions: RoadmapViewProps["onUploadImageQuestions"];
   onStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
   onToggleTimer: () => void;
   timer: {
@@ -194,6 +207,7 @@ function TaskRow({
   onCollectPdfAnnotations,
   onChapterProgressChange,
   onCreateCapture,
+  onImportMaccyImages,
   onExerciseProgressChange,
   onExerciseReviewChange,
   onNoteSave,
@@ -202,6 +216,7 @@ function TaskRow({
   onOpenDiscussion,
   onOpenResource,
   onPrepareExerciseScreenshots,
+  onUploadImageQuestions,
   onStatusChange,
   onToggleTimer,
   timer,
@@ -490,6 +505,32 @@ function TaskRow({
                 >
                   <MessageCircleQuestion size={12} />
                 </button>
+                <button
+                  className="taskLinkIcon lectureNoteImport"
+                  onClick={() => onImportMaccyImages(resource.id, task.id, 5)}
+                  title={`Load the last 5 pictures from Maccy as questions about ${resource.title}`}
+                  type="button"
+                >
+                  <ClipboardPaste size={12} />
+                </button>
+                <label
+                  className="taskLinkIcon lectureNoteImport"
+                  title={`Choose lecture-note pictures for ${resource.title}`}
+                >
+                  <Images size={12} />
+                  <input
+                    accept="image/png,image/jpeg,image/tiff,image/heic,image/heif"
+                    multiple
+                    onChange={(event) => {
+                      const files = Array.from(event.currentTarget.files ?? []);
+                      event.currentTarget.value = "";
+                      if (files.length) {
+                        onUploadImageQuestions(resource.id, task.id, files);
+                      }
+                    }}
+                    type="file"
+                  />
+                </label>
                 {resource.version?.localPath?.toLowerCase().endsWith(".pdf") ||
                 resource.localFiles.some((file) =>
                   file.localPath.toLowerCase().endsWith(".pdf"),
@@ -966,6 +1007,7 @@ type DayCardProps = {
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
   onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
+  onImportMaccyImages: RoadmapViewProps["onImportMaccyImages"];
   onExerciseProgressChange: RoadmapViewProps["onExerciseProgressChange"];
   onExerciseReviewChange: RoadmapViewProps["onExerciseReviewChange"];
   onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
@@ -975,6 +1017,7 @@ type DayCardProps = {
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
+  onUploadImageQuestions: RoadmapViewProps["onUploadImageQuestions"];
   onClosedChange: (day: StudyDay, closed: boolean) => void;
   onTaskStatusChange: (dayId: string, taskId: string, status: TaskStatus) => void;
   onToggleTaskTimer: RoadmapViewProps["onToggleTaskTimer"];
@@ -991,6 +1034,7 @@ function DayCard({
   onCollectPdfAnnotations,
   onChapterProgressChange,
   onCreateCapture,
+  onImportMaccyImages,
   onExerciseProgressChange,
   onExerciseReviewChange,
   onDayNoteSave,
@@ -1000,6 +1044,7 @@ function DayCard({
   onOpenDiscussion,
   onOpenResource,
   onPrepareExerciseScreenshots,
+  onUploadImageQuestions,
   onClosedChange,
   onTaskStatusChange,
   onToggleTaskTimer,
@@ -1111,6 +1156,7 @@ function DayCard({
                 onCollectPdfAnnotations={onCollectPdfAnnotations}
                 onChapterProgressChange={onChapterProgressChange}
                 onCreateCapture={onCreateCapture}
+                onImportMaccyImages={onImportMaccyImages}
                 onExerciseProgressChange={onExerciseProgressChange}
                 onExerciseReviewChange={onExerciseReviewChange}
                 onStatusChange={onTaskStatusChange}
@@ -1120,6 +1166,7 @@ function DayCard({
                 onOpenDiscussion={onOpenDiscussion}
                 onOpenResource={onOpenResource}
                 onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
+                onUploadImageQuestions={onUploadImageQuestions}
                 onToggleTimer={() => onToggleTaskTimer(day, task, task.resourceIds
                   .map((resourceId) => resourceById.get(resourceId))
                   .filter((resource): resource is Resource => Boolean(resource)))}
@@ -1234,6 +1281,7 @@ export function RoadmapView({
   onCollectPdfAnnotations,
   onChapterProgressChange,
   onCreateCapture,
+  onImportMaccyImages,
   onExerciseProgressChange,
   onExerciseReviewChange,
   onDayClosedChange,
@@ -1244,6 +1292,7 @@ export function RoadmapView({
   onOpenDiscussion,
   onOpenResource,
   onPrepareExerciseScreenshots,
+  onUploadImageQuestions,
   onTaskStatusChange,
   onToggleTaskTimer,
   taskTimer,
@@ -1336,6 +1385,7 @@ export function RoadmapView({
           onCollectPdfAnnotations={onCollectPdfAnnotations}
           onChapterProgressChange={onChapterProgressChange}
           onCreateCapture={onCreateCapture}
+          onImportMaccyImages={onImportMaccyImages}
           onExerciseProgressChange={onExerciseProgressChange}
           onExerciseReviewChange={onExerciseReviewChange}
           onClosedChange={onDayClosedChange}
@@ -1346,6 +1396,7 @@ export function RoadmapView({
           onOpenDiscussion={onOpenDiscussion}
           onOpenResource={onOpenResource}
           onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
+          onUploadImageQuestions={onUploadImageQuestions}
         onTaskStatusChange={onTaskStatusChange}
         onToggleTaskTimer={onToggleTaskTimer}
         resourceById={resourceById}

@@ -200,7 +200,10 @@ must survive a plan revision.
   day notes. Questions and PDF captures are grouped compactly by resource and
   chapter directly below their linked task; open an individual capture only
   when its context or actions are needed. Skills belong to the day and are not
-  repeated on every task.
+  repeated on every task. The compact clipboard-picture action imports the last
+  five Maccy images as resource questions scoped to the current study day; the
+  adjacent file picker imports explicitly selected note screenshots. Both flows
+  preserve the original image for QA and tutor prompt attachments.
 - Use Resources for grouped library progress, source opening, resource notes,
   reading state, PDF comment/highlight collection, and resource-linked
   discussions. Every source has a visible Ask action and an inline question
@@ -232,6 +235,14 @@ must survive a plan revision.
   `frontend/src/config/promptTemplates.json`; editing them requires only a
   frontend rebuild and service restart in production. See
   `frontend/src/config/README.md` for the exact workflow.
+
+For Maccy history import, macOS must allow the tracker launcher to read Maccy's
+container. Grant Full Disk Access to Terminal/iTerm/the service runner and
+restart it, or use the manual picture picker. Override the default Maccy store
+with `TRACKER_MACCY_DATABASE_PATH` in `backend/.env`. The UI confirmation for a
+prompt with more than 20 questions reports the actual attachment-file count as
+well as the question count; choosing the short form still limits the prompt to
+its first 20 questions.
 
 ### Drawboard cloud PDFs
 

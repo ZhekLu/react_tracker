@@ -2812,6 +2812,10 @@ button.taskLink {
   color: var(--course-accent);
 }
 
+.taskLinkIcon input {
+  display: none;
+}
+
 .entityNoteEditor {
   margin-top: 7px;
   border: 1px solid var(--line);

@@ -513,6 +513,19 @@ export type PromptBatchResult = MutationResponse & {
   warnings: string[];
 };
 
+export type PromptAttachmentPreview = {
+  attachmentCount: number;
+  questionImageCount: number;
+  resourceFileCount: number;
+};
+
+export type ImageQuestionImportResult = {
+  annotationIds: string[];
+  duplicates: number;
+  imported: number;
+  source: "maccy" | "files";
+};
+
 export type PromptBatchProgress = {
   progress: number;
   stage: string;
@@ -584,6 +597,24 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
     ...init,
+  });
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      detail = payload.detail ?? detail;
+    } catch {
+      // Keep the HTTP status text when the body is not JSON.
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return (await response.json()) as T;
+}
+
+async function requestFormJson<T>(path: string, form: FormData): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    body: form,
+    method: "POST",
   });
   if (!response.ok) {
     let detail = response.statusText;
@@ -1159,11 +1190,59 @@ export async function createAnnotation(
   });
 }
 
-export async function createPromptBatch(
-  input: PromptBatchInput,
-  onProgress?: (progress: PromptBatchProgress) => void,
-): Promise<PromptBatchResult> {
-  const command = {
+export async function importMaccyImageQuestions(input: {
+  count?: number;
+  resourceId: string;
+  sourceDayId?: string;
+  sourceTaskId?: string;
+}): Promise<ImageQuestionImportResult> {
+  const result = await requestJson<{
+    annotation_ids: string[];
+    duplicates: number;
+    imported: number;
+    source: "maccy";
+  }>(`/resources/${input.resourceId}/maccy-image-questions`, {
+    body: JSON.stringify({
+      count: input.count ?? 5,
+      source_day_id: input.sourceDayId,
+      source_task_id: input.sourceTaskId,
+    }),
+    method: "POST",
+  });
+  return {
+    annotationIds: result.annotation_ids,
+    duplicates: result.duplicates,
+    imported: result.imported,
+    source: result.source,
+  };
+}
+
+export async function uploadImageQuestions(input: {
+  files: File[];
+  resourceId: string;
+  sourceDayId?: string;
+  sourceTaskId?: string;
+}): Promise<ImageQuestionImportResult> {
+  const form = new FormData();
+  input.files.forEach((file) => form.append("files", file, file.name));
+  if (input.sourceDayId) form.append("source_day_id", input.sourceDayId);
+  if (input.sourceTaskId) form.append("source_task_id", input.sourceTaskId);
+  const result = await requestFormJson<{
+    annotation_ids: string[];
+    duplicates: number;
+    imported: number;
+    source: "files";
+  }>(`/resources/${input.resourceId}/image-questions`, form);
+  return {
+    annotationIds: result.annotation_ids,
+    duplicates: result.duplicates,
+    imported: result.imported,
+    source: result.source,
+  };
+}
+
+function promptBatchCommand(input: PromptBatchInput) {
+  return {
     annotation_ids: input.annotationIds ?? [],
     attachment_limit: input.attachmentLimit,
     course_id: input.courseId,
@@ -1175,6 +1254,31 @@ export async function createPromptBatch(
     source_task_id: input.sourceTaskId,
     title: input.title,
   };
+}
+
+export async function previewPromptBatch(
+  input: PromptBatchInput,
+): Promise<PromptAttachmentPreview> {
+  const result = await requestJson<{
+    attachment_count: number;
+    question_image_count: number;
+    resource_file_count: number;
+  }>("/prompt-batches/preview", {
+    body: JSON.stringify(promptBatchCommand(input)),
+    method: "POST",
+  });
+  return {
+    attachmentCount: result.attachment_count,
+    questionImageCount: result.question_image_count,
+    resourceFileCount: result.resource_file_count,
+  };
+}
+
+export async function createPromptBatch(
+  input: PromptBatchInput,
+  onProgress?: (progress: PromptBatchProgress) => void,
+): Promise<PromptBatchResult> {
+  const command = promptBatchCommand(input);
   let job = await requestJson<ApiPromptBatchJob>("/prompt-batches/jobs", {
     body: JSON.stringify(command),
     method: "POST",

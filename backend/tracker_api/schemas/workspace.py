@@ -619,6 +619,25 @@ class PromptBatchCreateCommand(StrictModel):
     attachment_limit: int | None = Field(default=None, ge=1, le=100)
 
 
+class PromptAttachmentPreviewResponse(StrictModel):
+    attachment_count: int = Field(ge=0)
+    resource_file_count: int = Field(ge=0)
+    question_image_count: int = Field(ge=0)
+
+
+class MaccyImageImportCommand(StrictModel):
+    count: int = Field(default=5, ge=1, le=20)
+    source_day_id: str | None = None
+    source_task_id: str | None = None
+
+
+class ImageQuestionImportResponse(StrictModel):
+    imported: int = Field(ge=0)
+    duplicates: int = Field(ge=0)
+    annotation_ids: list[str] = Field(default_factory=list)
+    source: Literal["maccy", "files"]
+
+
 class TogglStartCommand(StrictModel):
     description: str = Field(min_length=1, max_length=500)
     course_id: str | None = None

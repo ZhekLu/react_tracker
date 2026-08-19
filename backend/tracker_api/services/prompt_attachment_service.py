@@ -551,6 +551,45 @@ def _question_image_bytes(row: RowMapping) -> bytes | None:
         return None
 
 
+def preview_prompt_attachments(
+    connection: Connection,
+    command: PromptBatchCreateCommand,
+) -> tuple[int, int]:
+    """Count source files and question images without touching the attachment folder."""
+
+    resource_ids = _expand_parent_resources(
+        connection,
+        _prompt_resource_ids(connection, command),
+    )
+    resource_file_count = 0
+    copied_source_paths: set[str] = set()
+    for row in _resource_file_rows(connection, resource_ids):
+        paths = _resource_paths(row)
+        if str(row["resource_kind"]).casefold() == "book":
+            has_pdf = any(path.suffix.casefold() == ".pdf" for path in paths)
+            if has_pdf and _book_chapters(connection, str(row["resource_id"]), command):
+                resource_file_count += 1
+            continue
+        for path in paths:
+            key = str(path).casefold()
+            if key in copied_source_paths:
+                continue
+            copied_source_paths.add(key)
+            resource_file_count += 1
+
+    question_image_count = sum(
+        1
+        for row in _question_rows(connection, command.annotation_ids)
+        if _question_image_path(row) is not None
+        or (
+            bool(_json_object(row["selector_json"]).get("includeSlideScreenshot"))
+            and row["page_number"] is not None
+            and bool(_resource_paths(row))
+        )
+    )
+    return resource_file_count, question_image_count
+
+
 def _resource_attachment_name(
     *,
     ordinal: int,

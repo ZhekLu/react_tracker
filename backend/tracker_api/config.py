@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     chatgpt_attachment_dir: Path = Field(
         default=DATA_DIR / "chatgpt_prompt_attachments"
     )
+    maccy_database_path: Path = Field(
+        default=Path.home()
+        / "Library/Containers/org.p0deje.Maccy/Data/Library/Application Support"
+        / "Maccy/Storage.sqlite"
+    )
     frontend_dist_path: Path = Field(default=PROJECT_ROOT / "frontend" / "dist")
     course_files_config_path: Path = Field(
         default=PROJECT_ROOT / "course_files.json"

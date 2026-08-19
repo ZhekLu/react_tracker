@@ -52,8 +52,10 @@ from tracker_api.schemas.workspace import (
     ResourceChapterProgressCommand,
     ResourceProgressCommand,
 )
+from tracker_api.services.lecture_note_image_service import import_image_questions
 from tracker_api.services.pdf_annotation_service import collect_resource_pdf_annotations
 from tracker_api.services.pdf_ink_image_service import annotation_image_path
+from tracker_api.services.prompt_attachment_service import preview_prompt_attachments
 from tracker_api.services.prompt_batch_service import (
     create_prompt_batch as create_prompt_batch_with_attachments,
 )
@@ -1312,6 +1314,91 @@ def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_questi
         attachment.kind == "question_image"
         for attachment in second.attachments
     )
+
+
+def test_lecture_note_picture_becomes_scoped_question_and_prompt_attachment(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    pixmap = pymupdf.Pixmap(
+        pymupdf.csRGB,
+        pymupdf.IRect(0, 0, 16, 12),
+        False,
+    )
+    pixmap.clear_with(0xAACCFF)
+    picture = bytes(pixmap.tobytes("png"))
+
+    with transaction() as connection:
+        day_id = str(
+            connection.execute(
+                text("SELECT id FROM study_days WHERE course_id = :course_id"),
+                {"course_id": course_id},
+            ).scalar_one()
+        )
+        task_id = str(
+            connection.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM tasks
+                    WHERE day_id = :day_id
+                      AND deleted_at IS NULL
+                    ORDER BY order_index
+                    LIMIT 1
+                    """
+                ),
+                {"day_id": day_id},
+            ).scalar_one()
+        )
+        first = import_image_questions(
+            connection,
+            resource_id=resource_id,
+            image_payloads=[picture],
+            source="files",
+            source_day_id=day_id,
+            source_task_id=task_id,
+        )
+        duplicate = import_image_questions(
+            connection,
+            resource_id=resource_id,
+            image_payloads=[picture],
+            source="files",
+            source_day_id=day_id,
+            source_task_id=task_id,
+        )
+        command = PromptBatchCreateCommand(
+            course_id=course_id,
+            title="Lecture notes",
+            source_scope="resource_questions",
+            source_resource_id=resource_id,
+            source_day_id=day_id,
+            source_task_id=task_id,
+            markdown="# Q-001\n\nLecture notes screenshot",
+            annotation_ids=first.annotation_ids,
+        )
+        preview = preview_prompt_attachments(connection, command)
+        batch = create_prompt_batch_with_attachments(connection, command)
+        workspace = get_workspace(connection, course_id)
+
+    assert first.imported == 1
+    assert first.duplicates == 0
+    assert duplicate.imported == 0
+    assert duplicate.duplicates == 1
+    assert duplicate.annotation_ids == first.annotation_ids
+    question = next(
+        item for item in workspace.annotations if item.id == first.annotation_ids[0]
+    )
+    assert question.kind == "question"
+    assert question.origin == "lecture_note_image"
+    assert question.anchor is not None
+    assert question.anchor.anchor_type == "image"
+    assert question.anchor.metadata["createdDayId"] == day_id
+    assert question.anchor.metadata["createdTaskId"] == task_id
+    assert preview == (2, 1)
+    image = next(item for item in batch.attachments if item.kind == "question_image")
+    assert image.annotation_id == question.id
+    assert image.question_label == "Q-001"
+    assert Path(image.path).read_bytes().startswith(b"\x89PNG")
 
 
 def test_day_prompt_attaches_only_the_book_chapter_and_reuses_it(

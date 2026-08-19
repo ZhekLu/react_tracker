@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.engine import Connection
@@ -34,15 +34,18 @@ from ..schemas.workspace import (
     DrawboardColorRolesCommand,
     DrawboardColorRolesResponse,
     ExamStatusCommand,
+    ExerciseIndexResponse,
     ExerciseScreenshotItem,
     ExerciseScreenshotResponse,
-    ExerciseIndexResponse,
+    ImageQuestionImportResponse,
+    MaccyImageImportCommand,
     MutationResponse,
     NoteDeleteCommand,
     NoteUpsertCommand,
     PdfAnnotationCollectionResponse,
     PdfReaderMetadataResponse,
     PdfReaderPage,
+    PromptAttachmentPreviewResponse,
     PromptBatchCreateCommand,
     PromptBatchCreateResponse,
     PromptBatchJobResponse,
@@ -61,10 +64,15 @@ from ..services.course_file_service import (
     open_course_file,
 )
 from ..services.exercise_solution_service import (
-    chapter_exercises_for_task,
     ExerciseSolutionError,
+    chapter_exercises_for_task,
     prepare_exercise_solution_screenshots,
     render_exercise_source,
+)
+from ..services.lecture_note_image_service import (
+    LectureNoteImageError,
+    import_image_questions,
+    recent_maccy_images,
 )
 from ..services.pdf_annotation_service import (
     PdfAnnotationError,
@@ -80,7 +88,10 @@ from ..services.pdf_reader_service import (
     pdf_metadata,
     render_pdf_page,
 )
-from ..services.prompt_attachment_service import PromptAttachmentError
+from ..services.prompt_attachment_service import (
+    PromptAttachmentError,
+    preview_prompt_attachments,
+)
 from ..services.prompt_batch_job_service import (
     get_prompt_batch_job,
     start_prompt_batch_job,
@@ -738,6 +749,76 @@ def create_annotation(
         raise _translate_repository_error(error) from error
 
 
+@router.post(
+    "/resources/{resource_id}/image-questions",
+    response_model=ImageQuestionImportResponse,
+)
+def upload_resource_image_questions(
+    resource_id: str,
+    files: Annotated[list[UploadFile], File()],
+    connection: Database,
+    source_day_id: Annotated[str | None, Form()] = None,
+    source_task_id: Annotated[str | None, Form()] = None,
+) -> ImageQuestionImportResponse:
+    try:
+        result = import_image_questions(
+            connection,
+            resource_id=resource_id,
+            image_payloads=[file.file.read() for file in files],
+            source="files",
+            source_day_id=source_day_id,
+            source_task_id=source_task_id,
+        )
+        return ImageQuestionImportResponse(
+            imported=result.imported,
+            duplicates=result.duplicates,
+            annotation_ids=result.annotation_ids,
+            source="files",
+        )
+    except (
+        LectureNoteImageError,
+        workspace_repository.WorkspaceRepositoryError,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
+@router.post(
+    "/resources/{resource_id}/maccy-image-questions",
+    response_model=ImageQuestionImportResponse,
+)
+def import_resource_maccy_image_questions(
+    resource_id: str,
+    command: MaccyImageImportCommand,
+    connection: Database,
+) -> ImageQuestionImportResponse:
+    try:
+        result = import_image_questions(
+            connection,
+            resource_id=resource_id,
+            image_payloads=recent_maccy_images(command.count),
+            source="maccy",
+            source_day_id=command.source_day_id,
+            source_task_id=command.source_task_id,
+        )
+        return ImageQuestionImportResponse(
+            imported=result.imported,
+            duplicates=result.duplicates,
+            annotation_ids=result.annotation_ids,
+            source="maccy",
+        )
+    except (
+        LectureNoteImageError,
+        workspace_repository.WorkspaceRepositoryError,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
+
 @router.post("/notes", response_model=MutationResponse)
 def upsert_note(command: NoteUpsertCommand, connection: Database) -> MutationResponse:
     try:
@@ -772,6 +853,25 @@ def create_prompt_batch(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(error),
         ) from error
+
+
+@router.post(
+    "/prompt-batches/preview",
+    response_model=PromptAttachmentPreviewResponse,
+)
+def preview_prompt_batch(
+    command: PromptBatchCreateCommand,
+    connection: Database,
+) -> PromptAttachmentPreviewResponse:
+    try:
+        resource_count, question_count = preview_prompt_attachments(connection, command)
+        return PromptAttachmentPreviewResponse(
+            attachment_count=resource_count + question_count,
+            resource_file_count=resource_count,
+            question_image_count=question_count,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
 
 
 def _prompt_job_response(job: Any) -> PromptBatchJobResponse:

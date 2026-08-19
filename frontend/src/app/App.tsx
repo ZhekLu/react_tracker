@@ -17,11 +17,13 @@ import {
   deleteDiscussion,
   fetchCourses,
   fetchCourseWorkspace,
+  importMaccyImageQuestions,
   linkDiscussionQuestion,
   openResource,
   openResourceFile,
   pdfReaderPageUrl,
   prepareExerciseScreenshots,
+  previewPromptBatch,
   reviewDiscussionMessage,
   reviewDiscussionQa,
   saveDrawboardColorRoles,
@@ -35,6 +37,7 @@ import {
   updateResourceProgress,
   updateResourceChapterProgress,
   updateTaskStatus,
+  uploadImageQuestions,
   upsertNote,
 } from "../api/trackerApi";
 import { withQuestionAnswerReferences } from "../lib/questionAnswerReferences";
@@ -653,10 +656,30 @@ export function App() {
     });
 
     const sourceAnnotationIds = payload.annotationIds ?? [];
+    let attachmentPreview: Awaited<ReturnType<typeof previewPromptBatch>> | null = null;
+    if (sourceAnnotationIds.length > 20) {
+      try {
+        attachmentPreview = await previewPromptBatch({
+          annotationIds: sourceAnnotationIds,
+          courseId: workspace.id,
+          markdown: payload.markdown,
+          sourceDayId: payload.sourceDayId,
+          sourceResourceId: payload.sourceResourceId,
+          sourceScope: payload.sourceScope,
+          sourceTaskId: payload.sourceTaskId,
+          title: payload.title,
+        });
+      } catch {
+        // Prompt preparation still works if the lightweight count preview fails.
+      }
+    }
+    const previewSummary = attachmentPreview
+      ? ` The full package contains ${attachmentPreview.attachmentCount} attachment file${attachmentPreview.attachmentCount === 1 ? "" : "s"} (${attachmentPreview.resourceFileCount} source, ${attachmentPreview.questionImageCount} question image${attachmentPreview.questionImageCount === 1 ? "" : "s"}).`
+      : "";
     const limitQuestions =
       sourceAnnotationIds.length > 20 &&
       window.confirm(
-        `${sourceAnnotationIds.length} question items are ready, but ChatGPT accepts at most 20 uploaded files.\n\nPress OK to prepare only the first 20 questions/files, or Cancel to keep the full package.`,
+        `${sourceAnnotationIds.length} question items are ready.${previewSummary}\n\nPress OK to prepare the first 20 questions, or Cancel to keep every question.`,
       );
     const annotationIds = limitQuestions
       ? sourceAnnotationIds.slice(0, 20)
@@ -711,11 +734,14 @@ export function App() {
     const attachmentMessage = attachmentCount
       ? ` ${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"} ready in ${batch.attachmentDirectory}.`
       : " No extra files were needed for this prompt.";
+    const questionMessage = sourceAnnotationIds.length
+      ? ` ${annotationIds.length}/${sourceAnnotationIds.length} question item${sourceAnnotationIds.length === 1 ? "" : "s"} included.`
+      : "";
     const warningMessage = batch.warnings.length
       ? ` ${batch.warnings.length} file warning${batch.warnings.length === 1 ? "" : "s"}.`
       : "";
     setPromptProgress(null);
-    setActionMessage(`${label}${attachmentMessage}${warningMessage}`);
+    setActionMessage(`${label}${questionMessage}${attachmentMessage}${warningMessage}`);
     return batch.id;
   }
 
@@ -1131,6 +1157,50 @@ export function App() {
         `${input.kind[0].toUpperCase()}${input.kind.slice(1)} saved to Notes.`,
       );
     });
+  }
+
+  function handleImportMaccyImages(
+    resourceId: string,
+    taskId: string,
+    count: number,
+  ) {
+    const task = workspace ? findTask(workspace, taskId) : null;
+    void runMutation(async () => {
+      const result = await importMaccyImageQuestions({
+        count,
+        resourceId,
+        sourceDayId: task?.dayId ?? activeDay?.id,
+        sourceTaskId: taskId,
+      });
+      const duplicateMessage = result.duplicates
+        ? ` ${result.duplicates} duplicate${result.duplicates === 1 ? " was" : "s were"} already present.`
+        : "";
+      setActionMessage(
+        `${result.imported} Maccy picture${result.imported === 1 ? "" : "s"} added as open questions.${duplicateMessage}`,
+      );
+    }, { preserveScroll: true });
+  }
+
+  function handleUploadImageQuestions(
+    resourceId: string,
+    taskId: string,
+    files: File[],
+  ) {
+    const task = workspace ? findTask(workspace, taskId) : null;
+    void runMutation(async () => {
+      const result = await uploadImageQuestions({
+        files,
+        resourceId,
+        sourceDayId: task?.dayId ?? activeDay?.id,
+        sourceTaskId: taskId,
+      });
+      const duplicateMessage = result.duplicates
+        ? ` ${result.duplicates} duplicate${result.duplicates === 1 ? " was" : "s were"} already present.`
+        : "";
+      setActionMessage(
+        `${result.imported} lecture-note picture${result.imported === 1 ? "" : "s"} added as open questions.${duplicateMessage}`,
+      );
+    }, { preserveScroll: true });
   }
 
   function handleQuestionSubmit(input: {
@@ -1730,12 +1800,14 @@ export function App() {
           onExerciseReviewChange={handleExerciseReviewChange}
           onDayNoteSave={handleDayNoteSave}
           onCreateCapture={handleCreateResourceCapture}
+          onImportMaccyImages={handleImportMaccyImages}
           onNoteSave={handleNoteSave}
           onNoteDelete={handleNoteDelete}
           onNoteAttentionChange={handleNoteAttentionChange}
           onOpenDiscussion={handleOpenDiscussion}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
           onPrepareExerciseScreenshots={handlePrepareExerciseScreenshots}
+          onUploadImageQuestions={handleUploadImageQuestions}
           onTaskStatusChange={handleTaskStatusChange}
           onToggleTaskTimer={(day, task, resources) =>
             void toggl.toggleTask(day, task, resources)
