@@ -107,83 +107,6 @@ type ExerciseTaskOption = {
   task: Course["days"][number]["sections"][number]["tasks"][number];
 };
 
-type FollowupTrailEntry = {
-  answerMarkdown: string;
-  followup: Annotation;
-  originalQuestions: Annotation[];
-  responseTitle: string;
-  selectedContext: string;
-};
-
-function comparableText(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function followupTrail(
-  course: Course,
-  current: Annotation,
-): FollowupTrailEntry[] {
-  const annotationById = new Map(course.annotations.map((item) => [item.id, item]));
-  const entries: FollowupTrailEntry[] = [];
-  const seen = new Set<string>();
-  let followup: Annotation | undefined = current;
-  while (
-    followup?.origin === "discussion_review_followup" &&
-    followup.anchor?.discussionMessageId &&
-    !seen.has(followup.id)
-  ) {
-    seen.add(followup.id);
-    const parentDiscussion = course.discussions.find((discussion) =>
-      discussion.messages.some(
-        (message) => message.id === followup?.anchor?.discussionMessageId,
-      ),
-    );
-    if (!parentDiscussion) break;
-    const selected = comparableText(followup.anchor.quote ?? "");
-    const storedSectionLabel: unknown = followup.anchor.metadata?.sectionLabel;
-    const storedRootQuestionIds: unknown =
-      followup.anchor.metadata?.rootQuestionIds;
-    const candidates = discussionQaSections(
-      parentDiscussion,
-      course.annotations,
-    ).filter(
-      (section) =>
-        section.messageId === followup?.anchor?.discussionMessageId,
-    );
-    const parentSection: DiscussionQaSection | undefined =
-      (typeof storedSectionLabel === "string"
-        ? candidates.find((section) => section.label === storedSectionLabel)
-        : undefined) ??
-      candidates.find((section) => {
-        const body = comparableText(section.bodyMarkdown);
-        return selected.length > 12 && body.includes(selected.slice(0, 80));
-      });
-    if (!parentSection) break;
-    const rootQuestionIds: string[] = Array.isArray(storedRootQuestionIds)
-      ? storedRootQuestionIds.filter(
-          (id: unknown): id is string => typeof id === "string",
-        )
-      : parentSection.questionIds;
-    const originalQuestions: Annotation[] = rootQuestionIds
-      .map((id) => annotationById.get(id))
-      .filter((item): item is Annotation => Boolean(item));
-    entries.unshift({
-      answerMarkdown: parentSection.bodyMarkdown,
-      followup,
-      originalQuestions,
-      responseTitle: parentSection.title,
-      selectedContext: followup.anchor.quote ?? "",
-    });
-    followup = originalQuestions.find(
-      (question) => question.origin === "discussion_review_followup",
-    );
-  }
-  return entries;
-}
-
 function exerciseLabelsFromInput(value: string): string[] {
   const labels: string[] = [];
   for (const match of value.matchAll(/(?:Exercise\s*)?(\d+(?:\.\d+)+)/gi)) {
@@ -670,16 +593,28 @@ export function DiscussionQaReview({
     [course.discussions],
   );
   const allItems = useMemo(
-    () =>
-      qaReviewThreads(
+    () => {
+      const items = qaReviewThreads(
         course.discussions,
         course.annotations,
         discussion,
         questionIds,
-      ).filter(
-        (item) =>
-          !item.answers?.every((answer) => hiddenSectionIds.has(answer.section.id)),
-      ),
+      );
+      return items
+        .map((item) => {
+          const answers = (item.answers ?? []).filter(
+            (answer) => !hiddenSectionIds.has(answer.section.id),
+          );
+          const latest = answers.at(-1);
+          return {
+            ...item,
+            answers,
+            section: latest?.section,
+            sectionDiscussionId: latest?.discussionId,
+          };
+        })
+        .filter((item) => item.answers.length > 0);
+    },
     [course.annotations, course.discussions, discussion, hiddenSectionIds, questionIds],
   );
   const editableMessageIds = useMemo(
@@ -737,7 +672,10 @@ export function DiscussionQaReview({
   const [editorGeneration, setEditorGeneration] = useState(0);
   const [savedPulse, setSavedPulse] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
-  const [confirmDeleteAnswer, setConfirmDeleteAnswer] = useState(false);
+  const [answerToDelete, setAnswerToDelete] = useState<{
+    questionIds: string[];
+    section: DiscussionQaSection;
+  } | null>(null);
   const [confirmArchiveQuestion, setConfirmArchiveQuestion] = useState(false);
   const [editingFollowupId, setEditingFollowupId] = useState<string | null>(null);
   const visibleItems = useMemo(
@@ -766,30 +704,64 @@ export function DiscussionQaReview({
     () => new Set(),
   );
   const reportedViewKeys = useRef(new Set<string>());
-  const activeFollowupTrail = useMemo(() => {
-    const entries =
-      activeItem?.questions
-        .filter((question) => question.origin === "discussion_review_followup")
-        .flatMap((question) => followupTrail(course, question)) ?? [];
-    return entries.filter(
-      (entry, index) =>
-        entries.findIndex((candidate) => candidate.followup.id === entry.followup.id) ===
-        index,
-    );
-  }, [activeItem, course]);
+  const activeRootQuestions = useMemo(
+    () =>
+      activeItem
+        ? (activeItem.rootQuestions ?? activeItem.questions.filter(
+            (question) => question.origin !== "discussion_review_followup",
+          ))
+        : [],
+    [activeItem],
+  );
+  const activeFollowups = useMemo(
+    () =>
+      (activeItem?.questions ?? [])
+        .filter(
+          (question) => question.origin === "discussion_review_followup",
+        )
+        .sort(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id),
+        ),
+    [activeItem],
+  );
+  const activeAnswerRecords = useMemo(
+    () => activeItem?.answers ?? [],
+    [activeItem],
+  );
+  const activeFollowupIdSet = useMemo(
+    () => new Set(activeFollowups.map((followup) => followup.id)),
+    [activeFollowups],
+  );
+  const rootAnswerRecords = useMemo(
+    () =>
+      activeAnswerRecords.filter(
+        (answer) =>
+          !answer.section.questionIds.some((id) => activeFollowupIdSet.has(id)),
+      ),
+    [activeAnswerRecords, activeFollowupIdSet],
+  );
+  const followupAnswersById = useMemo(
+    () =>
+      new Map(
+        activeFollowups.map((followup) => [
+          followup.id,
+          activeAnswerRecords.filter((answer) =>
+            answer.section.questionIds.includes(followup.id),
+          ),
+        ]),
+      ),
+    [activeAnswerRecords, activeFollowups],
+  );
   const activeSourceQuestions = useMemo(() => {
     if (!activeItem) return [];
-    const candidates = [
-      ...(activeItem.rootQuestions ?? activeItem.questions.filter(
-        (question) => question.origin !== "discussion_review_followup",
-      )),
-      ...activeFollowupTrail.flatMap((entry) => entry.originalQuestions),
-    ];
+    const candidates = activeRootQuestions;
     return candidates.filter(
       (question, index) =>
         candidates.findIndex((candidate) => candidate.id === question.id) === index,
     );
-  }, [activeFollowupTrail, activeItem]);
+  }, [activeItem, activeRootQuestions]);
   const activeImportantNote = activeItem?.section
     ? course.notes.find(
         (note) =>
@@ -967,35 +939,37 @@ export function DiscussionQaReview({
     };
   }, []);
 
-  function setCurrentDraft(markdown: string) {
-    if (!activeItem?.section) return;
+  function setSectionDraft(sectionId: string, markdown: string) {
     setSectionDrafts((current) => {
       const next = new Map(current);
-      next.set(activeItem.section!.id, markdown);
+      next.set(sectionId, markdown);
       return next;
     });
   }
 
-  function setCurrentReviewItems(items: DiscussionReviewItem[]) {
-    if (!activeItem?.section) return;
+  function setSectionReviewItems(
+    sectionId: string,
+    items: DiscussionReviewItem[],
+  ) {
     setReviewItemsBySection((current) => {
       const next = new Map(current);
-      next.set(activeItem.section!.id, items);
+      next.set(sectionId, items);
       return next;
     });
   }
 
   function saveSession(
+    activeSectionId?: string,
     activeMarkdown?: string,
     activeReviewItems?: DiscussionReviewItem[],
   ) {
     const drafts = new Map(sectionDrafts);
     const reviewItems = new Map(reviewItemsBySection);
-    if (activeItem?.section && activeMarkdown !== undefined) {
-      drafts.set(activeItem.section.id, activeMarkdown);
+    if (activeSectionId && activeMarkdown !== undefined) {
+      drafts.set(activeSectionId, activeMarkdown);
     }
-    if (activeItem?.section && activeReviewItems !== undefined) {
-      reviewItems.set(activeItem.section.id, activeReviewItems);
+    if (activeSectionId && activeReviewItems !== undefined) {
+      reviewItems.set(activeSectionId, activeReviewItems);
     }
     const nextSaved = new Map(savedMessageMarkdown);
     for (const [messageId, messageSections] of sectionsByMessage) {
@@ -1049,9 +1023,11 @@ export function DiscussionQaReview({
     onClose();
   }
 
-  function removeCurrentAnswer(archiveQuestions = false) {
-    const section = activeItem?.section;
-    if (!section) return;
+  function removeAnswer(
+    section: DiscussionQaSection,
+    linkedQuestionIds: string[],
+    archiveQuestions = false,
+  ) {
     const message = messageById.get(section.messageId);
     if (!message) return;
     const remainingSections = (sectionsByMessage.get(section.messageId) ?? []).filter(
@@ -1061,7 +1037,7 @@ export function DiscussionQaReview({
     onDeleteAnswer(
       message,
       rebuilt.markdown,
-      activeItem.questions.map((question) => question.id),
+      linkedQuestionIds,
       archiveQuestions,
     );
     setHiddenSectionIds((current) => new Set([...current, section.id]));
@@ -1070,7 +1046,7 @@ export function DiscussionQaReview({
       next.set(section.messageId, rebuilt.markdown);
       return next;
     });
-    setConfirmDeleteAnswer(false);
+    setAnswerToDelete(null);
     setConfirmArchiveQuestion(false);
     setActiveIndex((current) => Math.max(0, current - 1));
   }
@@ -1164,9 +1140,17 @@ export function DiscussionQaReview({
               <header className="qaAnswerHeading">
                 <div className="qaAnswerIdentity">
                   <span className="qaResponseTag">
-                    Response #{activeItem.section?.messageSequenceNumber ?? "—"}
+                    Question thread · {activeAnswerRecords.length} tutor answer{activeAnswerRecords.length === 1 ? "" : "s"}
+                    {activeFollowups.length
+                      ? ` · ${activeFollowups.length} follow-up${activeFollowups.length === 1 ? "" : "s"}`
+                      : ""}
                   </span>
-                  <h2>{activeItem.section?.title ?? "Unmapped question"}</h2>
+                  <h2>
+                    {activeRootQuestions
+                      .map((question) => labelsByAnnotationId.get(question.id))
+                      .filter(Boolean)
+                      .join(" / ") || activeItem.section?.title || "Unmapped question"}
+                  </h2>
                 </div>
                 <div className="qaAnswerActions">
                   {activeItem.section ? (
@@ -1189,22 +1173,6 @@ export function DiscussionQaReview({
                     >
                       <BookMarked size={14} />
                       {activeImportantNote ? "Important" : "Mark important"}
-                    </button>
-                  ) : null}
-                  {activeItem.section ? (
-                    <button
-                      aria-label="Delete this tutor answer"
-                      className="qaDeleteAnswer"
-                      disabled={hasUnsavedChanges}
-                      onClick={() => setConfirmDeleteAnswer(true)}
-                      title={
-                        hasUnsavedChanges
-                          ? "Save the QA session before deleting an answer"
-                          : "Delete answer and reopen its questions"
-                      }
-                      type="button"
-                    >
-                      <Trash2 size={14} /> Delete answer
                     </button>
                   ) : null}
                   {activeItem.section && activeItem.questions.length ? (
@@ -1275,100 +1243,19 @@ export function DiscussionQaReview({
                 <section className="qaQuestionPrompt">
                   <span>
                     <CircleHelp size={13} />
-                    {activeFollowupTrail.length ? "Follow-up review" : "Original question"}
-                    {activeItem.questions.length > 1
-                      ? ` · ${activeItem.questions.length} linked captures`
+                    Original question
+                    {activeRootQuestions.length > 1
+                      ? ` · ${activeRootQuestions.length} linked captures`
                       : ""}
                     <em className={`qaReviewStatus ${activeReviewStatus}`}>
                       {activeReviewStatus}
                     </em>
                   </span>
-                  {activeFollowupTrail.map((entry, index) => (
-                    <details className="qaFollowupTrail" key={entry.followup.id} open>
-                      <summary>
-                        {index ? `Earlier follow-up ${index + 1}` : "Original Q&A"}
-                        <small>{entry.responseTitle}</small>
-                      </summary>
-                      {entry.originalQuestions.map((question) => (
-                        <div className="qaFollowupOriginal" key={question.id}>
-                          <strong>Question</strong>
-                          <MarkdownMath>{annotationDisplayText(question)}</MarkdownMath>
-                        </div>
-                      ))}
-                      <div className="qaFollowupAnswer">
-                        <span className="qaTrailRole tutor">Tutor</span>
-                        <MarkdownMath>{entry.answerMarkdown}</MarkdownMath>
-                      </div>
-                      {entry.selectedContext ? (
-                        <blockquote>
-                          <MarkdownMath>{entry.selectedContext}</MarkdownMath>
-                        </blockquote>
-                      ) : null}
-                      <div className="qaFollowupAsked">
-                        <strong>Your follow-up</strong>
-                        {editingFollowupId === entry.followup.id ? (
-                          <DiscussionMarkdownSurface
-                            editable
-                            markdown={annotationDisplayText(entry.followup)}
-                            onCancel={() => setEditingFollowupId(null)}
-                            onSave={(markdown) => {
-                              onAnnotationChange(entry.followup, {
-                                markdown,
-                                plainText: markdown,
-                              });
-                              setEditingFollowupId(null);
-                            }}
-                            placeholder="Refine this follow-up question…"
-                          />
-                        ) : (
-                          <>
-                            <MarkdownMath>{annotationDisplayText(entry.followup)}</MarkdownMath>
-                            <div className="qaFollowupActions">
-                              <button
-                                onClick={() => setEditingFollowupId(entry.followup.id)}
-                                type="button"
-                              >
-                                Edit follow-up
-                              </button>
-                              <button
-                                className="danger"
-                                onClick={() =>
-                                  onAnnotationChange(entry.followup, { status: "archived" })
-                                }
-                                type="button"
-                              >
-                                Delete follow-up
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </details>
-                  ))}
-                  {!activeFollowupTrail.length
-                    ? activeItem.questions.map((question) => (
-                        <div className="qaMappedQuestion" key={question.id}>
-                          <small>{labelsByAnnotationId.get(question.id) ?? "Linked capture"}</small>
-                          <MarkdownMath>{annotationDisplayText(question)}</MarkdownMath>
-                        </div>
-                      ))
-                    : null}
-                </section>
-              ) : null}
-              {(activeItem.answers?.length ?? 0) > 1 ? (
-                <section className="qaAnswerHistory">
-                  <header>
-                    <strong>{activeItem.answers!.length} tutor responses</strong>
-                    <span>One question thread · oldest to newest</span>
-                  </header>
-                  {activeItem.answers!.slice(0, -1).map((answer, index) => (
-                    <details key={answer.section.id} open={index === activeItem.answers!.length - 2}>
-                      <summary>
-                        <span>Response version {index + 1}</span>
-                        <small>{answer.section.title}</small>
-                      </summary>
-                      <MarkdownMath>{answer.section.bodyMarkdown}</MarkdownMath>
-                    </details>
+                  {activeRootQuestions.map((question) => (
+                    <div className="qaMappedQuestion" key={question.id}>
+                      <small>{labelsByAnnotationId.get(question.id) ?? "Linked capture"}</small>
+                      <MarkdownMath>{annotationDisplayText(question)}</MarkdownMath>
+                    </div>
                   ))}
                 </section>
               ) : null}
@@ -1379,23 +1266,174 @@ export function DiscussionQaReview({
                 key={`exercise:${activeItem.id}`}
                 onMap={onMapExerciseSolution}
               />
-              {activeItem.section ? (
-                <DiscussionMarkdownSurface
-                  className="qaAnswerEditor"
-                  editable
-                  key={`${activeItem.section.id}:${editorGeneration}`}
-                  markdown={
-                    sectionDrafts.get(activeItem.section.id) ??
-                    activeItem.section.bodyMarkdown
-                  }
-                  onCancel={requestClose}
-                  onChange={setCurrentDraft}
-                  onReviewItemsChange={setCurrentReviewItems}
-                  onSave={(markdown, items) => saveSession(markdown, items)}
-                  placeholder="Refine the answer, highlight the useful parts, or select text and press ⌘D for a follow-up…"
-                  reviewMode
-                  showActions={false}
-                />
+              {activeAnswerRecords.length ? (
+                <section className="qaThreadTimeline">
+                  {rootAnswerRecords.map((answer, index) => (
+                    <article className="qaTimelineAnswer" key={answer.section.id}>
+                      <header>
+                        <span className="qaTutorTag">Tutor · answer {index + 1}</span>
+                        <small>Response #{answer.section.messageSequenceNumber}</small>
+                        <button
+                          aria-label={`Delete tutor answer ${index + 1}`}
+                          disabled={hasUnsavedChanges}
+                          onClick={() =>
+                            setAnswerToDelete({
+                              questionIds: answer.section.questionIds.length
+                                ? answer.section.questionIds
+                                : activeRootQuestions.map((question) => question.id),
+                              section: answer.section,
+                            })
+                          }
+                          title={
+                            hasUnsavedChanges
+                              ? "Save the QA session before deleting an answer"
+                              : "Delete only this answer version"
+                          }
+                          type="button"
+                        >
+                          <Trash2 size={13} /> Delete
+                        </button>
+                      </header>
+                      <DiscussionMarkdownSurface
+                        className="qaAnswerEditor"
+                        editable
+                        key={`${answer.section.id}:${editorGeneration}`}
+                        markdown={
+                          sectionDrafts.get(answer.section.id) ??
+                          answer.section.bodyMarkdown
+                        }
+                        onCancel={requestClose}
+                        onChange={(markdown) =>
+                          setSectionDraft(answer.section.id, markdown)
+                        }
+                        onReviewItemsChange={(items) =>
+                          setSectionReviewItems(answer.section.id, items)
+                        }
+                        onSave={(markdown, items) =>
+                          saveSession(answer.section.id, markdown, items)
+                        }
+                        placeholder="Refine the answer, highlight the useful parts, or select text and press ⌘D for a follow-up…"
+                        reviewMode
+                        showActions={false}
+                      />
+                    </article>
+                  ))}
+                  {activeFollowups.map((followup, followupIndex) => {
+                    const answers = followupAnswersById.get(followup.id) ?? [];
+                    return (
+                      <section className="qaFollowupExchange" key={followup.id}>
+                        <article className="qaFollowupMessage">
+                          <header>
+                            <span>
+                              {labelsByAnnotationId.get(followup.id) ??
+                                `Follow-up ${followupIndex + 1}`}
+                            </span>
+                            <div className="qaFollowupActions">
+                              <button
+                                onClick={() => setEditingFollowupId(followup.id)}
+                                type="button"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="danger"
+                                onClick={() =>
+                                  onAnnotationChange(followup, { status: "archived" })
+                                }
+                                type="button"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </header>
+                          {followup.anchor?.quote ? (
+                            <blockquote>
+                              <MarkdownMath>{followup.anchor.quote}</MarkdownMath>
+                            </blockquote>
+                          ) : null}
+                          {editingFollowupId === followup.id ? (
+                            <DiscussionMarkdownSurface
+                              editable
+                              markdown={annotationDisplayText(followup)}
+                              onCancel={() => setEditingFollowupId(null)}
+                              onSave={(markdown) => {
+                                onAnnotationChange(followup, {
+                                  markdown,
+                                  plainText: markdown,
+                                });
+                                setEditingFollowupId(null);
+                              }}
+                              placeholder="Refine this follow-up question…"
+                            />
+                          ) : (
+                            <MarkdownMath>{annotationDisplayText(followup)}</MarkdownMath>
+                          )}
+                        </article>
+                        {answers.length ? (
+                          answers.map((answer, answerIndex) => (
+                            <article
+                              className="qaTimelineAnswer followupAnswer"
+                              key={answer.section.id}
+                            >
+                              <header>
+                                <span className="qaTutorTag">
+                                  Tutor · follow-up answer {answerIndex + 1}
+                                </span>
+                                <small>
+                                  Response #{answer.section.messageSequenceNumber}
+                                </small>
+                                <button
+                                  aria-label={`Delete follow-up answer ${answerIndex + 1}`}
+                                  disabled={hasUnsavedChanges}
+                                  onClick={() =>
+                                    setAnswerToDelete({
+                                      questionIds: [followup.id],
+                                      section: answer.section,
+                                    })
+                                  }
+                                  title={
+                                    hasUnsavedChanges
+                                      ? "Save the QA session before deleting an answer"
+                                      : "Delete only this follow-up answer version"
+                                  }
+                                  type="button"
+                                >
+                                  <Trash2 size={13} /> Delete
+                                </button>
+                              </header>
+                              <DiscussionMarkdownSurface
+                                className="qaAnswerEditor"
+                                editable
+                                key={`${answer.section.id}:${editorGeneration}`}
+                                markdown={
+                                  sectionDrafts.get(answer.section.id) ??
+                                  answer.section.bodyMarkdown
+                                }
+                                onCancel={requestClose}
+                                onChange={(markdown) =>
+                                  setSectionDraft(answer.section.id, markdown)
+                                }
+                                onReviewItemsChange={(items) =>
+                                  setSectionReviewItems(answer.section.id, items)
+                                }
+                                onSave={(markdown, items) =>
+                                  saveSession(answer.section.id, markdown, items)
+                                }
+                                placeholder="Refine this answer, highlight it, or ask another follow-up…"
+                                reviewMode
+                                showActions={false}
+                              />
+                            </article>
+                          ))
+                        ) : (
+                          <p className="qaAwaitingFollowup">
+                            Awaiting a tutor response to this follow-up.
+                          </p>
+                        )}
+                      </section>
+                    );
+                  })}
+                </section>
               ) : (
                 <div className="qaUnmappedAnswer">
                   <CircleHelp size={24} />
@@ -1454,13 +1492,19 @@ export function DiscussionQaReview({
           title="Close without saving?"
         />
       ) : null}
-      {confirmDeleteAnswer ? (
+      {answerToDelete ? (
         <ConfirmDialog
           confirmLabel="Delete answer"
-          description="Only this tutor answer will be removed. Its linked questions will return to the open queue for your next tutor round."
-          onCancel={() => setConfirmDeleteAnswer(false)}
-          onConfirm={() => removeCurrentAnswer(false)}
-          title="Delete this tutor answer?"
+          description="Only this answer version will be removed. Other answers and follow-ups in this question thread stay intact."
+          onCancel={() => setAnswerToDelete(null)}
+          onConfirm={() =>
+            removeAnswer(
+              answerToDelete.section,
+              answerToDelete.questionIds,
+              false,
+            )
+          }
+          title="Delete this answer version?"
         />
       ) : null}
       {confirmArchiveQuestion ? (
@@ -1468,7 +1512,14 @@ export function DiscussionQaReview({
           confirmLabel="Archive question"
           description="This question thread will leave the active queue and this tutor answer will be removed from the discussion. Use this for questions that are no longer useful."
           onCancel={() => setConfirmArchiveQuestion(false)}
-          onConfirm={() => removeCurrentAnswer(true)}
+          onConfirm={() => {
+            if (!activeItem?.section) return;
+            removeAnswer(
+              activeItem.section,
+              activeItem.questions.map((question) => question.id),
+              true,
+            );
+          }}
           title="Archive this question and answer?"
         />
       ) : null}

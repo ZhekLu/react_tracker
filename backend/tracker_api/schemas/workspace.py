@@ -617,6 +617,7 @@ class PromptBatchCreateCommand(StrictModel):
     source_task_id: str | None = None
     parent_discussion_thread_id: str | None = None
     question_label_start: int = Field(default=1, ge=1)
+    question_labels: dict[str, str] = Field(default_factory=dict)
     annotation_ids: list[str] = Field(default_factory=list)
     attachment_limit: int | None = Field(default=None, ge=1, le=100)
 

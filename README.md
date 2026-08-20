@@ -347,7 +347,12 @@ Edit any tutor message and select prose, a formula, or a code block. The compact
 selection card creates a follow-up attached to that exact excerpt; `Cmd+Enter`
 queues it and **Save** stores the edited message and its follow-ups together.
 **Copy follow-ups** includes the selected excerpt and question under stable
-`Q-###` headings so a later pasted response maps back to the correct place.
+root-scoped headings such as `Q-002-F1`; original copied questions keep `Q-###`.
+This makes follow-ups and newly copied questions safe to combine in one tutor
+request. The annotation UUID is the canonical identity, while the readable label
+is local to one discussion and is reused whenever the same unanswered question
+is copied again. Repeated tutor answers under one exact heading become editable,
+independently deletable answer versions on the same QA page.
 `Cmd+H` and `Cmd+Shift+H` also work on formula/code selections: those structured
 highlights are stored as review annotations and appear in **Highlights** with
 surrounding context even though no colour overlay is drawn on the formula/code.

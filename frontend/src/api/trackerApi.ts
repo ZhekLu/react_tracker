@@ -495,6 +495,7 @@ export type PromptBatchInput = {
   sourceTaskId?: string;
   parentDiscussionId?: string;
   questionLabelStart?: number;
+  questionLabels?: Record<string, string>;
   annotationIds?: string[];
   attachmentLimit?: number;
 };
@@ -1252,6 +1253,7 @@ function promptBatchCommand(input: PromptBatchInput) {
     parent_discussion_thread_id: input.parentDiscussionId,
     plain_text: input.plainText ?? input.markdown,
     question_label_start: input.questionLabelStart ?? 1,
+    question_labels: input.questionLabels ?? {},
     source_day_id: input.sourceDayId,
     source_resource_id: input.sourceResourceId,
     source_scope: input.sourceScope,

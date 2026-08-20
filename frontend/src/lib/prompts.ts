@@ -26,6 +26,7 @@ export type PromptPayload = {
   sourceTaskId?: string;
   parentDiscussionId?: string;
   questionLabelStart?: number;
+  questionLabels?: Record<string, string>;
 };
 
 function noteText(notes: Note[]): string {
@@ -162,8 +163,11 @@ export function taskScopedAnnotations(
 function annotationLine(
   annotation: Annotation,
   resource: Resource | undefined,
-  index: number,
+  label: number | string,
 ): string {
+  const questionLabel = typeof label === "number"
+    ? `Q-${String(label).padStart(3, "0")}`
+    : label;
   const location = [
     resource?.title,
     annotation.anchor?.pageNumber
@@ -177,7 +181,7 @@ function annotationLine(
   const body = annotation.body?.plainText.trim();
   const notes = noteText(annotation.notes);
   return [
-    `### Q-${String(index).padStart(3, "0")} · ${location || "Tracker question"}`,
+    `### ${questionLabel} · ${location || "Tracker question"}`,
     `Tracker annotation ID: ${annotation.id}`,
     quote ? `> ${quote}` : "",
     body || "This item was flagged as an open question.",
@@ -195,6 +199,7 @@ export function taskQuestions(
     annotationIds?: readonly string[];
     parentDiscussionId?: string;
     questionLabelStart?: number;
+    questionLabels?: Readonly<Record<string, string>>;
     unansweredOnly?: boolean;
   } = {},
 ): PromptPayload {
@@ -221,7 +226,7 @@ export function taskQuestions(
             annotationLine(
               annotation,
               resourceById.get(annotation.resourceId),
-              labelStart + index,
+              options.questionLabels?.[annotation.id] ?? labelStart + index,
             ),
           )
           .join("\n\n")
@@ -232,6 +237,14 @@ export function taskQuestions(
     markdown,
     parentDiscussionId: options.parentDiscussionId,
     questionLabelStart: labelStart,
+    questionLabels: options.questionLabels
+      ? Object.fromEntries(
+          questions.flatMap((annotation) => {
+            const label = options.questionLabels?.[annotation.id];
+            return label ? [[annotation.id, label]] : [];
+          }),
+        )
+      : undefined,
     sourceDayId: day.id,
     sourceScope: "task_questions_continuation",
     sourceTaskId: task.id,

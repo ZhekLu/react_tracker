@@ -1294,10 +1294,11 @@ def _discussions(
         thread_id = str(row["thread_id"])
         annotation_id = str(row["annotation_id"])
         question_label = str(row["question_label"])
-        prompt_question_ids[thread_id].append(annotation_id)
-        prompt_question_labels[thread_id].setdefault(question_label, []).append(
-            annotation_id
-        )
+        if annotation_id not in prompt_question_ids[thread_id]:
+            prompt_question_ids[thread_id].append(annotation_id)
+        label_ids = prompt_question_labels[thread_id].setdefault(question_label, [])
+        if annotation_id not in label_ids:
+            label_ids.append(annotation_id)
 
     qa_reviews: dict[str, list[DiscussionQaReview]] = defaultdict(list)
     for row in _rows(
@@ -2443,6 +2444,75 @@ def annotation_source_fingerprints(
     return {str(row["source_fingerprint"]) for row in rows}
 
 
+_ORIGINAL_QUESTION_LABEL = re.compile(r"^Q-\d{3,}$")
+
+
+def _prompt_item_question_label(
+    connection: Connection,
+    command: PromptBatchCreateCommand,
+    annotation_id: str,
+    order_index: int,
+) -> str:
+    """Return the stable readable label for one immutable annotation UUID."""
+
+    explicit = command.question_labels.get(annotation_id)
+    parent_id = command.parent_discussion_thread_id
+    if parent_id is None:
+        label = explicit or f"Q-{command.question_label_start + order_index - 1:03d}"
+        if not _ORIGINAL_QUESTION_LABEL.fullmatch(label):
+            raise WorkspaceRepositoryError(f"Invalid original question label: {label}")
+        return label
+
+    existing = _one_or_none(
+        connection,
+        """
+        SELECT pbi.question_label
+        FROM prompt_batches pb
+        JOIN prompt_batch_items pbi ON pbi.prompt_batch_id = pb.id
+        WHERE pb.parent_discussion_thread_id = :thread_id
+          AND pb.deleted_at IS NULL
+          AND pbi.annotation_id = :annotation_id
+        ORDER BY pb.created_at, pbi.order_index
+        LIMIT 1
+        """,
+        {"thread_id": parent_id, "annotation_id": annotation_id},
+    )
+    if existing is not None:
+        label = str(existing["question_label"])
+        if explicit is not None and explicit != label:
+            raise WorkspaceRepositoryError(
+                f"Question {annotation_id} already uses {label}, not {explicit}."
+            )
+        return label
+
+    label = explicit or f"Q-{command.question_label_start + order_index - 1:03d}"
+    if not _ORIGINAL_QUESTION_LABEL.fullmatch(label):
+        raise WorkspaceRepositoryError(f"Invalid original question label: {label}")
+    collision = _one_or_none(
+        connection,
+        """
+        SELECT pbi.annotation_id
+        FROM prompt_batches pb
+        JOIN prompt_batch_items pbi ON pbi.prompt_batch_id = pb.id
+        WHERE pb.parent_discussion_thread_id = :thread_id
+          AND pb.deleted_at IS NULL
+          AND pbi.question_label = :question_label
+          AND pbi.annotation_id <> :annotation_id
+        LIMIT 1
+        """,
+        {
+            "thread_id": parent_id,
+            "question_label": label,
+            "annotation_id": annotation_id,
+        },
+    )
+    if collision is not None:
+        raise WorkspaceRepositoryError(
+            f"Question label {label} is already owned by another question."
+        )
+    return label
+
+
 def create_prompt_batch(
     connection: Connection,
     command: PromptBatchCreateCommand,
@@ -2566,8 +2636,11 @@ def create_prompt_batch(
             {
                 "prompt_batch_id": prompt_batch_id,
                 "annotation_id": annotation_id,
-                "question_label": (
-                    f"Q-{command.question_label_start + order_index - 1:03d}"
+                "question_label": _prompt_item_question_label(
+                    connection,
+                    command,
+                    annotation_id,
+                    order_index,
                 ),
                 "order_index": order_index,
                 "quote_snapshot": annotation["quote"],
@@ -4030,6 +4103,60 @@ def update_discussion_message(
     return _mutation_result(row)
 
 
+def _followup_prompt_label(
+    connection: Connection,
+    thread_id: str,
+    root_question_ids: Sequence[str],
+    section_label: str | None,
+) -> str:
+    """Allocate Q-###-Fn inside the immutable root-question namespace."""
+
+    root_label: str | None = None
+    for root_question_id in dict.fromkeys(root_question_ids):
+        row = _one_or_none(
+            connection,
+            """
+            SELECT pbi.question_label
+            FROM prompt_batches pb
+            JOIN prompt_batch_items pbi ON pbi.prompt_batch_id = pb.id
+            WHERE pb.parent_discussion_thread_id = :thread_id
+              AND pb.deleted_at IS NULL
+              AND pbi.annotation_id = :annotation_id
+            ORDER BY pb.created_at, pbi.order_index
+            LIMIT 1
+            """,
+            {"thread_id": thread_id, "annotation_id": root_question_id},
+        )
+        if row is not None:
+            root_label = str(row["question_label"])
+            break
+    if root_label is None and section_label:
+        match = re.search(r"\bQ-(\d{1,})", section_label, re.IGNORECASE)
+        if match:
+            root_label = f"Q-{int(match.group(1)):03d}"
+    root_label = root_label or "Q-000"
+
+    suffixes: list[int] = []
+    for row in _rows(
+        connection,
+        """
+        SELECT json_extract(aa.selector_json, '$.promptLabel') AS prompt_label
+        FROM annotation_anchors aa
+        JOIN annotations a ON a.id = aa.annotation_id
+        JOIN discussion_messages dm ON dm.id = aa.discussion_message_id
+        WHERE dm.thread_id = :thread_id
+          AND a.origin = 'discussion_review_followup'
+          AND a.deleted_at IS NULL
+        """,
+        {"thread_id": thread_id},
+    ):
+        label = str(row["prompt_label"] or "")
+        match = re.fullmatch(rf"{re.escape(root_label)}-F(\d+)", label, re.IGNORECASE)
+        if match:
+            suffixes.append(int(match.group(1)))
+    return f"{root_label}-F{max(suffixes, default=0) + 1}"
+
+
 def review_discussion_message(
     connection: Connection,
     message_id: str,
@@ -4054,57 +4181,12 @@ def review_discussion_message(
     for item in command.review_items:
         prompt_label: str | None = None
         if item.kind == "question":
-            label_number = int(
-                connection.execute(
-                    text(
-                        """
-                        WITH scoped_questions AS (
-                          SELECT pbi.annotation_id
-                          FROM discussion_threads dt
-                          JOIN prompt_batch_items pbi
-                            ON pbi.prompt_batch_id = dt.initial_prompt_batch_id
-                          WHERE dt.id = :thread_id
-                          UNION
-                          SELECT dma.annotation_id
-                          FROM discussion_messages dm
-                          JOIN discussion_message_annotations dma
-                            ON dma.message_id = dm.id
-                          JOIN annotations a ON a.id = dma.annotation_id
-                          WHERE dm.thread_id = :thread_id
-                            AND dm.deleted_at IS NULL
-                            AND a.deleted_at IS NULL
-                            AND a.kind IN ('question', 'todo')
-                        ), existing_labels AS (
-                          SELECT MAX(
-                            CAST(
-                              SUBSTR(
-                                json_extract(aa.selector_json, '$.promptLabel'),
-                                3
-                              ) AS INTEGER
-                            )
-                          ) AS maximum
-                          FROM annotation_anchors aa
-                          JOIN annotations a ON a.id = aa.annotation_id
-                          JOIN discussion_messages dm
-                            ON dm.id = aa.discussion_message_id
-                          WHERE dm.thread_id = :thread_id
-                            AND a.origin = 'discussion_review_followup'
-                            AND a.deleted_at IS NULL
-                            AND json_extract(
-                              aa.selector_json,
-                              '$.promptLabel'
-                            ) GLOB 'Q-[0-9][0-9][0-9]*'
-                        )
-                        SELECT COALESCE(
-                          (SELECT maximum + 1 FROM existing_labels),
-                          (SELECT COUNT(*) + 1 FROM scoped_questions)
-                        )
-                        """
-                    ),
-                    {"thread_id": str(scope["thread_id"])},
-                ).scalar_one()
+            prompt_label = _followup_prompt_label(
+                connection,
+                str(scope["thread_id"]),
+                item.question_ids,
+                item.section_label,
             )
-            prompt_label = f"Q-{label_number:03d}"
         annotation = create_annotation(
             connection,
             AnnotationCreateCommand(

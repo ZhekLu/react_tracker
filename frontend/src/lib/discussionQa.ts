@@ -28,7 +28,7 @@ export type ReconstructedQaMessage = {
 };
 
 /**
- * Resolve readable Q-### labels inside one discussion only.
+ * Resolve readable Q-### and Q-###-Fn labels inside one discussion only.
  *
  * Prompt labels come from persisted prompt_batch_items. Review follow-ups keep
  * their persisted promptLabel when either their parent message or the response

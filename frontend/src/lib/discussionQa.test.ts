@@ -197,6 +197,70 @@ describe("discussion QA review model", () => {
     ).toEqual([followup.id]);
   });
 
+  it("never aliases a continuation label with a root-scoped follow-up label", () => {
+    const followup = {
+      anchor: {
+        discussionMessageId: "older-answer",
+        metadata: {
+          promptLabel: "Q-002-F1",
+          rootQuestionIds: ["question-2"],
+        },
+        quote: "Second answer.",
+      },
+      body: { markdown: "Can you clarify the stable tie rule?" },
+      createdAt: "2026-07-10T10:02:00Z",
+      id: "followup-to-two",
+      kind: "question",
+      origin: "discussion_review_followup",
+      resourceId: "book",
+      status: "open",
+    } as unknown as Annotation;
+    const continuation = {
+      ...questions[0],
+      id: "new-question-21",
+      body: { markdown: "What happens near termination?" },
+    } as Annotation;
+    const response = {
+      ...discussion,
+      messages: [{
+        annotationLinks: [followup, continuation].map((item) => ({
+          annotationId: item.id,
+          relation: "references" as const,
+        })),
+        body: {
+          markdown: [
+            "## Q-021 — termination",
+            "",
+            "The continuation answer.",
+            "",
+            "## Q-002-F1 — stable tie follow-up",
+            "",
+            "The follow-up answer.",
+          ].join("\n"),
+        },
+        id: "new-response",
+        role: "assistant",
+        sequenceNumber: 3,
+      }],
+      questionIds: [...discussion.questionIds, continuation.id, followup.id],
+      questionLabels: [
+        ...discussion.questionLabels,
+        { annotationIds: [continuation.id], label: "Q-021" },
+      ],
+    } as Discussion;
+
+    const sections = discussionQaSections(response, [
+      ...questions,
+      continuation,
+      followup,
+    ]);
+
+    expect(sections.map((section) => section.questionIds)).toEqual([
+      [continuation.id],
+      [followup.id],
+    ]);
+  });
+
   it("keeps a cross-discussion follow-up attached by UUID and prompt label", () => {
     const followup = {
       anchor: {

@@ -109,13 +109,16 @@ squares; Resources shows the full configurable book map.
    formula or code block create an anchored structured highlight: no colour is
    painted over the formula/code, but it appears in Highlights mode.
 6. **Copy follow-ups** produces each selected excerpt plus its question under a
-   stable discussion-local `Q-###` heading. Paste the tutor's response normally;
-   matching headings map the response back to the correct follow-up and keep it
-   attached beneath the original QA item. Opening QA on that later response
-   restores the complete parent response round, not only the follow-ups. The
-   original question and every follow-up form one thread: earlier tutor answers
-   remain available as response history, and a new follow-up changes the thread
-   to **Updated** until it is reviewed again.
+   stable descendant heading such as `Q-002-F1` (the next one on the same root is
+   `Q-002-F2`). **Copy next** keeps original questions in the root namespace,
+   such as `Q-021`. The two actions can therefore be combined in one tutor
+   request without aliases. Paste the tutor's response normally; matching exact
+   headings map each response back to its UUID and keep follow-ups beneath the
+   original QA item. Opening QA shows the original question, every tutor-answer
+   version, each compact purple follow-up message, and the corresponding
+   follow-up answers as one chronological thread. Each answer remains an
+   editable notebook and can be deleted independently. A new answer or follow-up
+   changes the thread to **Updated** until it is reviewed again.
 7. **Highlights** shows each valuable excerpt with surrounding paragraph context,
    rather than isolated fragments.
 
@@ -123,17 +126,22 @@ Linked questions remain expandable in both reading and editing mode, including
 their PDF/slide images, extended context, and personal notes. Mark answers
 Reference, Partial, or Done beside the mapped response section.
 
-`Q-001` is a short label, not the database identity. Each new prompt discussion
-may start again at `Q-001`; the tracker stores that label together with its
-canonical annotation UUID in the prompt batch. Consequently `Q-001` in Day 7
-and `Q-001` in Day 8 cannot collide. A follow-up is another annotation UUID with
-`rootQuestionIds` pointing to the original question UUID (the original has no
-parent). Tutor sections are joined through those UUIDs; the readable labels are
-used only inside the prompt batch that created them. If a pasted heading is not
-present in the active discussion's stored label map, it stays unmapped instead
-of being silently attached to the nearest-looking question. Older follow-ups
-without stored roots are recovered from their immutable parent message and the
-exact selected answer text, never from a global `Q-###` lookup.
+`Q-001` is a readable transport label, not the database identity. Every
+annotation has an immutable UUID; all joins and statuses use that UUID. A new
+prompt discussion may start again at `Q-001`, because its readable namespace is
+local to that discussion. Within one discussion, an original annotation owns
+one `Q-###` permanently: copying the same unanswered question again reuses its
+label, while a newly copied question receives the next unused root number.
+Copying next questions from another task continues that same discussion-local
+sequence.
+
+A follow-up is another annotation UUID whose `rootQuestionIds` points to the
+original UUID. It is named under that root (`Q-002-F1`, `Q-002-F2`, …), so it can
+never claim an original question's `Q-###`. A second tutor response under the
+same exact heading is an answer version, not a new question; QA shows both on the
+same page and permits deleting either version. If a pasted heading is absent
+from the active discussion's stored label map, it stays visibly unmapped instead
+of being guessed or silently attached to a similar question.
 
 ## Exercise QA
 

@@ -269,9 +269,11 @@ function TaskRow({
       ["question", "todo"].includes(annotation.kind) &&
       annotation.status === "open" &&
       !annotation.postponed &&
-      (annotation.discussionResponseCount ?? 0) === 0 &&
-      !discussionQuestionIds.has(annotation.id),
+      (annotation.discussionResponseCount ?? 0) === 0,
   );
+  const copiedUnansweredCount = nextTaskQuestions.filter(({ annotation }) =>
+    discussionQuestionIds.has(annotation.id),
+  ).length;
   const mappedTaskQuestions = taskCaptures.filter(
     ({ annotation }) =>
       ["question", "todo"].includes(annotation.kind) &&
@@ -404,7 +406,11 @@ function TaskRow({
               <button
                 className="taskMetaBadge copyNextQuestions"
                 onClick={() => onCopyNextQuestions(dayId, task)}
-                title="Copy this task's next unanswered questions into its existing day discussion"
+                title={
+                  copiedUnansweredCount
+                    ? `Copy unanswered questions again with the same stable IDs (${copiedUnansweredCount} already copied)`
+                    : "Copy this task's next unanswered questions into its existing day discussion"
+                }
                 type="button"
               >
                 <Copy size={11} /> Next {nextTaskQuestions.length}

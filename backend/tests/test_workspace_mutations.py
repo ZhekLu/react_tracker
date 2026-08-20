@@ -11,6 +11,7 @@ from sqlalchemy import text
 from tracker_api.config import get_settings
 from tracker_api.database import get_engine, transaction
 from tracker_api.repositories.workspace_repository import (
+    WorkspaceRepositoryError,
     create_annotation,
     create_discussion,
     create_discussion_message,
@@ -599,6 +600,21 @@ def test_discussion_accepts_continuation_prompt_batches_with_stable_labels(
                 question_label_start=2,
                 markdown="# Q-002\n\nNext task question",
                 annotation_ids=[questions[1].id],
+                question_labels={questions[1].id: "Q-002"},
+            ),
+        )
+        repeated = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Repeated next task questions",
+                source_scope="task_questions_continuation",
+                source_resource_id=resource_id,
+                parent_discussion_thread_id=discussion.id,
+                question_label_start=99,
+                markdown="# Q-002\n\nNext task question",
+                annotation_ids=[questions[1].id],
+                question_labels={questions[1].id: "Q-002"},
             ),
         )
         workspace = get_workspace(connection, course_id)
@@ -607,13 +623,14 @@ def test_discussion_accepts_continuation_prompt_batches_with_stable_labels(
                 """
                 SELECT id, parent_discussion_thread_id
                 FROM prompt_batches
-                WHERE id IN (:initial_id, :continuation_id)
+                WHERE id IN (:initial_id, :continuation_id, :repeated_id)
                 ORDER BY id
                 """
             ),
             {
                 "initial_id": initial.id,
                 "continuation_id": continuation.id,
+                "repeated_id": repeated.id,
             },
         ).mappings().all()
 
@@ -627,6 +644,55 @@ def test_discussion_accepts_continuation_prompt_batches_with_stable_labels(
     assert {str(row["parent_discussion_thread_id"]) for row in rows} == {
         discussion.id
     }
+
+
+def test_continuation_rejects_a_label_owned_by_another_question(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        questions = [
+            create_annotation(
+                connection,
+                AnnotationCreateCommand(
+                    resource_id=resource_id,
+                    kind="question",
+                    markdown=markdown,
+                ),
+            )
+            for markdown in ("First", "Second")
+        ]
+        initial = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Day prompt",
+                source_scope="day",
+                markdown="# Q-001\n\nFirst",
+                annotation_ids=[questions[0].id],
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+                initial_prompt_batch_id=initial.id,
+            ),
+        )
+        with pytest.raises(WorkspaceRepositoryError, match="already owned"):
+            create_prompt_batch(
+                connection,
+                PromptBatchCreateCommand(
+                    course_id=course_id,
+                    title="Conflicting continuation",
+                    source_scope="task_questions_continuation",
+                    parent_discussion_thread_id=discussion.id,
+                    markdown="# Q-001\n\nSecond",
+                    annotation_ids=[questions[1].id],
+                    question_labels={questions[1].id: "Q-001"},
+                ),
+            )
 
 
 def test_qa_review_state_is_persisted_per_discussion_question(
@@ -840,6 +906,15 @@ def test_reviewing_message_saves_selection_followups_and_math_highlights(
                         question_ids=["root-question-id"],
                     ),
                     DiscussionReviewItem(
+                        kind="question",
+                        quote="next-state estimate",
+                        markdown="What happens at a terminal state?",
+                        from_position=30,
+                        to_position=49,
+                        section_label="Q-001 — bootstrap update",
+                        question_ids=["root-question-id"],
+                    ),
+                    DiscussionReviewItem(
                         kind="highlight",
                         quote=r"$V(s) \leftarrow r + \gamma V(s')$",
                         color="secondary",
@@ -860,14 +935,23 @@ def test_reviewing_message_saves_selection_followups_and_math_highlights(
         "highlight",
         "question",
     }
-    question = next(
-        annotation for annotation in review_annotations if annotation.kind == "question"
+    questions = sorted(
+        (
+            annotation
+            for annotation in review_annotations
+            if annotation.kind == "question"
+        ),
+        key=lambda annotation: annotation.created_at,
     )
+    question = questions[0]
     highlight = next(
         annotation for annotation in review_annotations if annotation.kind == "highlight"
     )
     assert question.anchor and question.anchor.discussion_message_id == message.id
-    assert question.anchor.metadata["promptLabel"] == "Q-001"
+    assert [item.anchor.metadata["promptLabel"] for item in questions] == [
+        "Q-001-F1",
+        "Q-001-F2",
+    ]
     assert question.anchor.metadata["sectionLabel"] == (
         "Q-001 — bootstrap update"
     )

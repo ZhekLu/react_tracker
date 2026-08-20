@@ -194,6 +194,75 @@ describe("focused discussion QA review units", () => {
     ]);
   });
 
+  it("keeps an unrelated continuation separate from a follow-up answer", () => {
+    const original = annotation("original-question");
+    const continuation = annotation("continuation-question");
+    const followup = annotation("followup-question", {
+      anchor: {
+        anchorType: "discussion_selection",
+        discussionMessageId: "original-answer",
+        metadata: {
+          promptLabel: "Q-001-F1",
+          rootQuestionIds: [original.id],
+          sectionLabel: "Q-001",
+        },
+        quote: "Original answer.",
+      },
+      origin: "discussion_review_followup",
+    });
+    const active = {
+      id: "stable-label-discussion",
+      messages: [
+        {
+          annotationLinks: [{ annotationId: original.id, relation: "answers" }],
+          body: { markdown: "## Q-001\n\nOriginal answer." },
+          createdAt: "2026-07-23T01:00:00Z",
+          id: "original-answer",
+          role: "assistant",
+          sequenceNumber: 1,
+        },
+        {
+          annotationLinks: [followup, continuation].map((item) => ({
+            annotationId: item.id,
+            relation: "answers" as const,
+          })),
+          body: {
+            markdown:
+              "## Q-021\n\nContinuation answer.\n\n## Q-001-F1\n\nFollow-up answer.",
+          },
+          createdAt: "2026-07-23T02:00:00Z",
+          id: "second-answer",
+          role: "assistant",
+          sequenceNumber: 2,
+        },
+      ],
+      qaReviews: [],
+      questionIds: [original.id, continuation.id, followup.id],
+      questionLabels: [
+        { annotationIds: [original.id], label: "Q-001" },
+        { annotationIds: [continuation.id], label: "Q-021" },
+      ],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads(
+      [active],
+      [original, continuation, followup],
+      active,
+    );
+
+    expect(threads).toHaveLength(2);
+    const originalThread = threads.find((item) =>
+      item.rootQuestions?.some((question) => question.id === original.id),
+    );
+    const continuationThread = threads.find((item) =>
+      item.rootQuestions?.some((question) => question.id === continuation.id),
+    );
+    expect(originalThread?.answers?.map((answer) => answer.section.bodyMarkdown))
+      .toEqual(["Original answer.", "Follow-up answer."]);
+    expect(continuationThread?.answers?.map((answer) => answer.section.bodyMarkdown))
+      .toEqual(["Continuation answer."]);
+  });
+
   it("keeps tutor response order after an earlier question receives an update", () => {
     const firstRoot = annotation("z-first-root", { status: "answered" });
     const secondRoot = annotation("a-second-root");

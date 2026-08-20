@@ -67,6 +67,10 @@ describe("task question prompts", () => {
       annotationIds: ["created-today", "lecture-question"],
       parentDiscussionId: "day-8-discussion",
       questionLabelStart: 21,
+      questionLabels: {
+        "created-today": "Q-021",
+        "lecture-question": "Q-022",
+      },
       unansweredOnly: true,
     });
     expect(payload.annotationIds).toEqual(["created-today", "lecture-question"]);

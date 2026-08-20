@@ -678,6 +678,7 @@ export function App() {
           sourceTaskId: payload.sourceTaskId,
           parentDiscussionId: payload.parentDiscussionId,
           questionLabelStart: payload.questionLabelStart,
+          questionLabels: payload.questionLabels,
           title: payload.title,
         });
       } catch {
@@ -712,6 +713,7 @@ export function App() {
         sourceTaskId: payload.sourceTaskId,
         parentDiscussionId: payload.parentDiscussionId,
         questionLabelStart: payload.questionLabelStart,
+        questionLabels: payload.questionLabels,
         title: payload.title,
       }, setPromptProgress);
     } catch (caught) {
@@ -834,29 +836,48 @@ export function App() {
       setError("Create the day discussion first, then copy this task's next questions into it.");
       return;
     }
-    const includedQuestionIds = new Set(discussion.questionIds);
     const nextQuestions = scopedAnnotations.filter(
       (annotation) =>
         ["question", "todo"].includes(annotation.kind) &&
         annotation.status === "open" &&
         !annotation.postponed &&
-        (annotation.discussionResponseCount ?? 0) === 0 &&
-        !includedQuestionIds.has(annotation.id),
+        (annotation.discussionResponseCount ?? 0) === 0,
     );
     if (!nextQuestions.length) {
-      setActionMessage("Every open question in this task is already in the day discussion.");
+      setActionMessage("This task has no open question without a mapped tutor response.");
       return;
     }
-    const labelStart = Math.max(
-      0,
-      ...discussion.questionLabels.map((item) =>
-        Number(item.label.match(/Q-(\d+)/i)?.[1] ?? 0),
+    const existingLabelByQuestionId = new Map(
+      discussion.questionLabels.flatMap((item) =>
+        item.annotationIds.map((annotationId) => [annotationId, item.label] as const),
       ),
+    );
+    let nextLabelNumber = Math.max(
+      0,
+      ...discussion.questionLabels.flatMap((item) => {
+        const match = item.label.match(/^Q-(\d+)$/i);
+        return match ? [Number(match[1])] : [];
+      }),
     ) + 1;
+    const questionLabels = Object.fromEntries(
+      nextQuestions.map((annotation) => {
+        const existing = existingLabelByQuestionId.get(annotation.id);
+        if (existing) return [annotation.id, existing];
+        const label = `Q-${String(nextLabelNumber).padStart(3, "0")}`;
+        nextLabelNumber += 1;
+        return [annotation.id, label];
+      }),
+    );
+    const labelStart = Math.min(
+      ...Object.values(questionLabels).map((label) =>
+        Number(label.match(/^Q-(\d+)$/i)?.[1] ?? 1),
+      ),
+    );
     const payload = taskQuestions(workspace, day, task, {
       annotationIds: nextQuestions.map((annotation) => annotation.id),
       parentDiscussionId: discussion.id,
       questionLabelStart: labelStart,
+      questionLabels,
       unansweredOnly: true,
     });
     const promptBatchId = await savePromptBatch(

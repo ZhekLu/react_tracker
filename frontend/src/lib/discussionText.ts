@@ -78,7 +78,7 @@ export type DiscussionQuestionMatch = {
 };
 
 const MARKDOWN_HEADING = /^#{1,6}\s+(.+)$/gim;
-const QUESTION_LABEL = /\b(?:Q(?:UESTION)?)[\s-]*(\d{1,3})\b/gi;
+const QUESTION_LABEL = /\b(?:Q(?:UESTION)?)[\s-]*(\d+)(?:[\s-]*F(?:OLLOW(?:[\s-]*UP)?)?[\s-]*(\d+))?\b/gi;
 const WORD_TOKEN = /[a-z0-9]+/g;
 const STOP_WORDS = new Set([
   "about",
@@ -131,9 +131,10 @@ export function discussionAnswerSections(markdown: string): {
     ...match,
     level: match[0].match(/^#+/)?.[0].length ?? 1,
     title: match[1].trim(),
-    labels: [...match[1].matchAll(QUESTION_LABEL)].map(
-      (labelMatch) => `Q-${labelMatch[1].padStart(3, "0")}`,
-    ),
+    labels: [...match[1].matchAll(QUESTION_LABEL)].map((labelMatch) => {
+      const root = `Q-${labelMatch[1].padStart(3, "0")}`;
+      return labelMatch[2] ? `${root}-F${Number(labelMatch[2])}` : root;
+    }),
   }));
   let matches = headings.filter((match) => match.labels.length > 0);
   if (!matches.length && headings.length) {
@@ -179,7 +180,8 @@ function inferLegacyQuestionOffset(
       const score = tokens.size ? overlap / tokens.size : 0;
       if (overlap < 1 || score < 0.08) continue;
       for (const label of section.labels) {
-        const offset = Number(label.slice(2)) - (questions.indexOf(question) + 1);
+        const offset = Number(label.match(/^Q-(\d+)/)?.[1] ?? 0) -
+          (questions.indexOf(question) + 1);
         const candidate = candidates.get(offset) ?? { support: 0, weight: 0 };
         candidate.support += 1;
         candidate.weight += overlap + score;
@@ -214,7 +216,9 @@ export function matchAnswerSectionsToQuestions(
       ? section.labels
           .map(
             (label) =>
-              Number(label.slice(2)) - 1 - (legacyLabelOffset ?? 0),
+              Number(label.match(/^Q-(\d+)/)?.[1] ?? 0) -
+                1 -
+                (legacyLabelOffset ?? 0),
           )
           .map((questionIndex) => questions[questionIndex])
           .filter(
@@ -334,7 +338,7 @@ export function discussionFollowups(
   return [
     `# ${discussion.title} · Follow-ups`,
     "",
-    "Answer under the same Q-### headings so the tracker can map each response back to its selection.",
+    "Answer under the exact same question headings (including any -F suffix) so the tracker can map each response back to its selection.",
     "",
     ...reviewSections,
     ...(markerItems.length

@@ -36,6 +36,28 @@ describe("discussion answer mapping", () => {
     ]);
   });
 
+  it("keeps follow-up labels in their own root-scoped namespace", () => {
+    const parsed = discussionAnswerSections([
+      "## Q-021 — a new source question",
+      "",
+      "New answer.",
+      "",
+      "## Q-002-F1 — a follow-up to the second question",
+      "",
+      "Follow-up answer.",
+      "",
+      "## Q-002 follow up 2",
+      "",
+      "Second follow-up answer.",
+    ].join("\n"));
+
+    expect(parsed.sections.map((section) => section.labels)).toEqual([
+      ["Q-021"],
+      ["Q-002-F1"],
+      ["Q-002-F2"],
+    ]);
+  });
+
   it("uses top-level answer headings when the tutor omits question labels", () => {
     const parsed = discussionAnswerSections([
       "Intro.",
@@ -80,7 +102,7 @@ describe("discussion answer mapping", () => {
     const followup = {
       anchor: {
         discussionMessageId: "message-1",
-        metadata: { promptLabel: "Q-098" },
+        metadata: { promptLabel: "Q-002-F1" },
         quote: "$V(s) \\leftarrow r + \\gamma V(s')$",
       },
       body: { markdown: "Why is this bootstrapping?" },
@@ -91,7 +113,7 @@ describe("discussion answer mapping", () => {
     } as unknown as Annotation;
 
     const prompt = discussionFollowups(discussion, [followup]);
-    expect(prompt).toContain("## Q-098 — Follow-up to message #2");
+    expect(prompt).toContain("## Q-002-F1 — Follow-up to message #2");
     expect(prompt).toContain("$V(s) \\leftarrow r + \\gamma V(s')$");
     expect(prompt).toContain("Why is this bootstrapping?");
   });
