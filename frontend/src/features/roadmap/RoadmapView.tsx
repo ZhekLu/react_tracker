@@ -101,6 +101,7 @@ type RoadmapViewProps = {
       kind?: AnnotationKind;
       status?: AnnotationStatus;
       postponed?: boolean;
+      skipped?: boolean;
     },
   ) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
@@ -253,11 +254,13 @@ function TaskRow({
       const leftQuestion =
         ["question", "todo"].includes(left.annotation.kind) &&
         left.annotation.status === "open" &&
-        !left.annotation.postponed;
+        !left.annotation.postponed &&
+        !left.annotation.skipped;
       const rightQuestion =
         ["question", "todo"].includes(right.annotation.kind) &&
         right.annotation.status === "open" &&
-        !right.annotation.postponed;
+        !right.annotation.postponed &&
+        !right.annotation.skipped;
       if (leftQuestion !== rightQuestion) return leftQuestion ? -1 : 1;
       return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
     });
@@ -269,6 +272,7 @@ function TaskRow({
       ["question", "todo"].includes(annotation.kind) &&
       annotation.status === "open" &&
       !annotation.postponed &&
+      !annotation.skipped &&
       (annotation.discussionResponseCount ?? 0) === 0,
   );
   const copiedUnansweredCount = nextTaskQuestions.filter(({ annotation }) =>
@@ -822,7 +826,8 @@ function TaskCapturePanel({
     (capture) =>
       ["question", "todo"].includes(capture.annotation.kind) &&
       capture.annotation.status === "open" &&
-      !capture.annotation.postponed,
+      !capture.annotation.postponed &&
+      !capture.annotation.skipped,
   );
   const postponedQuestions = taskCaptures.filter(
     ({ annotation }) =>
@@ -985,7 +990,8 @@ function TaskCapturePanel({
                 isRelevantToTask({ annotation, resource }) &&
                 ["question", "todo"].includes(annotation.kind) &&
                 annotation.status === "open" &&
-                !annotation.postponed,
+                !annotation.postponed &&
+                !annotation.skipped,
             ).length;
             return (
             <section className="taskCaptureResourceGroup" key={resource.id}>

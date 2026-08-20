@@ -65,6 +65,7 @@ import {
   meetingAgenda,
   resourceInventory,
   resourceQuestions,
+  resourceScopedAnnotations,
   taskQuestions,
   taskScopedAnnotations,
   type PromptPayload,
@@ -86,6 +87,7 @@ import {
   extractQuestionsFromMarkdown,
 } from "../lib/questionExtraction";
 import type {
+  Annotation,
   Course,
   CourseSummary,
   Attention,
@@ -99,6 +101,7 @@ import type {
   ExerciseSolutionMappingInput,
   ImportantAnswerInput,
   Note,
+  Resource,
   ResourceStatus,
   ResourceChapterStatus,
   StudyDay,
@@ -250,6 +253,8 @@ export function App() {
     discussionId: string;
     label: string;
     questionIds: string[];
+    scopeKind?: "task" | "resource";
+    initialFilter?: "all" | "open" | "new";
     token: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -796,7 +801,12 @@ export function App() {
     if (!workspace) return undefined;
     const questionIdSet = new Set(questionIds);
     return [...workspace.discussions]
-      .filter((discussion) => discussion.status !== "archived")
+      .filter(
+        (discussion) =>
+          discussion.status !== "archived" &&
+          discussion.scopeType === "day" &&
+          discussion.sourceDayId === day.id,
+      )
       .sort((left, right) => {
         const score = (discussion: Discussion) => {
           const promptMatches = discussion.questionIds.filter((id) =>
@@ -805,22 +815,37 @@ export function App() {
           const answerMatches = discussion.messages.flatMap((message) =>
             message.annotationLinks,
           ).filter((link) => questionIdSet.has(link.annotationId)).length;
-          const dayMatch = new RegExp(`\\bDay\\s+${day.number}\\b`, "i").test(
-            discussion.title,
-          );
-          return promptMatches * 10 + answerMatches * 20 + (dayMatch ? 1 : 0);
+          return promptMatches * 10 + answerMatches * 20;
         };
         return score(right) - score(left);
-      })
-      .find((discussion) => {
-        const linked = discussion.questionIds.some((id) => questionIdSet.has(id)) ||
-          discussion.messages.some((message) =>
-            message.annotationLinks.some((link) => questionIdSet.has(link.annotationId)),
-          );
-        return linked || new RegExp(`\\bDay\\s+${day.number}\\b`, "i").test(
-          discussion.title,
-        );
-      });
+      })[0];
+  }
+
+  function questionLabelsForDiscussion(
+    discussion: Discussion | undefined,
+    annotations: Annotation[],
+  ): Record<string, string> {
+    const existingLabelByQuestionId = new Map(
+      (discussion?.questionLabels ?? []).flatMap((item) =>
+        item.annotationIds.map((annotationId) => [annotationId, item.label] as const),
+      ),
+    );
+    let nextLabelNumber = Math.max(
+      0,
+      ...(discussion?.questionLabels ?? []).flatMap((item) => {
+        const match = item.label.match(/^Q-(\d+)$/i);
+        return match ? [Number(match[1])] : [];
+      }),
+    ) + 1;
+    return Object.fromEntries(
+      annotations.map((annotation) => {
+        const existing = existingLabelByQuestionId.get(annotation.id);
+        if (existing) return [annotation.id, existing];
+        const label = `Q-${String(nextLabelNumber).padStart(3, "0")}`;
+        nextLabelNumber += 1;
+        return [annotation.id, label];
+      }),
+    );
   }
 
   async function handleCopyNextTaskQuestions(dayId: string, task: Task) {
@@ -841,33 +866,14 @@ export function App() {
         ["question", "todo"].includes(annotation.kind) &&
         annotation.status === "open" &&
         !annotation.postponed &&
+        !annotation.skipped &&
         (annotation.discussionResponseCount ?? 0) === 0,
     );
     if (!nextQuestions.length) {
       setActionMessage("This task has no open question without a mapped tutor response.");
       return;
     }
-    const existingLabelByQuestionId = new Map(
-      discussion.questionLabels.flatMap((item) =>
-        item.annotationIds.map((annotationId) => [annotationId, item.label] as const),
-      ),
-    );
-    let nextLabelNumber = Math.max(
-      0,
-      ...discussion.questionLabels.flatMap((item) => {
-        const match = item.label.match(/^Q-(\d+)$/i);
-        return match ? [Number(match[1])] : [];
-      }),
-    ) + 1;
-    const questionLabels = Object.fromEntries(
-      nextQuestions.map((annotation) => {
-        const existing = existingLabelByQuestionId.get(annotation.id);
-        if (existing) return [annotation.id, existing];
-        const label = `Q-${String(nextLabelNumber).padStart(3, "0")}`;
-        nextLabelNumber += 1;
-        return [annotation.id, label];
-      }),
-    );
+    const questionLabels = questionLabelsForDiscussion(discussion, nextQuestions);
     const labelStart = Math.min(
       ...Object.values(questionLabels).map((label) =>
         Number(label.match(/^Q-(\d+)$/i)?.[1] ?? 1),
@@ -885,6 +891,102 @@ export function App() {
       `Next ${nextQuestions.length} task question${nextQuestions.length === 1 ? "" : "s"} copied into “${discussion.title}”.`,
     );
     if (promptBatchId) await loadWorkspace(workspace.id);
+  }
+
+  async function handleCopyResourceQuestions(resource: Resource) {
+    if (!workspace) return;
+    const rootId = resource.parentResourceId ?? resource.id;
+    const rootResource =
+      workspace.resources.find((candidate) => candidate.id === rootId) ?? resource;
+    const discussion = workspace.discussions.find(
+      (candidate) =>
+        candidate.status !== "archived" &&
+        candidate.scopeType === "resource" &&
+        candidate.sourceResourceIds.includes(rootId),
+    );
+    const nextQuestions = resourceScopedAnnotations(workspace, rootResource).filter(
+      (annotation) =>
+        ["question", "todo"].includes(annotation.kind) &&
+        annotation.status === "open" &&
+        !annotation.postponed &&
+        !annotation.skipped &&
+        (annotation.discussionResponseCount ?? 0) === 0,
+    );
+    if (!nextQuestions.length) {
+      if (discussion) {
+        navigationIntentRef.current = "push";
+        setFocusedResourceId(discussion.id);
+        setFocusedTaskId("");
+        setView("discussions");
+        resetWorkspaceScroll();
+        setActionMessage("Every active question in this resource already has a tutor response.");
+      } else {
+        const emptyPayload = resourceQuestions(workspace, rootResource, {
+          annotationIds: [],
+        });
+        const promptBatchId = await savePromptBatch(
+          emptyPayload,
+          "Resource question workspace prepared; there were no unanswered questions to copy.",
+        );
+        if (!promptBatchId) return;
+        let discussionId = "";
+        await runMutation(async () => {
+          const created = await createDiscussion({
+            courseId: workspace.id,
+            initialPromptBatchId: promptBatchId,
+            sourceResourceId: rootId,
+            title: `${rootResource.title} · Resource questions`,
+          });
+          discussionId = created.id;
+        });
+        if (!discussionId) return;
+        navigationIntentRef.current = "push";
+        setFocusedResourceId(discussionId);
+        setFocusedTaskId("");
+        setView("discussions");
+        resetWorkspaceScroll();
+      }
+      return;
+    }
+    const questionLabels = questionLabelsForDiscussion(discussion, nextQuestions);
+    const labelStart = Math.min(
+      ...Object.values(questionLabels).map((label) =>
+        Number(label.match(/^Q-(\d+)$/i)?.[1] ?? 1),
+      ),
+    );
+    const payload = resourceQuestions(workspace, rootResource, {
+      annotationIds: nextQuestions.map((annotation) => annotation.id),
+      parentDiscussionId: discussion?.id,
+      questionLabelStart: labelStart,
+      questionLabels,
+      unansweredOnly: true,
+    });
+    const promptBatchId = await savePromptBatch(
+      payload,
+      `Next ${nextQuestions.length} ${rootResource.kind === "book" ? "book" : "resource"} question${nextQuestions.length === 1 ? "" : "s"} copied in source order.`,
+    );
+    if (!promptBatchId) return;
+
+    let discussionId = discussion?.id ?? "";
+    if (!discussionId) {
+      await runMutation(async () => {
+        const created = await createDiscussion({
+          courseId: workspace.id,
+          initialPromptBatchId: promptBatchId,
+          sourceResourceId: rootId,
+          title: `${rootResource.title} · Resource questions`,
+        });
+        discussionId = created.id;
+      });
+    } else {
+      await loadWorkspace(workspace.id);
+    }
+    if (!discussionId) return;
+    navigationIntentRef.current = "push";
+    setFocusedResourceId(discussionId);
+    setFocusedTaskId("");
+    setView("discussions");
+    resetWorkspaceScroll();
   }
 
   function handleOpenTaskQa(dayId: string, task: Task) {
@@ -1085,8 +1187,9 @@ export function App() {
     return (
       workspace.discussions.find(
         (discussion) =>
-          discussion.resourceId === sourceResourceId ||
-          discussion.sourceResourceIds.includes(sourceResourceId),
+          discussion.scopeType === "resource" &&
+          (discussion.resourceId === sourceResourceId ||
+            discussion.sourceResourceIds.includes(sourceResourceId)),
       )?.resourceId ?? sourceResourceId
     );
   }
@@ -1248,6 +1351,7 @@ export function App() {
       kind?: Course["annotations"][number]["kind"];
       status?: Course["annotations"][number]["status"];
       postponed?: boolean;
+      skipped?: boolean;
       priority?: Course["annotations"][number]["priority"];
       markdown?: string;
       plainText?: string;
@@ -1980,10 +2084,7 @@ export function App() {
             )
           }
           onCopyResourceQuestions={(resource) =>
-            void handleCopyPrompt(
-              resourceQuestions(workspace, resource),
-              "Resource questions copied",
-            )
+            void handleCopyResourceQuestions(resource)
           }
           onCollectPdfAnnotations={handleCollectPdfAnnotations}
           onCreateCapture={handleCreateResourceCapture}

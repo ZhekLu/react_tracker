@@ -634,8 +634,12 @@
   white-space: nowrap;
 }
 
-.qaReviewFilter input {
-  accent-color: #744ed4;
+.qaReviewFilter select {
+  border: 0;
+  background: transparent;
+  color: #6540b6;
+  font: inherit;
+  outline: none;
 }
 
 .qaSaveAll.saved {
@@ -938,6 +942,41 @@
   color: var(--green-deep);
 }
 
+.qaSkipQuestion {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, #7653c8 24%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, #efe8ff 40%, #fff);
+  color: #6540b6;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.qaSkipQuestion.skipped {
+  background: #efe8ff;
+}
+
+.qaChapterTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.qaChapterTag {
+  --tone-hue: calc(155 + var(--chapter-tone, 0) * 34);
+  padding: 2px 7px;
+  border: 1px solid hsl(var(--tone-hue) 48% 78%);
+  border-radius: 999px;
+  background: hsl(var(--tone-hue) 65% 95%);
+  color: hsl(var(--tone-hue) 52% 30%);
+  font-size: 8.5px;
+  font-weight: 820;
+}
+
 .qaDeleteAnswer,
 .qaArchiveQuestion {
   min-height: 34px;
@@ -1025,6 +1064,11 @@
 .qaReviewStatus.new {
   background: #fff1c9;
   color: #966000;
+}
+
+.qaReviewStatus.skipped {
+  background: #edf0f4;
+  color: #68717a;
 }
 
 .qaMappedQuestion {
@@ -1544,6 +1588,7 @@
   .qaAnsweredToggle,
   .qaDeleteAnswer,
   .qaArchiveQuestion,
+  .qaSkipQuestion,
   .qaImportantAnswer {
     width: 34px;
     padding: 0;
@@ -1558,6 +1603,75 @@
   .qaReviewNavigation button {
     min-width: 92px;
   }
+}
+
+.resourceDiscussionMap {
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, #7653c8 18%, var(--line));
+  border-radius: 15px;
+  background: linear-gradient(135deg, #fff, color-mix(in srgb, #efe8ff 42%, #fff));
+}
+
+.resourceDiscussionMap > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.resourceDiscussionMap h3,
+.resourceDiscussionMap p {
+  margin: 0;
+}
+
+.resourceDiscussionMap > header > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 720;
+}
+
+.resourceDiscussionChapterGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 7px;
+}
+
+.resourceDiscussionChapter {
+  --tone-hue: calc(155 + var(--chapter-tone, 0) * 34);
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid hsl(var(--tone-hue) 42% 80%);
+  border-radius: 11px;
+  background: hsl(var(--tone-hue) 70% 97%);
+  text-align: left;
+  display: grid;
+  gap: 2px;
+}
+
+.resourceDiscussionChapter > span {
+  color: hsl(var(--tone-hue) 55% 36%);
+  font-size: 9px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.resourceDiscussionChapter > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.resourceDiscussionChapter > small {
+  color: var(--muted);
+  font-size: 8.5px;
+}
+
+.resourceDiscussionChapter:disabled {
+  opacity: 0.55;
 }
 
 @media (prefers-reduced-motion: reduce) {

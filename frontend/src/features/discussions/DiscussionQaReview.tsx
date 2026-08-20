@@ -27,6 +27,8 @@ import {
   pdfReaderPageUrl,
 } from "../../api/trackerApi";
 import {
+  annotationChapter,
+  annotationChapterNumber,
   annotationDisplayText,
   metadataNumber,
   metadataText,
@@ -63,12 +65,15 @@ type DiscussionQaReviewProps = {
   discussion: Discussion;
   questionIds?: string[];
   scopeLabel?: string;
+  initialFilter?: "all" | "open" | "new";
+  scopeKind?: "task" | "resource";
   onAnnotationChange: (
     annotation: Annotation,
     changes: {
       kind?: AnnotationKind;
       status?: AnnotationStatus;
       postponed?: boolean;
+      skipped?: boolean;
       priority?: Annotation["priority"];
       markdown?: string;
       plainText?: string;
@@ -100,6 +105,13 @@ type DiscussionQaReviewProps = {
     reviewItems?: DiscussionReviewItem[],
   ) => void;
 };
+
+function unresolvedQuestionsAreSkipped(questions: Annotation[]): boolean {
+  const unresolved = questions.filter(
+    (question) => question.status !== "answered",
+  );
+  return unresolved.length > 0 && unresolved.every((question) => question.skipped);
+}
 
 type ExerciseTaskOption = {
   dayNumber: number;
@@ -505,6 +517,8 @@ export function DiscussionQaReview({
   discussion,
   questionIds,
   scopeLabel,
+  initialFilter,
+  scopeKind,
   onAnnotationChange,
   onClose,
   onDeleteAnswer,
@@ -667,7 +681,9 @@ export function DiscussionQaReview({
   const [reviewItemsBySection, setReviewItemsBySection] = useState(
     new Map<string, DiscussionReviewItem[]>(),
   );
-  const [openQuestionsOnly, setOpenQuestionsOnly] = useState(!questionIds?.length);
+  const [reviewFilter, setReviewFilter] = useState<"all" | "open" | "new">(
+    initialFilter ?? (questionIds?.length ? "all" : "open"),
+  );
   const [activeIndex, setActiveIndex] = useState(0);
   const [editorGeneration, setEditorGeneration] = useState(0);
   const [savedPulse, setSavedPulse] = useState(false);
@@ -678,10 +694,14 @@ export function DiscussionQaReview({
   } | null>(null);
   const [confirmArchiveQuestion, setConfirmArchiveQuestion] = useState(false);
   const [editingFollowupId, setEditingFollowupId] = useState<string | null>(null);
+  const [visitedItemIds, setVisitedItemIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const visibleItems = useMemo(
-    () =>
-      openQuestionsOnly
-        ? allItems.filter(
+    () => {
+      if (reviewFilter === "all") return allItems;
+      if (reviewFilter === "open") {
+        return allItems.filter(
             (item) =>
               !item.questions.length ||
               inferredExerciseLabels(item).some((label) =>
@@ -689,20 +709,47 @@ export function DiscussionQaReview({
               ) ||
               item.questions.some(
                 (question) =>
-                  question.status === "open" && !question.postponed,
+                  question.status === "open" &&
+                  !question.postponed &&
+                  !question.skipped,
               ),
-          )
-        : allItems,
-    [allItems, openQuestionsOnly],
+          );
+      }
+      return allItems.filter((item) => {
+        if (unresolvedQuestionsAreSkipped(item.questions)) return false;
+        if (visitedItemIds.has(item.id)) return false;
+        const message = item.section
+          ? messageById.get(item.section.messageId)
+          : undefined;
+        const reviews = item.questions
+          .map((question) => qaReviewByAnnotationId.get(question.id))
+          .filter((review): review is Discussion["qaReviews"][number] =>
+            Boolean(review),
+          );
+        if (!reviews.length) return true;
+        return Boolean(
+          message &&
+          reviews.some(
+            (review) =>
+              review.messageId !== message.id ||
+              review.messageRevision < message.revision,
+          ),
+        );
+      });
+    },
+    [
+      allItems,
+      messageById,
+      qaReviewByAnnotationId,
+      reviewFilter,
+      visitedItemIds,
+    ],
   );
   const boundedActiveIndex = Math.max(
     0,
     Math.min(activeIndex, Math.max(0, visibleItems.length - 1)),
   );
   const activeItem = visibleItems[boundedActiveIndex];
-  const [visitedItemIds, setVisitedItemIds] = useState<Set<string>>(
-    () => new Set(),
-  );
   const reportedViewKeys = useRef(new Set<string>());
   const activeRootQuestions = useMemo(
     () =>
@@ -762,6 +809,24 @@ export function DiscussionQaReview({
         candidates.findIndex((candidate) => candidate.id === question.id) === index,
     );
   }, [activeItem, activeRootQuestions]);
+  const activeChapterLabels = useMemo(
+    () =>
+      [
+        ...new Map(
+          activeRootQuestions.flatMap((question) => {
+            const chapterNumber = annotationChapterNumber(question);
+            if (chapterNumber === null) return [];
+            return [
+              [
+                chapterNumber,
+                { label: annotationChapter(question), number: chapterNumber },
+              ] as const,
+            ];
+          }),
+        ).values(),
+      ],
+    [activeRootQuestions],
+  );
   const activeImportantNote = activeItem?.section
     ? course.notes.find(
         (note) =>
@@ -799,7 +864,8 @@ export function DiscussionQaReview({
         (annotation) =>
           scopedQuestionIdSet.has(annotation.id) &&
           annotation.status === "open" &&
-          !annotation.postponed,
+          !annotation.postponed &&
+          !annotation.skipped,
       ).length
     : course.stats.openQuestionCount;
   const completionRatio = reviewUnits.length
@@ -848,6 +914,12 @@ export function DiscussionQaReview({
       }
       const wasReviewed =
         reviews.length === item.questions.length || visitedItemIds.has(item.id);
+      if (
+        item.questions.length &&
+        unresolvedQuestionsAreSkipped(item.questions)
+      ) {
+        return "skipped" as const;
+      }
       if (
         wasReviewed &&
         item.questions.length &&
@@ -1065,7 +1137,11 @@ export function DiscussionQaReview({
                 {visitedUnits} of {reviewUnits.length} groups reviewed in this response
               </strong>
               <small>
-                {remainingOpenQuestions} questions still open {questionIds?.length ? "in this task" : "overall"}
+                {remainingOpenQuestions} questions still open {questionIds?.length
+                  ? scopeKind === "resource"
+                    ? "in this resource scope"
+                    : "in this task"
+                  : "overall"}
               </small>
             </div>
           </div>
@@ -1073,7 +1149,7 @@ export function DiscussionQaReview({
             <div className="qaReviewProgressLabels">
               <span>
                 {visibleItems.length
-                  ? `Reviewing ${openQuestionsOnly ? "open " : ""}group ${boundedActiveIndex + 1} of ${visibleItems.length}`
+                  ? `Reviewing ${reviewFilter === "all" ? "" : `${reviewFilter} `}group ${boundedActiveIndex + 1} of ${visibleItems.length}`
                   : "All clear"}
               </span>
               <strong>{Math.round(completionRatio * 100)}% reviewed</strong>
@@ -1097,15 +1173,19 @@ export function DiscussionQaReview({
           </div>
           <div className="qaReviewHeaderActions">
             <label className="qaReviewFilter">
-              <input
-                checked={openQuestionsOnly}
+              <span>Show</span>
+              <select
+                aria-label="QA review filter"
                 onChange={(event) => {
-                  setOpenQuestionsOnly(event.target.checked);
+                  setReviewFilter(event.target.value as "all" | "open" | "new");
                   setActiveIndex(0);
                 }}
-                type="checkbox"
-              />
-              <span>Open only</span>
+                value={reviewFilter}
+              >
+                <option value="new">New & updated</option>
+                <option value="open">Open questions</option>
+                <option value="all">All answers</option>
+              </select>
             </label>
             <button
               className={`commandButton qaSaveAll ${savedPulse ? "saved" : ""}`}
@@ -1151,6 +1231,20 @@ export function DiscussionQaReview({
                       .filter(Boolean)
                       .join(" / ") || activeItem.section?.title || "Unmapped question"}
                   </h2>
+                  {activeChapterLabels.length ? (
+                    <div className="qaChapterTags">
+                      {activeChapterLabels.map((chapter, index) => (
+                        <span
+                          className="qaChapterTag"
+                          key={chapter.number}
+                          style={{ "--chapter-tone": index % 6 } as CSSProperties}
+                          title={chapter.label}
+                        >
+                          Chapter {chapter.number}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="qaAnswerActions">
                   {activeItem.section ? (
@@ -1189,6 +1283,34 @@ export function DiscussionQaReview({
                       type="button"
                     >
                       <Archive size={14} /> Archive question
+                    </button>
+                  ) : null}
+                  {activeItem.questions.length ? (
+                    <button
+                      className={
+                        unresolvedQuestionsAreSkipped(activeItem.questions)
+                          ? "qaSkipQuestion skipped"
+                          : "qaSkipQuestion"
+                      }
+                      onClick={() => {
+                        const allSkipped = unresolvedQuestionsAreSkipped(
+                          activeItem.questions,
+                        );
+                        for (const question of activeItem.questions) {
+                          if (allSkipped) {
+                            onAnnotationChange(question, { skipped: false });
+                          } else if (question.status !== "answered") {
+                            onAnnotationChange(question, { skipped: true });
+                          }
+                        }
+                      }}
+                      title="Keep the question and answer history, but remove it from the active review queue"
+                      type="button"
+                    >
+                      <ArrowRight size={15} />
+                      {unresolvedQuestionsAreSkipped(activeItem.questions)
+                        ? "Skipped"
+                        : "Skip"}
                     </button>
                   ) : null}
                   {activeItem.questions.length ? (

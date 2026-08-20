@@ -209,6 +209,11 @@ must survive a plan revision.
   discussions. Every source has a visible Ask action and an inline question
   shelf. Markdown, HTML, text, code, JSON, and CSV files open in the in-app
   reader; select text there to save a highlight or structured question.
+  **Copy questions** opens one resource-scoped discussion and copies only
+  questions that do not yet have a tutor response. For books the queue ignores
+  study-day boundaries and is ordered by chapter, page, and position. Its
+  chapter map and QA workspace aggregate existing answers from earlier day
+  discussions by canonical annotation UUID, so no answer text is duplicated.
 - Use Exams for the compact activity map plus per-question solution notes.
 - Use Notes to review and edit notes, active questions, structured annotations,
   deferred work, and the meeting scratchpad in one place. The default question
@@ -226,7 +231,10 @@ must survive a plan revision.
   accidental PDF/chat line breaks. Day prompt discussions link all resources
   used by that day. Explicit `Q-001`, grouped `Q-002 and Q-003`, and `Question
   4` answer headings place the exact prompt-batch questions beside their answers
-  with reference, partial, and done controls. Deleting a discussion is a
+  with reference, partial, and done controls. QA review also has a
+  non-destructive **Skip** state: it preserves the question and every tutor
+  answer, does not claim understanding, and removes the question only from
+  active/new review queues; **All answers** can reopen it later. Deleting a discussion is a
   recoverable soft deletion rather than destructive database removal.
 - **Copy review** exports a question-centric version of the current discussion:
   original captures, personal notes, answer rounds, follow-ups, and important

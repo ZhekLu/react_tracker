@@ -102,7 +102,11 @@ export function responseQuestionIds(
     ? labels.flatMap((label) => questionIdsByLabel.get(label) ?? [])
     : discussion.questionIds.filter((id) => {
         const annotation = annotations.find((item) => item.id === id);
-        return annotation?.status === "open" && !annotation.postponed;
+        return (
+          annotation?.status === "open" &&
+          !annotation.postponed &&
+          !annotation.skipped
+        );
       });
   return [...new Set(ids)];
 }

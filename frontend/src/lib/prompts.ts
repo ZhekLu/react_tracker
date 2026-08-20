@@ -73,7 +73,7 @@ function annotationMetadata(annotation: Annotation): Record<string, unknown> {
     : metadata;
 }
 
-function annotationChapterNumber(annotation: Annotation): number | null {
+export function annotationChapterNumber(annotation: Annotation): number | null {
   const metadata = annotationMetadata(annotation);
   const direct = metadata.chapterNumber;
   if (typeof direct === "number" && Number.isFinite(direct)) {
@@ -93,6 +93,51 @@ function annotationChapterNumber(annotation: Annotation): number | null {
     if (match) return Number(match[1]);
   }
   return null;
+}
+
+function annotationLocationOffset(annotation: Annotation): number {
+  const metadata = annotationMetadata(annotation);
+  for (const value of [
+    metadata.y,
+    metadata.top,
+    metadata.pageY,
+    metadata.normalizedY,
+    annotation.anchor?.rect?.[1],
+  ]) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+      return Number(value);
+    }
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+export function resourceScopedAnnotations(
+  course: Course,
+  resource: Resource,
+): Annotation[] {
+  const rootId = resource.parentResourceId ?? resource.id;
+  const familyIds = new Set(
+    course.resources
+      .filter((candidate) => (candidate.parentResourceId ?? candidate.id) === rootId)
+      .map((candidate) => candidate.id),
+  );
+  familyIds.add(rootId);
+  return course.annotations
+    .filter((annotation) => familyIds.has(annotation.resourceId))
+    .sort((left, right) => {
+      const leftChapter = annotationChapterNumber(left) ?? Number.MAX_SAFE_INTEGER;
+      const rightChapter = annotationChapterNumber(right) ?? Number.MAX_SAFE_INTEGER;
+      const leftPage = left.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER;
+      const rightPage = right.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER;
+      return (
+        leftChapter - rightChapter ||
+        leftPage - rightPage ||
+        annotationLocationOffset(left) - annotationLocationOffset(right) ||
+        left.createdAt.localeCompare(right.createdAt) ||
+        left.id.localeCompare(right.id)
+      );
+    });
 }
 
 function dayScopedAnnotations(course: Course, day: StudyDay): Annotation[] {
@@ -136,7 +181,8 @@ function activeQuestions(annotations: Annotation[]): Annotation[] {
     (annotation) =>
       ["question", "todo"].includes(annotation.kind) &&
       annotation.status === "open" &&
-      !annotation.postponed,
+      !annotation.postponed &&
+      !annotation.skipped,
   );
 }
 
@@ -483,27 +529,74 @@ export function resourceInventory(course: Course): PromptPayload {
 export function resourceQuestions(
   course: Course,
   resource: Resource,
+  options: {
+    annotationIds?: readonly string[];
+    parentDiscussionId?: string;
+    questionLabelStart?: number;
+    questionLabels?: Readonly<Record<string, string>>;
+    unansweredOnly?: boolean;
+  } = {},
 ): PromptPayload {
-  const questions = activeQuestions(
-    course.annotations.filter(
-      (annotation) => annotation.resourceId === resource.id,
-    ),
+  const requestedIds = options.annotationIds
+    ? new Set(options.annotationIds)
+    : null;
+  const questions = activeQuestions(resourceScopedAnnotations(course, resource))
+    .filter(
+      (annotation) =>
+        (!requestedIds || requestedIds.has(annotation.id)) &&
+        (!options.unansweredOnly ||
+          (annotation.discussionResponseCount ?? 0) === 0),
+    );
+  const resourceById = new Map(
+    course.resources.map((candidate) => [candidate.id, candidate]),
   );
+  const chapterTitleByNumber = new Map(
+    resource.chapters.map((chapter) => [chapter.number, chapter.title]),
+  );
+  let previousChapter: number | null | undefined;
+  const questionBlocks = questions.flatMap((annotation, index) => {
+    const chapter = annotationChapterNumber(annotation);
+    const heading = chapter !== previousChapter
+      ? [
+          chapter === null
+            ? "## Other locations"
+            : `## Chapter ${chapter}${chapterTitleByNumber.get(chapter) ? ` · ${chapterTitleByNumber.get(chapter)}` : ""}`,
+        ]
+      : [];
+    previousChapter = chapter;
+    return [
+      ...heading,
+      annotationLine(
+        annotation,
+        resourceById.get(annotation.resourceId) ?? resource,
+        options.questionLabels?.[annotation.id] ??
+          (options.questionLabelStart ?? 1) + index,
+      ),
+    ];
+  });
   return {
     annotationIds: questions.map((annotation) => annotation.id),
     markdown: [
       `# ${course.title} · ${resource.title} questions`,
       "",
       questions.length
-        ? questions
-            .map((annotation, index) =>
-              annotationLine(annotation, resource, index + 1),
-            )
-            .join("\n\n")
+        ? questionBlocks.join("\n\n")
         : "No structured open questions for this resource.",
     ].join("\n"),
-    sourceResourceId: resource.id,
-    sourceScope: "resource_questions",
+    parentDiscussionId: options.parentDiscussionId,
+    questionLabelStart: options.questionLabelStart ?? 1,
+    questionLabels: options.questionLabels
+      ? Object.fromEntries(
+          questions.flatMap((annotation) => {
+            const label = options.questionLabels?.[annotation.id];
+            return label ? [[annotation.id, label]] : [];
+          }),
+        )
+      : undefined,
+    sourceResourceId: resource.parentResourceId ?? resource.id,
+    sourceScope: options.parentDiscussionId
+      ? "resource_questions_continuation"
+      : "resource_questions",
     title: `${course.shortCode} · ${resource.title} questions`,
   };
 }

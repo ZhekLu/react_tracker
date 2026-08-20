@@ -194,6 +194,51 @@ describe("focused discussion QA review units", () => {
     ]);
   });
 
+  it("uses explicit resource scope order instead of historical answer time", () => {
+    const chapterSix = annotation("chapter-six");
+    const chapterSeven = annotation("chapter-seven");
+    const olderDiscussion = {
+      id: "older",
+      messages: [{
+        annotationLinks: [{ annotationId: chapterSeven.id, relation: "answers" }],
+        body: { markdown: "## Q-002\n\nChapter seven answer." },
+        createdAt: "2026-07-20T01:00:00Z",
+        id: "message-seven",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [chapterSeven.id],
+      questionLabels: [{ annotationIds: [chapterSeven.id], label: "Q-002" }],
+    } as unknown as Discussion;
+    const newerDiscussion = {
+      id: "newer",
+      messages: [{
+        annotationLinks: [{ annotationId: chapterSix.id, relation: "answers" }],
+        body: { markdown: "## Q-001\n\nChapter six answer." },
+        createdAt: "2026-07-21T01:00:00Z",
+        id: "message-six",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [chapterSix.id],
+      questionLabels: [{ annotationIds: [chapterSix.id], label: "Q-001" }],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads(
+      [olderDiscussion, newerDiscussion],
+      [chapterSix, chapterSeven],
+      newerDiscussion,
+      [chapterSix.id, chapterSeven.id],
+    );
+
+    expect(threads.map((item) => item.rootQuestions?.[0]?.id)).toEqual([
+      chapterSix.id,
+      chapterSeven.id,
+    ]);
+  });
+
   it("keeps an unrelated continuation separate from a follow-up answer", () => {
     const original = annotation("original-question");
     const continuation = annotation("continuation-question");

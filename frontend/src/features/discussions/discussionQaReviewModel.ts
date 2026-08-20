@@ -271,6 +271,9 @@ export function qaReviewThreads(
     : promptQuestionIds.length
       ? promptQuestionIds
       : activeDiscussion.questionIds;
+  const scopedOrderById = new Map(
+    immutableScopeIds.map((id, index) => [id, index]),
+  );
   const activeSectionQuestionIds = sectionRecords
     .filter(({ discussionId }) => discussionId === activeDiscussion.id)
     .flatMap(({ section }) => section.questionIds);
@@ -360,6 +363,17 @@ export function qaReviewThreads(
     })
     .filter((item) => item.answers.length > 0)
     .sort((left, right) => {
+      if (scopedQuestionIds?.length) {
+        const position = (item: QaReviewItem) =>
+          Math.min(
+            Number.MAX_SAFE_INTEGER,
+            ...(item.rootQuestions ?? item.questions).map(
+              (question) => scopedOrderById.get(question.id) ?? Number.MAX_SAFE_INTEGER,
+            ),
+          );
+        const scopeDifference = position(left) - position(right);
+        if (scopeDifference) return scopeDifference;
+      }
       const leftAnswer = left.answers[0];
       const rightAnswer = right.answers[0];
       return leftAnswer && rightAnswer
@@ -393,6 +407,17 @@ export function qaReviewThreads(
       sectionDiscussionId: discussionId,
     } satisfies QaReviewItem));
   return [...questionThreads, ...exerciseSections].sort((left, right) => {
+    if (scopedQuestionIds?.length) {
+      const position = (item: QaReviewItem) =>
+        Math.min(
+          Number.MAX_SAFE_INTEGER,
+          ...(item.rootQuestions ?? item.questions).map(
+            (question) => scopedOrderById.get(question.id) ?? Number.MAX_SAFE_INTEGER,
+          ),
+        );
+      const scopeDifference = position(left) - position(right);
+      if (scopeDifference) return scopeDifference;
+    }
     const leftAnswer = left.answers?.[0];
     const rightAnswer = right.answers?.[0];
     return leftAnswer && rightAnswer

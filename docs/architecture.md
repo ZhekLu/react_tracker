@@ -62,6 +62,11 @@ Reasons:
 - Discussions are first-class generated resources. Prompt batches seed
   snapshot-backed user messages, while message-question relationships distinguish references,
   partial answers, and complete answers.
+- Discussion scope is explicit and immutable from its initial prompt batch.
+  Day/task continuations may bind only to a discussion whose `source_day_id`
+  matches the study day; resource continuations bind only to a resource-scoped
+  discussion. Shared resource annotations can therefore never make a Day 5
+  continuation drift into a Day 7 thread.
 - A prompt-batch discussion relates to every resource implied by its explicit
   resource, task, day, and question annotations. Each `prompt_batch_items` row
   persists the discussion-local display label (`Q-001`) and the canonical
@@ -76,6 +81,10 @@ Reasons:
   persist their parent message, prompt label, section label, and root question
   UUIDs. This lets subsequent answers attach to the original QA chain without
   relying on title matching.
+- A skipped QA question remains an open annotation with `skipped_at` set. It is
+  intentionally distinct from both `answered` and `archived`: active counters
+  and prompt queues omit it, while the canonical question, answer versions,
+  notes, and discussion links remain intact and can be reopened.
 - `discussionImport.ts` owns external clipboard canonicalization. It protects
   code and math first, repairs degraded ChatGPT delimiters, parses Markdown into
   an mdast tree, and performs paste-only compaction. Ordinary editor saves use

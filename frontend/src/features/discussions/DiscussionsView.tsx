@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   Archive,
   BookOpen,
@@ -34,6 +34,10 @@ import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { DiscussionMarkdownSurface } from "../../components/editor/DiscussionMarkdownSurface";
 import type { DiscussionReviewItem } from "../../components/editor/DiscussionMarkdownSurface";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
+import {
+  annotationChapter,
+  annotationChapterNumber,
+} from "../../components/annotations/annotationDisplay";
 import type {
   Annotation,
   AnnotationKind,
@@ -66,6 +70,7 @@ import {
 import { discussionExportSegments } from "../../lib/discussionExports";
 import { DiscussionQaReview } from "./DiscussionQaReview";
 import { discussionReviewPrompt } from "./discussionReviewExport";
+import { resourceScopedAnnotations } from "../../lib/prompts";
 
 type DiscussionsViewProps = {
   course: Course;
@@ -75,6 +80,8 @@ type DiscussionsViewProps = {
     discussionId: string;
     label: string;
     questionIds: string[];
+    scopeKind?: "task" | "resource";
+    initialFilter?: "all" | "open" | "new";
     token: number;
   } | null;
   onTaskQaClose?: () => void;
@@ -90,6 +97,7 @@ type DiscussionsViewProps = {
       kind?: AnnotationKind;
       status?: AnnotationStatus;
       postponed?: boolean;
+      skipped?: boolean;
       priority?: Annotation["priority"];
       markdown?: string;
       plainText?: string;
@@ -495,7 +503,9 @@ function DiscussionMessageContent({
               sectionEditing ||
               questions.some(
                 (question) =>
-                  question.status === "open" && !question.postponed,
+                  question.status === "open" &&
+                  !question.postponed &&
+                  !question.skipped,
               ) ||
               undefined
             }
@@ -523,11 +533,15 @@ function DiscussionMessageContent({
                 <span>
                   {questions.filter(
                     (question) =>
-                      question.status === "open" && !question.postponed,
+                      question.status === "open" &&
+                      !question.postponed &&
+                      !question.skipped,
                   ).length
                     ? `${questions.filter(
                         (question) =>
-                          question.status === "open" && !question.postponed,
+                          question.status === "open" &&
+                          !question.postponed &&
+                          !question.skipped,
                       ).length} open`
                     : questions.length
                       ? "answered"
@@ -691,7 +705,10 @@ function DiscussionWorkshopPanel({
   const [openQuestionsOnly, setOpenQuestionsOnly] = useState(true);
   const visibleCoverageQuestions = openQuestionsOnly
     ? coverageQuestions.filter(
-        (question) => question.status === "open" && !question.postponed,
+        (question) =>
+          question.status === "open" &&
+          !question.postponed &&
+          !question.skipped,
       )
     : coverageQuestions;
   return (
@@ -905,11 +922,17 @@ export function DiscussionsView({
   const [captureEditorResourceId, setCaptureEditorResourceId] = useState("");
   const [allCaptureResourceId, setAllCaptureResourceId] = useState("");
   const [editingMessageId, setEditingMessageId] = useState("");
-  const [qaReviewDiscussionId, setQaReviewDiscussionId] = useState("");
+  const [qaReviewScope, setQaReviewScope] = useState<{
+    discussionId: string;
+    label?: string;
+    questionIds?: string[];
+    initialFilter?: "all" | "open" | "new";
+    scopeKind?: "task" | "resource";
+  } | null>(null);
   const [highlightOnlyDiscussionId, setHighlightOnlyDiscussionId] =
     useState("");
   const activeQaReviewDiscussionId =
-    taskQaLaunch?.discussionId ?? qaReviewDiscussionId;
+    taskQaLaunch?.discussionId ?? qaReviewScope?.discussionId ?? "";
   const sourceResources = course.resources.filter(
     (resource) =>
       !["discussion", "exam_question"].includes(resource.kind),
@@ -919,6 +942,11 @@ export function DiscussionsView({
       (item) =>
         item.id === focusedResourceId ||
         item.resourceId === focusedResourceId,
+    ) ??
+    course.discussions.find(
+      (item) =>
+        item.scopeType === "resource" &&
+        item.sourceResourceIds.includes(focusedResourceId),
     ) ??
     course.discussions.find((item) =>
       item.sourceResourceIds.includes(focusedResourceId),
@@ -952,17 +980,21 @@ export function DiscussionsView({
   const linkedQuestions = (discussion?.questionIds ?? [])
     .map((id) => annotationById.get(id))
     .filter((item): item is Annotation => Boolean(item));
-  const allActiveCaptures = (selectedSource?.annotations ?? [])
+  const allActiveCaptures = (selectedSource
+    ? resourceScopedAnnotations(course, selectedSource)
+    : [])
     .filter((annotation) => annotation.status !== "archived")
     .sort((left, right) => {
       const leftOpenQuestion =
         ["question", "todo"].includes(left.kind) &&
         left.status === "open" &&
-        !left.postponed;
+        !left.postponed &&
+        !left.skipped;
       const rightOpenQuestion =
         ["question", "todo"].includes(right.kind) &&
         right.status === "open" &&
-        !right.postponed;
+        !right.postponed &&
+        !right.skipped;
       if (leftOpenQuestion !== rightOpenQuestion) {
         return leftOpenQuestion ? -1 : 1;
       }
@@ -982,7 +1014,38 @@ export function DiscussionsView({
         ),
       ].map((annotation) => [annotation.id, annotation]),
     ).values(),
-  ];
+  ].sort(
+    (left, right) =>
+      (annotationChapterNumber(left) ?? Number.MAX_SAFE_INTEGER) -
+        (annotationChapterNumber(right) ?? Number.MAX_SAFE_INTEGER) ||
+      (left.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER) -
+        (right.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER) ||
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.id.localeCompare(right.id),
+  );
+  const resourceChapterGroups = discussion?.scopeType === "resource"
+    ? [
+        ...coverageQuestions
+          .filter((annotation) => ["question", "todo"].includes(annotation.kind))
+          .reduce((groups, annotation) => {
+            const chapterNumber = annotationChapterNumber(annotation);
+            const key = chapterNumber === null ? "other" : String(chapterNumber);
+            const current = groups.get(key) ?? {
+              chapterNumber,
+              label: annotationChapter(annotation),
+              questions: [] as Annotation[],
+            };
+            current.questions.push(annotation);
+            groups.set(key, current);
+            return groups;
+          }, new Map<string, { chapterNumber: number | null; label: string; questions: Annotation[] }>())
+          .values(),
+      ].sort(
+        (left, right) =>
+          (left.chapterNumber ?? Number.MAX_SAFE_INTEGER) -
+          (right.chapterNumber ?? Number.MAX_SAFE_INTEGER),
+      )
+    : [];
   const taskContext = (() => {
     if (!focusedTaskId || !selectedSourceId) return null;
     for (const day of course.days) {
@@ -1206,7 +1269,29 @@ export function DiscussionsView({
                     className="commandButton qaReviewLaunch"
                     onClick={() => {
                       onTaskQaClose?.();
-                      setQaReviewDiscussionId(discussion.id);
+                      const resourceQuestionIds =
+                        discussion.scopeType === "resource"
+                          ? coverageQuestions
+                              .filter(
+                                (annotation) =>
+                                  ["question", "todo"].includes(annotation.kind) &&
+                                  annotation.status !== "archived" &&
+                                  (annotation.discussionResponseCount ?? 0) > 0,
+                              )
+                              .map((annotation) => annotation.id)
+                          : undefined;
+                      setQaReviewScope({
+                        discussionId: discussion.id,
+                        initialFilter:
+                          discussion.scopeType === "resource" ? "new" : undefined,
+                        label:
+                          discussion.scopeType === "resource" && selectedSource
+                            ? `${selectedSource.title} · all chapters`
+                            : undefined,
+                        questionIds: resourceQuestionIds,
+                        scopeKind:
+                          discussion.scopeType === "resource" ? "resource" : undefined,
+                      });
                     }}
                     title="Review every mapped answer in a focused workspace"
                     type="button"
@@ -1309,6 +1394,67 @@ export function DiscussionsView({
               </div>
             ) : null}
           </header>
+
+          {discussion?.scopeType === "resource" && resourceChapterGroups.length ? (
+            <section className="resourceDiscussionMap">
+              <header>
+                <div>
+                  <p className="eyebrow">Resource question map</p>
+                  <h3>Answers organized by chapter</h3>
+                </div>
+                <span>{coverageQuestions.length} captures · one canonical history</span>
+              </header>
+              <div className="resourceDiscussionChapterGrid">
+                {resourceChapterGroups.map((group, index) => {
+                  const answerableIds = group.questions
+                    .filter(
+                      (question) =>
+                        question.status !== "archived" &&
+                        (question.discussionResponseCount ?? 0) > 0,
+                    )
+                    .map((question) => question.id);
+                  const openCount = group.questions.filter(
+                    (question) =>
+                      question.status === "open" &&
+                      !question.postponed &&
+                      !question.skipped,
+                  ).length;
+                  return (
+                    <button
+                      className="resourceDiscussionChapter"
+                      disabled={!answerableIds.length}
+                      key={`${group.chapterNumber ?? "other"}:${group.label}`}
+                      onClick={() => {
+                        onTaskQaClose?.();
+                        setQaReviewScope({
+                          discussionId: discussion.id,
+                          initialFilter: "new",
+                          label:
+                            group.chapterNumber === null
+                              ? `${selectedSource?.title ?? discussion.title} · other locations`
+                              : `${selectedSource?.title ?? discussion.title} · Chapter ${group.chapterNumber}`,
+                          questionIds: answerableIds,
+                          scopeKind: "resource",
+                        });
+                      }}
+                      style={{ "--chapter-tone": index % 6 } as CSSProperties}
+                      type="button"
+                    >
+                      <span>
+                        {group.chapterNumber === null
+                          ? "Other"
+                          : `Chapter ${group.chapterNumber}`}
+                      </span>
+                      <strong>{group.label}</strong>
+                      <small>
+                        {answerableIds.length} answered · {openCount} open
+                      </small>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           {taskContext ? (
             <section className="discussionTaskPin">
@@ -1558,16 +1704,34 @@ export function DiscussionsView({
           questionIds={
             taskQaLaunch?.discussionId === discussion.id
               ? taskQaLaunch.questionIds
-              : undefined
+              : qaReviewScope?.discussionId === discussion.id
+                ? qaReviewScope.questionIds
+                : undefined
           }
           scopeLabel={
             taskQaLaunch?.discussionId === discussion.id
               ? taskQaLaunch.label
-              : undefined
+              : qaReviewScope?.discussionId === discussion.id
+                ? qaReviewScope.label
+                : undefined
+          }
+          initialFilter={
+            taskQaLaunch?.discussionId === discussion.id
+              ? taskQaLaunch.initialFilter
+              : qaReviewScope?.discussionId === discussion.id
+                ? qaReviewScope.initialFilter
+                : undefined
+          }
+          scopeKind={
+            taskQaLaunch?.discussionId === discussion.id
+              ? taskQaLaunch.scopeKind
+              : qaReviewScope?.discussionId === discussion.id
+                ? qaReviewScope.scopeKind
+                : undefined
           }
           onAnnotationChange={onAnnotationChange}
           onClose={() => {
-            setQaReviewDiscussionId("");
+            setQaReviewScope(null);
             onTaskQaClose?.();
           }}
           onDeleteAnswer={onDeleteAnswer}

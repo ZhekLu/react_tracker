@@ -122,6 +122,7 @@ export type Annotation = {
   kind: AnnotationKind;
   status: AnnotationStatus;
   postponed: boolean;
+  skipped?: boolean;
   priority: "low" | "normal" | "high";
   origin: string;
   revision: number;
@@ -308,6 +309,9 @@ export type Discussion = {
   resourceId: string;
   sourceResourceIds: string[];
   initialPromptBatchId?: string | null;
+  scopeType: "day" | "resource" | "general";
+  sourceDayId?: string | null;
+  sourceTaskId?: string | null;
   questionIds: string[];
   questionLabels: {
     label: string;

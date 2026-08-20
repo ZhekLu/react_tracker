@@ -107,6 +107,7 @@ type ApiAnnotation = {
   kind: AnnotationKind;
   status: AnnotationStatus;
   postponed: boolean;
+  skipped?: boolean;
   priority: "low" | "normal" | "high";
   origin: string;
   revision: number;
@@ -274,6 +275,9 @@ type ApiDiscussion = {
   resource_id: string;
   source_resource_ids: string[];
   initial_prompt_batch_id?: string | null;
+  scope_type: "day" | "resource" | "general";
+  source_day_id?: string | null;
+  source_task_id?: string | null;
   question_ids: string[];
   question_labels: {
     label: string;
@@ -721,6 +725,7 @@ function annotation(api: ApiAnnotation): Annotation {
     kind: api.kind,
     status: api.status,
     postponed: api.postponed,
+    skipped: api.skipped ?? false,
     priority: api.priority,
     origin: api.origin,
     revision: api.revision,
@@ -907,6 +912,9 @@ function discussion(api: ApiDiscussion): Discussion {
     resourceId: api.resource_id,
     sourceResourceIds: api.source_resource_ids,
     initialPromptBatchId: api.initial_prompt_batch_id,
+    scopeType: api.scope_type,
+    sourceDayId: api.source_day_id,
+    sourceTaskId: api.source_task_id,
     questionIds: api.question_ids,
     questionLabels: api.question_labels.map((item) => ({
       label: item.label,
@@ -1138,6 +1146,7 @@ export async function updateAnnotation(
     kind?: AnnotationKind;
     status?: AnnotationStatus;
     postponed?: boolean;
+    skipped?: boolean;
     priority?: "low" | "normal" | "high";
     markdown?: string;
     plainText?: string;
@@ -1150,6 +1159,7 @@ export async function updateAnnotation(
       kind: changes.kind,
       status: changes.status,
       postponed: changes.postponed,
+      skipped: changes.skipped,
       priority: changes.priority,
       markdown: changes.markdown,
       plain_text: changes.plainText,

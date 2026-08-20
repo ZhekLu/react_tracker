@@ -382,7 +382,7 @@ def _annotations(
         """
         SELECT
           a.id, a.resource_id, a.body_document_id, a.kind, a.status, a.priority,
-          a.origin, a.postponed_at, a.created_at, a.updated_at, a.revision,
+          a.origin, a.postponed_at, a.skipped_at, a.created_at, a.updated_at, a.revision,
           aa.anchor_type, aa.quote, aa.section_title, aa.source_line_start,
           aa.source_line_end, aa.page_number, aa.rect_json, aa.color,
           aa.discussion_message_id, aa.selector_json, aa.rgb_json
@@ -422,6 +422,7 @@ def _annotations(
             kind=cast(Any, row["kind"]),
             status=cast(Any, row["status"]),
             postponed=row["postponed_at"] is not None,
+            skipped=row["skipped_at"] is not None,
             priority=cast(Any, row["priority"]),
             origin=str(row["origin"]),
             revision=int(row["revision"]),
@@ -443,6 +444,7 @@ def _open_question_count(annotations: Iterable[Annotation]) -> int:
             annotation.kind not in {"question", "todo"}
             or annotation.status != "open"
             or annotation.postponed
+            or annotation.skipped
         ):
             continue
         metadata = annotation.anchor.metadata if annotation.anchor else {}
@@ -462,6 +464,7 @@ def _postponed_question_count(annotations: Iterable[Annotation]) -> int:
             annotation.kind not in {"question", "todo"}
             or annotation.status != "open"
             or not annotation.postponed
+            or annotation.skipped
         ):
             continue
         metadata = annotation.anchor.metadata if annotation.anchor else {}
@@ -1389,6 +1392,15 @@ def _discussions(
                 str | None,
                 row["initial_prompt_batch_id"],
             ),
+            scope_type=(
+                "resource"
+                if str(row["initial_source_scope"] or "").startswith("resource_questions")
+                else "day"
+                if row["source_day_id"] is not None
+                else "general"
+            ),
+            source_day_id=cast(str | None, row["source_day_id"]),
+            source_task_id=cast(str | None, row["source_task_id"]),
             question_ids=list(
                 dict.fromkeys(
                     [
@@ -1425,9 +1437,11 @@ def _discussions(
             SELECT
               dt.id, dt.resource_id, dt.initial_prompt_batch_id, r.title,
               r.kind AS resource_kind, dt.provider, dt.attention,
-              dt.status, dt.revision
+              dt.status, dt.revision, pb.source_scope AS initial_source_scope,
+              pb.source_day_id, pb.source_task_id
             FROM discussion_threads dt
             JOIN resources r ON r.id = dt.resource_id
+            LEFT JOIN prompt_batches pb ON pb.id = dt.initial_prompt_batch_id
             WHERE dt.course_id = :course_id AND dt.deleted_at IS NULL
             ORDER BY dt.updated_at DESC
             """,
@@ -1834,7 +1848,7 @@ def update_annotation(
     annotation = _one_or_none(
         connection,
         """
-        SELECT id, body_document_id, kind, status
+        SELECT id, body_document_id, kind, status, skipped_at
         FROM annotations
         WHERE id = :id AND deleted_at IS NULL
         """,
@@ -1851,6 +1865,13 @@ def update_annotation(
         raise WorkspaceRepositoryError(
             "Only open questions and todos can be postponed."
         )
+    if command.skipped and (
+        effective_kind not in {"question", "todo"}
+        or effective_status != "open"
+    ):
+        raise WorkspaceRepositoryError(
+            "Only open questions and todos can be skipped."
+        )
     assignments = [
         "kind = COALESCE(:kind, kind)",
         "status = COALESCE(:status, status)",
@@ -1858,10 +1879,18 @@ def update_annotation(
         "answered_at = CASE WHEN :status = 'answered' THEN :now ELSE answered_at END",
         "archived_at = CASE WHEN :status = 'archived' THEN :now ELSE archived_at END",
         """postponed_at = CASE
-          WHEN :status IN ('answered', 'archived') THEN NULL
+          WHEN :status IN ('answered', 'archived') OR :skipped = 1 THEN NULL
           WHEN :kind IS NOT NULL AND :kind NOT IN ('question', 'todo') THEN NULL
           WHEN :postponed IS NULL THEN postponed_at
           WHEN :postponed = 1 THEN :now
+          ELSE NULL
+        END""",
+        """skipped_at = CASE
+          WHEN :status IN ('answered', 'archived') THEN NULL
+          WHEN :kind IS NOT NULL AND :kind NOT IN ('question', 'todo') THEN NULL
+          WHEN :postponed = 1 THEN NULL
+          WHEN :skipped IS NULL THEN skipped_at
+          WHEN :skipped = 1 THEN :now
           ELSE NULL
         END""",
     ]
@@ -1876,6 +1905,7 @@ def update_annotation(
             "status": command.status,
             "priority": command.priority,
             "postponed": command.postponed,
+            "skipped": command.skipped,
             "now": _now(),
         },
     )
@@ -4288,6 +4318,7 @@ def delete_discussion_answer(
                 UPDATE annotations
                 SET status = :status,
                     answered_at = NULL,
+                    skipped_at = CASE WHEN :status = 'archived' THEN NULL ELSE skipped_at END,
                     updated_at = :updated_at,
                     revision = revision + 1
                 WHERE id = :annotation_id
@@ -4480,6 +4511,7 @@ def _set_discussion_message_annotation(
         SET status = :status,
             answered_at = CASE WHEN :status = 'answered' THEN :timestamp ELSE NULL END,
             postponed_at = CASE WHEN :status = 'answered' THEN NULL ELSE postponed_at END,
+            skipped_at = CASE WHEN :status = 'answered' THEN NULL ELSE skipped_at END,
             updated_at = :timestamp,
             revision = revision + 1
         WHERE id = :annotation_id AND deleted_at IS NULL

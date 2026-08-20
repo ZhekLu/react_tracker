@@ -42,6 +42,7 @@ type NotesViewProps = {
       kind?: AnnotationKind;
       status?: AnnotationStatus;
       postponed?: boolean;
+      skipped?: boolean;
       priority?: Annotation["priority"];
       markdown?: string;
       plainText?: string;
@@ -510,14 +511,20 @@ export function NotesView({
   );
   const openQuestionCount = questionItems.filter(
     (item) =>
-      item.annotation.status === "open" && !item.annotation.postponed,
+      item.annotation.status === "open" &&
+      !item.annotation.postponed &&
+      !item.annotation.skipped,
   ).length;
   const postponedQuestionCount = questionItems.filter(
     (item) => item.annotation.status === "open" && item.annotation.postponed,
   ).length;
   const questionStatusItems = questionItems.filter((item) => {
     if (questionStatusFilter === "open") {
-      return item.annotation.status === "open" && !item.annotation.postponed;
+      return (
+        item.annotation.status === "open" &&
+        !item.annotation.postponed &&
+        !item.annotation.skipped
+      );
     }
     if (questionStatusFilter === "later") {
       return item.annotation.status === "open" && item.annotation.postponed;

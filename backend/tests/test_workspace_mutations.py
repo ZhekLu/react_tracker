@@ -204,6 +204,46 @@ def test_day_prompt_discussion_links_every_day_resource(tmp_path: Path) -> None:
         if resource.id in workspace.discussions[0].source_resource_ids
     }
     assert source_titles == {"Paper", "Slides"}
+    assert workspace.discussions[0].scope_type == "day"
+    assert workspace.discussions[0].source_day_id == day_id
+
+
+def test_resource_question_discussion_exposes_explicit_scope(tmp_path: Path) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="A resource-wide question",
+            ),
+        )
+        batch = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Paper questions",
+                source_scope="resource_questions",
+                source_resource_id=resource_id,
+                markdown="# Paper questions",
+                annotation_ids=[question.id],
+            ),
+        )
+        created = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+                initial_prompt_batch_id=batch.id,
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+
+    discussion = next(item for item in workspace.discussions if item.id == created.id)
+    assert discussion.scope_type == "resource"
+    assert discussion.source_day_id is None
+    assert discussion.source_resource_ids == [resource_id]
 
 
 def test_toggl_task_binding_tracks_time_by_stable_task_id(tmp_path: Path) -> None:
@@ -2006,6 +2046,56 @@ def test_postponed_question_groups_leave_active_counts_without_losing_state(
     )
     assert answered_first.status == "answered"
     assert answered_first.postponed is False
+
+
+def test_skipped_question_leaves_active_counts_without_archiving_history(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="This is deeper than I need right now.",
+            ),
+        )
+        skipped_response = update_annotation(
+            connection,
+            question.id,
+            AnnotationCommand(revision=question.revision, skipped=True),
+        )
+        skipped = get_workspace(connection, course_id)
+
+        skipped_question = next(
+            annotation
+            for annotation in skipped.annotations
+            if annotation.id == question.id
+        )
+        assert skipped_question.status == "open"
+        assert skipped_question.skipped is True
+        assert skipped_question.body is not None
+        assert skipped_question.body.markdown == "This is deeper than I need right now."
+        assert skipped.days[0].open_question_count == 0
+
+        reopened_response = update_annotation(
+            connection,
+            question.id,
+            AnnotationCommand(
+                revision=skipped_response.revision,
+                skipped=False,
+            ),
+        )
+        reopened = get_workspace(connection, course_id)
+
+    reopened_question = next(
+        annotation for annotation in reopened.annotations if annotation.id == question.id
+    )
+    assert reopened_response.revision == skipped_response.revision + 1
+    assert reopened_question.status == "open"
+    assert reopened_question.skipped is False
+    assert reopened.days[0].open_question_count == 1
 
 
 def test_generic_book_tasks_only_inherit_questions_from_their_study_day(

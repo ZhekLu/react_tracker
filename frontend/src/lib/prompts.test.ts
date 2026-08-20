@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Annotation, Course, StudyDay, Task } from "../types/tracker";
-import { taskQuestions, taskScopedAnnotations } from "./prompts";
+import type { Annotation, Course, Resource, StudyDay, Task } from "../types/tracker";
+import {
+  resourceQuestions,
+  resourceScopedAnnotations,
+  taskQuestions,
+  taskScopedAnnotations,
+} from "./prompts";
 
 function question(
   id: string,
@@ -78,5 +83,62 @@ describe("task question prompts", () => {
     expect(payload.markdown).toContain("Q-022");
     expect(payload.markdown).not.toContain("Q-023");
     expect(payload.parentDiscussionId).toBe("day-8-discussion");
+  });
+});
+
+describe("resource question prompts", () => {
+  it("collects a resource family and orders book questions by chapter and page", () => {
+    const late = question("late", "book-cloud", 7);
+    late.anchor = { ...late.anchor!, pageNumber: 170 };
+    const early = question("early", "book", 6);
+    early.anchor = { ...early.anchor!, pageNumber: 145 };
+    const middle = question("middle", "book-cloud", 7);
+    middle.anchor = { ...middle.anchor!, pageNumber: 160 };
+    const answered = question("answered", "book", 5);
+    answered.discussionResponseCount = 1;
+    const book = {
+      chapters: [
+        { number: 6, title: "Temporal-Difference Learning" },
+        { number: 7, title: "n-step Bootstrapping" },
+      ],
+      id: "book",
+      kind: "book",
+      title: "RL Book",
+    } as Resource;
+    const course = {
+      annotations: [late, answered, middle, early],
+      resources: [
+        book,
+        { id: "book-cloud", kind: "book", parentResourceId: "book", title: "RL Book cloud" },
+      ],
+      shortCode: "TORL",
+      title: "Trustworthy Offline RL",
+    } as unknown as Course;
+
+    expect(resourceScopedAnnotations(course, book).map((item) => item.id)).toEqual([
+      "answered",
+      "early",
+      "middle",
+      "late",
+    ]);
+
+    const payload = resourceQuestions(course, book, {
+      annotationIds: [late.id, early.id, middle.id],
+      parentDiscussionId: "book-discussion",
+      questionLabels: {
+        early: "Q-006",
+        late: "Q-008",
+        middle: "Q-007",
+      },
+      unansweredOnly: true,
+    });
+    expect(payload.annotationIds).toEqual(["early", "middle", "late"]);
+    expect(payload.sourceScope).toBe("resource_questions_continuation");
+    expect(payload.markdown.indexOf("Chapter 6")).toBeLessThan(
+      payload.markdown.indexOf("Chapter 7"),
+    );
+    expect(payload.markdown.indexOf("Q-007")).toBeLessThan(
+      payload.markdown.indexOf("Q-008"),
+    );
   });
 });

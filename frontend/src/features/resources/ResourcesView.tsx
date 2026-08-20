@@ -50,7 +50,11 @@ type ResourcesViewProps = {
   onCopyResourceQuestions: (resource: Resource) => void;
   onAnnotationChange: (
     annotation: Annotation,
-    changes: { status?: AnnotationStatus; postponed?: boolean },
+    changes: {
+      status?: AnnotationStatus;
+      postponed?: boolean;
+      skipped?: boolean;
+    },
   ) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
@@ -143,7 +147,10 @@ function ResourceRow({
   );
   const firstOpenQuestion =
     questions.find(
-      (question) => question.status === "open" && !question.postponed,
+      (question) =>
+        question.status === "open" &&
+        !question.postponed &&
+        !question.skipped,
     ) ?? questions[0];
 
   function toggleRead() {

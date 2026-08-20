@@ -73,6 +73,7 @@ class Annotation(StrictModel):
     kind: AnnotationKind
     status: AnnotationStatus
     postponed: bool = False
+    skipped: bool = False
     priority: Literal["low", "normal", "high"]
     origin: str
     revision: int
@@ -260,6 +261,9 @@ class Discussion(StrictModel):
     resource_id: str
     source_resource_ids: list[str] = Field(default_factory=list)
     initial_prompt_batch_id: str | None = None
+    scope_type: Literal["day", "resource", "general"] = "general"
+    source_day_id: str | None = None
+    source_task_id: str | None = None
     question_ids: list[str] = Field(default_factory=list)
     question_labels: list[DiscussionQuestionLabel] = Field(default_factory=list)
     qa_reviews: list[DiscussionQaReview] = Field(default_factory=list)
@@ -468,6 +472,7 @@ class AnnotationCommand(RevisionCommand):
     kind: AnnotationKind | None = None
     status: AnnotationStatus | None = None
     postponed: bool | None = None
+    skipped: bool | None = None
     priority: Literal["low", "normal", "high"] | None = None
     markdown: str | None = None
     plain_text: str | None = None

@@ -14,7 +14,11 @@ import { AnnotationChapterGroups } from "./AnnotationChapterGroups";
 type ResourceCaptureShelfProps = {
   onAnnotationChange: (
     annotation: Annotation,
-    changes: { status?: AnnotationStatus; postponed?: boolean },
+    changes: {
+      status?: AnnotationStatus;
+      postponed?: boolean;
+      skipped?: boolean;
+    },
   ) => void;
   onCopyQuestions: (resource: Resource) => void;
   onCreateRequest: () => void;
@@ -42,7 +46,8 @@ export function ResourceCaptureShelf({
     (annotation) =>
       ["question", "todo"].includes(annotation.kind) &&
       annotation.status === "open" &&
-      !annotation.postponed,
+      !annotation.postponed &&
+      !annotation.skipped,
   ).length;
 
   return (
