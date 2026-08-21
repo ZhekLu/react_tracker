@@ -135,6 +135,7 @@ type DiscussionsViewProps = {
   onImportClipboard: (resourceId: string) => void;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onCopy: (text: string, label: string) => void;
+  onCopyResourceQuestions: (resource: Resource) => void;
   onOpenResource: (resourceId: string) => void;
   onQuestionLink: (
     messageId: string,
@@ -912,6 +913,7 @@ export function DiscussionsView({
   onToggleImportantAnswer,
   onNoteSave,
   onCopy,
+  onCopyResourceQuestions,
   onOpenResource,
   onQuestionLink,
   onQaViewed,
@@ -1073,6 +1075,17 @@ export function DiscussionsView({
   const answeredCount = coverageQuestions.filter(
     (question) => question.status === "answered",
   ).length;
+  const queuedResourceQuestionCount =
+    discussion?.scopeType === "resource"
+      ? coverageQuestions.filter(
+          (question) =>
+            ["question", "todo"].includes(question.kind) &&
+            question.status === "open" &&
+            !question.postponed &&
+            !question.skipped &&
+            (question.discussionResponseCount ?? 0) === 0,
+        ).length
+      : 0;
   const highlightsOnly = highlightOnlyDiscussionId === discussion?.id;
   const reviewAnnotationsByMessage = useMemo(
     () =>
@@ -1246,6 +1259,26 @@ export function DiscussionsView({
                   >
                     <Copy size={14} />
                     <span>Copy follow-ups</span>
+                  </button>
+                ) : null}
+                {discussion?.scopeType === "resource" && selectedSource ? (
+                  <button
+                    className="commandButton subtle resourceCopyNextButton"
+                    disabled={!queuedResourceQuestionCount}
+                    onClick={() => onCopyResourceQuestions(selectedSource)}
+                    title={
+                      queuedResourceQuestionCount
+                        ? "Copy the next unanswered questions from this resource in source order"
+                        : "Every active resource question already has a mapped tutor response"
+                    }
+                    type="button"
+                  >
+                    <Copy size={14} />
+                    <span>
+                      {queuedResourceQuestionCount
+                        ? `Copy next · ${queuedResourceQuestionCount}`
+                        : "Queue clear"}
+                    </span>
                   </button>
                 ) : null}
                 {discussion ? (

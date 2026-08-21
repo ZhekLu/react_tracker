@@ -994,6 +994,92 @@ export function App() {
     resetWorkspaceScroll();
   }
 
+  async function createResourceQuestionDiscussion(
+    rootResource: Resource,
+  ): Promise<string> {
+    if (!workspace) return "";
+    const seed = resourceQuestions(workspace, rootResource, {
+      annotationIds: [],
+    });
+    const batch = await createPromptBatch({
+      annotationIds: [],
+      courseId: workspace.id,
+      markdown: seed.markdown,
+      sourceResourceId: seed.sourceResourceId,
+      sourceScope: seed.sourceScope,
+      title: seed.title,
+    });
+    let discussionId = "";
+    await runMutation(async () => {
+      const created = await createDiscussion({
+        courseId: workspace.id,
+        initialPromptBatchId: batch.id,
+        sourceResourceId: rootResource.id,
+        title: `${rootResource.title} · Resource questions`,
+      });
+      discussionId = created.id;
+    });
+    return discussionId;
+  }
+
+  async function handleOpenResourceQa(resource: Resource) {
+    if (!workspace) return;
+    const rootId = resource.parentResourceId ?? resource.id;
+    const rootResource =
+      workspace.resources.find((candidate) => candidate.id === rootId) ?? resource;
+    const discussion = workspace.discussions.find(
+      (candidate) =>
+        candidate.status !== "archived" &&
+        candidate.scopeType === "resource" &&
+        candidate.sourceResourceIds.includes(rootId),
+    );
+    let discussionId = discussion?.id ?? "";
+
+    if (!discussionId) {
+      try {
+        discussionId = await createResourceQuestionDiscussion(rootResource);
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "The resource question discussion could not be created.",
+        );
+      }
+      if (!discussionId) return;
+    }
+
+    const questionIds = resourceScopedAnnotations(workspace, rootResource)
+      .filter(
+        (annotation) =>
+          ["question", "todo"].includes(annotation.kind) &&
+          annotation.status !== "archived" &&
+          (annotation.discussionResponseCount ?? 0) > 0,
+      )
+      .map((annotation) => annotation.id);
+
+    navigationIntentRef.current = "push";
+    setFocusedResourceId(discussionId);
+    setFocusedTaskId("");
+    setView("discussions");
+    resetWorkspaceScroll();
+
+    if (!questionIds.length) {
+      setTaskQaLaunch(null);
+      setActionMessage(
+        `No tutor answers are mapped to ${rootResource.title} yet. Use Copy next in this resource discussion, ask your tutor, then paste the response here.`,
+      );
+      return;
+    }
+    setTaskQaLaunch({
+      discussionId,
+      initialFilter: "all",
+      label: `${rootResource.title} · all chapters`,
+      questionIds,
+      scopeKind: "resource",
+      token: Date.now(),
+    });
+  }
+
   function handleOpenTaskQa(dayId: string, task: Task) {
     if (!workspace) return;
     const day = workspace.days.find((candidate) => candidate.id === dayId);
@@ -2096,6 +2182,7 @@ export function App() {
           onAnnotationChange={handleAnnotationChange}
           onNoteSave={handleNoteSave}
           onOpenDiscussion={handleOpenDiscussion}
+          onOpenResourceQa={(resource) => void handleOpenResourceQa(resource)}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
           onOpenResourceFile={(resourceId, fileIndex) =>
             void handleOpenResourceFile(resourceId, fileIndex)
@@ -2187,6 +2274,9 @@ export function App() {
           onToggleImportantAnswer={handleToggleImportantAnswer}
           onNoteSave={handleNoteSave}
           onCopy={(text, label) => void handleCopy(text, label)}
+          onCopyResourceQuestions={(resource) =>
+            void handleCopyResourceQuestions(resource)
+          }
           onFocusResource={handleFocusDiscussionResource}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
         />

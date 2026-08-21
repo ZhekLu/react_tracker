@@ -470,6 +470,28 @@
   color: #6540bb;
 }
 
+.resourceBookQaButton {
+  width: fit-content;
+  min-height: 30px;
+  margin-top: 7px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, #7c4dff 34%, var(--line));
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.resourceBookQaButton small {
+  color: color-mix(in srgb, #6540bb 68%, var(--muted));
+  font-size: 8px;
+  font-weight: 720;
+}
+
 .qaReviewBackdrop {
   position: fixed;
   inset: 0;

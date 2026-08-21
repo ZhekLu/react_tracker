@@ -15,6 +15,7 @@ import {
   NotebookPen,
   NotebookText,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
@@ -60,6 +61,7 @@ type ResourcesViewProps = {
   onCollectPdfAnnotations: (resourceId: string) => void;
   onCreateCapture: (resourceId: string, input: ResourceCaptureInput) => void;
   onOpenDiscussion: (resourceId: string) => void;
+  onOpenResourceQa: (resource: Resource) => void;
   onOpenResource: (resourceId: string) => void;
   onOpenResourceFile: (resourceId: string, fileIndex: number) => void;
   onResourceStatusChange: (resourceId: string, status: ResourceStatus) => void;
@@ -116,6 +118,7 @@ function ResourceRow({
   onAnnotationChange,
   onCreateCapture,
   onOpenDiscussion,
+  onOpenResourceQa,
   onOpenResource,
   onOpenResourceFile,
   onStatusChange,
@@ -130,6 +133,7 @@ function ResourceRow({
   onAnnotationChange: ResourcesViewProps["onAnnotationChange"];
   onCreateCapture: ResourcesViewProps["onCreateCapture"];
   onOpenDiscussion: (resourceId: string) => void;
+  onOpenResourceQa: (resource: Resource) => void;
   onOpenResource: (resourceId: string) => void;
   onOpenResourceFile: (resourceId: string, fileIndex: number) => void;
   onStatusChange: (resourceId: string, status: ResourceStatus) => void;
@@ -177,6 +181,18 @@ function ResourceRow({
           onChange={onChapterProgressChange}
           resource={resource}
         />
+        {resource.kind === "book" && !resource.parentResourceId ? (
+          <button
+            className="resourceBookQaButton qaReviewLaunch"
+            onClick={() => onOpenResourceQa(resource)}
+            title="Review every tutor answer for this book across all study days and chapters"
+            type="button"
+          >
+            <Sparkles size={14} />
+            <span>Book QA</span>
+            <small>all chapters · all days</small>
+          </button>
+        ) : null}
         {firstOpenQuestion ? (
           <button
             className="resourceQuestionPeek"
@@ -365,6 +381,7 @@ export function ResourcesView({
   onCreateCapture,
   onNoteSave,
   onOpenDiscussion,
+  onOpenResourceQa,
   onOpenResource,
   onOpenResourceFile,
   onResourceStatusChange,
@@ -514,6 +531,7 @@ export function ResourcesView({
                   onCreateCapture={onCreateCapture}
                   onNoteSave={onNoteSave}
                   onOpenDiscussion={onOpenDiscussion}
+                  onOpenResourceQa={onOpenResourceQa}
                   onOpenResource={onOpenResource}
                   onOpenResourceFile={onOpenResourceFile}
                   onStatusChange={onResourceStatusChange}
