@@ -103,6 +103,7 @@ type ApiAnnotationAnchor = {
 
 type ApiAnnotation = {
   id: string;
+  stable_label?: string | null;
   resource_id: string;
   kind: AnnotationKind;
   status: AnnotationStatus;
@@ -721,6 +722,7 @@ function annotationAnchor(api: ApiAnnotationAnchor): AnnotationAnchor {
 function annotation(api: ApiAnnotation): Annotation {
   return {
     id: api.id,
+    stableLabel: api.stable_label,
     resourceId: api.resource_id,
     kind: api.kind,
     status: api.status,

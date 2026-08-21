@@ -1,0 +1,3 @@
+# This is a byte-for-byte external paste corpus. It intentionally contains
+# trailing spaces and delimiter rows that resemble merge-conflict markers.
+frontend/src/lib/day5TutorResponse.raw.fixture.md -diff

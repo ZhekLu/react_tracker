@@ -5,6 +5,8 @@ import {
   importPastedMarkdown,
 } from "./discussionImport";
 import { normalizeDiscussionMarkdown } from "./discussionText";
+import day5TutorExpected from "./day5TutorResponse.expected.fixture.md?raw";
+import day5TutorResponse from "./day5TutorResponse.raw.fixture.md?raw";
 
 const fixture = String.raw`
 # Q-001
@@ -250,5 +252,33 @@ c=d
         "&lt;day4\\_gridworld&gt;\n\nBuild the grid.\n\n&lt;/day4\\_gridworld&gt;",
       ),
     ).toContain("<day4_gridworld>");
+  });
+
+  it("parses the complete Day 5 tutor response without losing formula structure", () => {
+    const imported = importPastedMarkdown(day5TutorResponse);
+
+    expect(imported).toBe(day5TutorExpected.trim());
+    expect(imported.match(/^### Q-\d{3}\b/gm)).toHaveLength(20);
+    expect(imported).toContain(
+      "\\underbrace{\\frac{\\epsilon}{|\\mathcal A|}}_{\\text{mandatory exploration}}",
+    );
+    expect(imported).toContain(
+      "\\underbrace{\\text{remaining probability}}_{\\text{total mass }1-\\epsilon}",
+    );
+    expect(imported).toContain("$$\n= 1-\\epsilon.\n$$");
+    expect(imported).toContain("$$\n= \\frac{55}{10}\n$$");
+    expect(imported).toContain("$$\n= 0.05(0.45)^{L-1}.\n$$");
+    expect(importPastedMarkdown(imported)).toBe(imported);
+
+    const displays = Array.from(
+      imported.matchAll(/\$\$([\s\S]*?)\$\$/g),
+      (match) => match[1].trim(),
+    );
+    expect(displays.length).toBeGreaterThan(40);
+    for (const latex of displays) {
+      expect(() =>
+        renderToString(latex, { displayMode: true, throwOnError: true }),
+      ).not.toThrow();
+    }
   });
 });

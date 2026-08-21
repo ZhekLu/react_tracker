@@ -78,7 +78,7 @@ export type DiscussionQuestionMatch = {
 };
 
 const MARKDOWN_HEADING = /^#{1,6}\s+(.+)$/gim;
-const QUESTION_LABEL = /\b(?:Q(?:UESTION)?)[\s-]*(\d+)(?:[\s-]*F(?:OLLOW(?:[\s-]*UP)?)?[\s-]*(\d+))?\b/gi;
+const QUESTION_LABEL = /\b(?:Q(?:UESTION)?)[\s-]*((?:[a-z][a-z0-9]*-\d{2,3}-)?\d+)(?:[\s-]*F(?:OLLOW(?:[\s-]*UP)?)?[\s-]*(\d+))?\b/gi;
 const WORD_TOKEN = /[a-z0-9]+/g;
 const STOP_WORDS = new Set([
   "about",
@@ -132,7 +132,8 @@ export function discussionAnswerSections(markdown: string): {
     level: match[0].match(/^#+/)?.[0].length ?? 1,
     title: match[1].trim(),
     labels: [...match[1].matchAll(QUESTION_LABEL)].map((labelMatch) => {
-      const root = `Q-${labelMatch[1].padStart(3, "0")}`;
+      const captured = labelMatch[1];
+      const root = `Q-${/^\d+$/.test(captured) ? captured.padStart(3, "0") : captured.toLowerCase()}`;
       return labelMatch[2] ? `${root}-F${Number(labelMatch[2])}` : root;
     }),
   }));

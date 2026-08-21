@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import pymupdf
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from tracker_api.config import get_settings
 from tracker_api.database import get_engine, transaction
@@ -472,6 +474,120 @@ def test_pdf_annotation_import_is_idempotent_and_prompt_snapshot_is_saved(
     )
 
 
+def test_question_identity_is_immutable_and_shared_by_context_group(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        first = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="First capture",
+                anchor=AnnotationAnchorCreate(
+                    page_number=4,
+                    metadata={"contextGroupId": "shared-question"},
+                ),
+            ),
+        )
+        second = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Second capture",
+                anchor=AnnotationAnchorCreate(
+                    page_number=4,
+                    metadata={"contextGroupId": "shared-question"},
+                ),
+            ),
+        )
+        third = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Independent question",
+                anchor=AnnotationAnchorCreate(page_number=5),
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+        by_id = {annotation.id: annotation for annotation in workspace.annotations}
+        batch = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="Stable labels",
+                source_scope="course_questions",
+                markdown="# Questions",
+                annotation_ids=[first.id, second.id, third.id],
+                question_labels={
+                    first.id: by_id[first.id].stable_label or "",
+                    second.id: by_id[second.id].stable_label or "",
+                    third.id: by_id[third.id].stable_label or "",
+                },
+            ),
+        )
+        prompt_labels = connection.execute(
+            text(
+                """
+                SELECT annotation_id, question_label
+                FROM prompt_batch_items
+                WHERE prompt_batch_id = :batch_id
+                ORDER BY order_index
+                """
+            ),
+            {"batch_id": batch.id},
+        ).mappings().all()
+
+    assert by_id[first.id].stable_label == by_id[second.id].stable_label
+    assert by_id[first.id].stable_label != by_id[third.id].stable_label
+    assert re.fullmatch(r"Q-p[0-9a-f]{6}-00-001", by_id[first.id].stable_label or "")
+    assert re.fullmatch(r"Q-p[0-9a-f]{6}-00-002", by_id[third.id].stable_label or "")
+    assert [row["question_label"] for row in prompt_labels] == [
+        by_id[first.id].stable_label,
+        by_id[second.id].stable_label,
+        by_id[third.id].stable_label,
+    ]
+
+    with pytest.raises(IntegrityError, match="question identity is immutable"):
+        with transaction() as connection:
+            connection.execute(
+                text(
+                    """
+                    UPDATE question_identities
+                    SET readable_label = 'Q-illegal-00-999'
+                    WHERE readable_label = :readable_label
+                    """
+                ),
+                {"readable_label": by_id[first.id].stable_label},
+            )
+
+    with pytest.raises(
+        IntegrityError,
+        match="annotation question identity is immutable",
+    ):
+        with transaction() as connection:
+            connection.execute(
+                text(
+                    """
+                    UPDATE annotation_question_identities
+                    SET question_identity_id = (
+                      SELECT question_identity_id
+                      FROM annotation_question_identities
+                      WHERE annotation_id = :replacement_annotation_id
+                    )
+                    WHERE annotation_id = :annotation_id
+                    """
+                ),
+                {
+                    "annotation_id": first.id,
+                    "replacement_annotation_id": third.id,
+                },
+            )
+
+
 def test_reader_content_and_progress_are_persisted(tmp_path: Path) -> None:
     _course_id, resource_id = _seed_course(tmp_path)
     with transaction() as connection:
@@ -619,6 +735,7 @@ def test_discussion_accepts_continuation_prompt_batches_with_stable_labels(
                 source_scope="day",
                 markdown="# Q-001\n\nFirst question",
                 annotation_ids=[questions[0].id],
+                question_labels={questions[0].id: "Q-001"},
             ),
         )
         discussion = create_discussion(
@@ -710,6 +827,7 @@ def test_continuation_rejects_a_label_owned_by_another_question(
                 source_scope="day",
                 markdown="# Q-001\n\nFirst",
                 annotation_ids=[questions[0].id],
+                question_labels={questions[0].id: "Q-001"},
             ),
         )
         discussion = create_discussion(

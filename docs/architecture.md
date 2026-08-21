@@ -69,18 +69,19 @@ Reasons:
   continuation drift into a Day 7 thread.
 - A prompt-batch discussion relates to every resource implied by its explicit
   resource, task, day, and question annotations. Each `prompt_batch_items` row
-  persists the discussion-local display label (`Q-001`) and the canonical
-  annotation UUID it names. Answer parsing resolves labels only through that
-  persisted namespace; it never infers identity from the current annotation
-  array order or from similar text. Grouped labels may deliberately resolve to
-  several annotation UUIDs and remain one answer section while exposing every
-  linked capture.
-- Annotation UUIDs are the canonical question identity. `Q-001` is only a
-  readable alias within one prompt batch/discussion, so another discussion can
-  have its own unrelated `Q-001`. Follow-ups have their own annotation UUID and
-  persist their parent message, prompt label, section label, and root question
-  UUIDs. This lets subsequent answers attach to the original QA chain without
-  relying on title matching.
+  persists the exact copied label and the canonical annotation UUID it names.
+  New prompts use an immutable logical-question label such as `Q-b-05-009`;
+  historical prompt batches retain their discussion-local `Q-001` aliases.
+  Answer parsing resolves either form only through that persisted namespace; it
+  never infers identity from the current annotation array order or from similar
+  text. Grouped labels may deliberately resolve to several annotation UUIDs and
+  remain one answer section while exposing every linked capture.
+- Annotation UUIDs are canonical foreign-key identities. A logical question
+  additionally owns one immutable readable identity, shared by captures in the
+  same source-context group and stable across prompt batches and discussions.
+  Follow-ups have their own annotation UUID and persist their parent message,
+  prompt label, section label, and root question UUIDs. This lets subsequent
+  answers attach to the original QA chain without relying on title matching.
 - A skipped QA question remains an open annotation with `skipped_at` set. It is
   intentionally distinct from both `answered` and `archived`: active counters
   and prompt queues omit it, while the canonical question, answer versions,

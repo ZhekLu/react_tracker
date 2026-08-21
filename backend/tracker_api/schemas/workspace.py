@@ -69,6 +69,7 @@ class AnnotationAnchor(StrictModel):
 
 class Annotation(StrictModel):
     id: str
+    stable_label: str | None = None
     resource_id: str
     kind: AnnotationKind
     status: AnnotationStatus

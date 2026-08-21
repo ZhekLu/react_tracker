@@ -381,7 +381,8 @@ def _annotations(
         connection,
         """
         SELECT
-          a.id, a.resource_id, a.body_document_id, a.kind, a.status, a.priority,
+          a.id, qi.readable_label AS stable_label,
+          a.resource_id, a.body_document_id, a.kind, a.status, a.priority,
           a.origin, a.postponed_at, a.skipped_at, a.created_at, a.updated_at, a.revision,
           aa.anchor_type, aa.quote, aa.section_title, aa.source_line_start,
           aa.source_line_end, aa.page_number, aa.rect_json, aa.color,
@@ -389,6 +390,8 @@ def _annotations(
         FROM annotations a
         JOIN resources r ON r.id = a.resource_id
         LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
+        LEFT JOIN annotation_question_identities aqi ON aqi.annotation_id = a.id
+        LEFT JOIN question_identities qi ON qi.id = aqi.question_identity_id
         WHERE r.course_id = :course_id AND a.deleted_at IS NULL AND r.deleted_at IS NULL
         ORDER BY a.created_at
         """,
@@ -418,6 +421,7 @@ def _annotations(
             )
         annotation = Annotation(
             id=str(row["id"]),
+            stable_label=cast(str | None, row["stable_label"]),
             resource_id=str(row["resource_id"]),
             kind=cast(Any, row["kind"]),
             status=cast(Any, row["status"]),
@@ -1909,6 +1913,7 @@ def update_annotation(
             "now": _now(),
         },
     )
+    _ensure_question_identity(connection, annotation_id, timestamp=_now())
     if command.markdown is None and command.plain_text is None:
         return response
     now = _now()
@@ -2032,6 +2037,196 @@ def _insert_annotation_anchor(
     )
 
 
+def _question_resource_code(
+    plan_resource_id: str,
+    resource_kind: str,
+    resource_id: str,
+) -> str:
+    if plan_resource_id == "rl-book":
+        return "b"
+    if re.fullmatch(r"unipd-lc\d+", plan_resource_id):
+        return "us"
+    prefix = "p" if resource_kind == "paper" else "s" if resource_kind == "slides" else "r"
+    return prefix + resource_id.replace("-", "")[:6].lower()
+
+
+def _question_scope_code(
+    plan_resource_id: str,
+    section_title: str | None,
+    metadata: Mapping[str, Any],
+) -> str:
+    if plan_resource_id == "rl-book":
+        chapter = metadata.get("chapterNumber")
+        if not isinstance(chapter, int):
+            match = re.match(r"\s*(\d+)(?:\.|\b)", section_title or "")
+            chapter = int(match.group(1)) if match else 0
+        return f"{chapter:02d}"
+    lecture = re.fullmatch(r"unipd-lc(\d+)", plan_resource_id)
+    return f"{int(lecture.group(1)):02d}" if lecture else "00"
+
+
+def _ensure_question_identity(
+    connection: Connection,
+    annotation_id: str,
+    *,
+    timestamp: str,
+) -> None:
+    """Attach one immutable readable identity to a logical question group."""
+
+    existing = _one_or_none(
+        connection,
+        "SELECT annotation_id FROM annotation_question_identities WHERE annotation_id = :id",
+        {"id": annotation_id},
+    )
+    if existing is not None:
+        return
+    annotation = _one_or_none(
+        connection,
+        """
+        SELECT
+          a.kind, a.resource_id, r.course_id, r.kind AS resource_kind,
+          r.metadata_json, aa.section_title, aa.selector_json
+        FROM annotations a
+        JOIN resources r ON r.id = a.resource_id AND r.deleted_at IS NULL
+        LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
+        WHERE a.id = :id AND a.deleted_at IS NULL
+        """,
+        {"id": annotation_id},
+    )
+    if annotation is None or str(annotation["kind"]) not in {"question", "todo"}:
+        return
+
+    resource_metadata: dict[str, Any] = _json_loads(
+        annotation["metadata_json"],
+        {},
+    )
+    anchor_metadata: dict[str, Any] = _json_loads(
+        annotation["selector_json"],
+        {},
+    )
+    resource_id = str(annotation["resource_id"])
+    context_group_id = anchor_metadata.get("contextGroupId")
+    if isinstance(context_group_id, str) and context_group_id.strip():
+        grouped = _one_or_none(
+            connection,
+            """
+            SELECT aqi.question_identity_id
+            FROM annotations grouped_annotation
+            JOIN annotation_anchors grouped_anchor
+              ON grouped_anchor.annotation_id = grouped_annotation.id
+            JOIN annotation_question_identities aqi
+              ON aqi.annotation_id = grouped_annotation.id
+            WHERE grouped_annotation.resource_id = :resource_id
+              AND grouped_annotation.deleted_at IS NULL
+              AND json_extract(grouped_anchor.selector_json, '$.contextGroupId') = :context_group_id
+            ORDER BY grouped_annotation.created_at, grouped_annotation.id
+            LIMIT 1
+            """,
+            {
+                "resource_id": resource_id,
+                "context_group_id": context_group_id,
+            },
+        )
+        if grouped is not None:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO annotation_question_identities (
+                      annotation_id, question_identity_id, created_at
+                    ) VALUES (:annotation_id, :question_identity_id, :created_at)
+                    """
+                ),
+                {
+                    "annotation_id": annotation_id,
+                    "question_identity_id": str(grouped["question_identity_id"]),
+                    "created_at": timestamp,
+                },
+            )
+            return
+
+    plan_resource_id = str(resource_metadata.get("plan_resource_id") or "")
+    resource_code = _question_resource_code(
+        plan_resource_id,
+        str(annotation["resource_kind"]),
+        resource_id,
+    )
+    scope_code = _question_scope_code(
+        plan_resource_id,
+        cast(str | None, annotation["section_title"]),
+        anchor_metadata,
+    )
+    conflicting_code = _one_or_none(
+        connection,
+        """
+        SELECT resource_id
+        FROM question_identities
+        WHERE course_id = :course_id AND resource_code = :resource_code
+          AND scope_code = :scope_code
+          AND resource_id <> :resource_id
+        LIMIT 1
+        """,
+        {
+            "course_id": str(annotation["course_id"]),
+            "resource_code": resource_code,
+            "scope_code": scope_code,
+            "resource_id": resource_id,
+        },
+    )
+    if conflicting_code is not None:
+        resource_code += resource_id.replace("-", "")[:4].lower()
+    next_ordinal = int(
+        connection.execute(
+            text(
+                """
+                SELECT COALESCE(MAX(ordinal), 0) + 1
+                FROM question_identities
+                WHERE resource_id = :resource_id AND scope_code = :scope_code
+                """
+            ),
+            {"resource_id": resource_id, "scope_code": scope_code},
+        ).scalar_one()
+    )
+    identity_id = _new_id()
+    readable_label = f"Q-{resource_code}-{scope_code}-{next_ordinal:03d}"
+    connection.execute(
+        text(
+            """
+            INSERT INTO question_identities (
+              id, course_id, resource_id, resource_code, scope_code, ordinal,
+              readable_label, created_at
+            ) VALUES (
+              :id, :course_id, :resource_id, :resource_code, :scope_code,
+              :ordinal, :readable_label, :created_at
+            )
+            """
+        ),
+        {
+            "id": identity_id,
+            "course_id": str(annotation["course_id"]),
+            "resource_id": resource_id,
+            "resource_code": resource_code,
+            "scope_code": scope_code,
+            "ordinal": next_ordinal,
+            "readable_label": readable_label,
+            "created_at": timestamp,
+        },
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO annotation_question_identities (
+              annotation_id, question_identity_id, created_at
+            ) VALUES (:annotation_id, :question_identity_id, :created_at)
+            """
+        ),
+        {
+            "annotation_id": annotation_id,
+            "question_identity_id": identity_id,
+            "created_at": timestamp,
+        },
+    )
+
+
 def create_annotation(
     connection: Connection,
     command: AnnotationCreateCommand,
@@ -2118,6 +2313,7 @@ def create_annotation(
             anchor=anchor,
             timestamp=now,
         )
+    _ensure_question_identity(connection, annotation_id, timestamp=now)
     return _mutation_result(row)
 
 
@@ -2406,6 +2602,11 @@ def upsert_imported_annotation(
             "now": now,
         },
     )
+    _ensure_question_identity(
+        connection,
+        str(existing["id"]),
+        timestamp=now,
+    )
     return "updated"
 
 
@@ -2474,7 +2675,10 @@ def annotation_source_fingerprints(
     return {str(row["source_fingerprint"]) for row in rows}
 
 
-_ORIGINAL_QUESTION_LABEL = re.compile(r"^Q-\d{3,}$")
+_ORIGINAL_QUESTION_LABEL = re.compile(
+    r"^Q-(?:\d{3,}|[a-z][a-z0-9]*-\d{2,3}-\d{3,})$",
+    re.IGNORECASE,
+)
 
 
 def _prompt_item_question_label(
@@ -2483,11 +2687,15 @@ def _prompt_item_question_label(
     annotation_id: str,
     order_index: int,
 ) -> str:
-    """Return the stable readable label for one immutable annotation UUID."""
+    """Return the exact alias copied in this prompt for one annotation UUID."""
 
     explicit = command.question_labels.get(annotation_id)
     parent_id = command.parent_discussion_thread_id
     if parent_id is None:
+        # New clients explicitly send the immutable readable label. An older
+        # client that omits the map still writes Q-001 in its Markdown, so its
+        # persisted alias must use the same numeric fallback rather than a
+        # silently different stable label.
         label = explicit or f"Q-{command.question_label_start + order_index - 1:03d}"
         if not _ORIGINAL_QUESTION_LABEL.fullmatch(label):
             raise WorkspaceRepositoryError(f"Invalid original question label: {label}")
@@ -4161,9 +4369,18 @@ def _followup_prompt_label(
             root_label = str(row["question_label"])
             break
     if root_label is None and section_label:
-        match = re.search(r"\bQ-(\d{1,})", section_label, re.IGNORECASE)
+        match = re.search(
+            r"\bQ-((?:[a-z][a-z0-9]*-\d{2,3}-)?\d{1,})",
+            section_label,
+            re.IGNORECASE,
+        )
         if match:
-            root_label = f"Q-{int(match.group(1)):03d}"
+            captured = match.group(1)
+            root_label = (
+                f"Q-{int(captured):03d}"
+                if captured.isdigit()
+                else f"Q-{captured}"
+            )
     root_label = root_label or "Q-000"
 
     suffixes: list[int] = []

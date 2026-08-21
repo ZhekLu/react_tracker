@@ -58,6 +58,23 @@ describe("discussion answer mapping", () => {
     ]);
   });
 
+  it("recognizes immutable resource-scoped labels and their follow-ups", () => {
+    const parsed = discussionAnswerSections([
+      "## Q-b-05-009 — book question",
+      "",
+      "Book answer.",
+      "",
+      "## Q-us-12-003-F2 — lecture follow-up",
+      "",
+      "Follow-up answer.",
+    ].join("\n"));
+
+    expect(parsed.sections.map((section) => section.labels)).toEqual([
+      ["Q-b-05-009"],
+      ["Q-us-12-003-F2"],
+    ]);
+  });
+
   it("uses top-level answer headings when the tutor omits question labels", () => {
     const parsed = discussionAnswerSections([
       "Intro.",

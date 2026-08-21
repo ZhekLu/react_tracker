@@ -169,7 +169,11 @@ function findTask(course: Course, taskId: string) {
 }
 
 function truncatePromptQuestions(markdown: string, limit: number): string {
-  const headings = [...markdown.matchAll(/^###\s+Q-\d{3}\b/gm)];
+  const headings = [
+    ...markdown.matchAll(
+      /^###\s+Q-(?:\d{3,}|[a-z][a-z0-9]*-\d{2,3}-\d{3,})(?=\s|·|$)/gim,
+    ),
+  ];
   const cutoff = headings[limit]?.index;
   if (cutoff === undefined) return markdown;
   return `${markdown.slice(0, cutoff).trim()}\n\n> Attachment limit: only the first ${limit} questions are included in this tutor round.\n`;
@@ -841,6 +845,7 @@ export function App() {
       annotations.map((annotation) => {
         const existing = existingLabelByQuestionId.get(annotation.id);
         if (existing) return [annotation.id, existing];
+        if (annotation.stableLabel) return [annotation.id, annotation.stableLabel];
         const label = `Q-${String(nextLabelNumber).padStart(3, "0")}`;
         nextLabelNumber += 1;
         return [annotation.id, label];

@@ -237,6 +237,24 @@ function annotationLine(
     .join("\n");
 }
 
+function annotationPromptLabel(
+  annotation: Annotation,
+  fallbackNumber: number,
+): string | number {
+  return annotation.stableLabel ?? fallbackNumber;
+}
+
+function stableQuestionLabels(
+  annotations: readonly Annotation[],
+): Record<string, string> | undefined {
+  const labels = annotations.flatMap((annotation) =>
+    annotation.stableLabel
+      ? [[annotation.id, annotation.stableLabel] as const]
+      : [],
+  );
+  return labels.length ? Object.fromEntries(labels) : undefined;
+}
+
 export function taskQuestions(
   course: Course,
   day: StudyDay,
@@ -272,7 +290,8 @@ export function taskQuestions(
             annotationLine(
               annotation,
               resourceById.get(annotation.resourceId),
-              options.questionLabels?.[annotation.id] ?? labelStart + index,
+              options.questionLabels?.[annotation.id] ??
+                annotationPromptLabel(annotation, labelStart + index),
             ),
           )
           .join("\n\n")
@@ -283,14 +302,8 @@ export function taskQuestions(
     markdown,
     parentDiscussionId: options.parentDiscussionId,
     questionLabelStart: labelStart,
-    questionLabels: options.questionLabels
-      ? Object.fromEntries(
-          questions.flatMap((annotation) => {
-            const label = options.questionLabels?.[annotation.id];
-            return label ? [[annotation.id, label]] : [];
-          }),
-        )
-      : undefined,
+    questionLabels:
+      options.questionLabels ?? stableQuestionLabels(questions),
     sourceDayId: day.id,
     sourceScope: "task_questions_continuation",
     sourceTaskId: task.id,
@@ -353,7 +366,7 @@ export function dayPrompt(
     annotationLine(
       annotation,
       resourceById.get(annotation.resourceId),
-      index + 1,
+      annotationPromptLabel(annotation, index + 1),
     ),
   );
   const markdown = [
@@ -383,6 +396,7 @@ export function dayPrompt(
   return {
     annotationIds: questions.map((annotation) => annotation.id),
     markdown,
+    questionLabels: stableQuestionLabels(questions),
     sourceDayId: day.id,
     sourceScope: "day",
     title: `${course.shortCode} Day ${day.number} prompt`,
@@ -405,7 +419,7 @@ export function dayQuestions(course: Course, day: StudyDay): PromptPayload {
             annotationLine(
               annotation,
               resourceById.get(annotation.resourceId),
-              index + 1,
+              annotationPromptLabel(annotation, index + 1),
             ),
           )
           .join("\n\n")
@@ -414,6 +428,7 @@ export function dayQuestions(course: Course, day: StudyDay): PromptPayload {
   return {
     annotationIds: questions.map((annotation) => annotation.id),
     markdown,
+    questionLabels: stableQuestionLabels(questions),
     sourceDayId: day.id,
     sourceScope: "day_questions",
     title: `${course.shortCode} Day ${day.number} questions`,
@@ -436,12 +451,13 @@ export function allQuestions(course: Course): PromptPayload {
               annotationLine(
                 annotation,
                 resourceById.get(annotation.resourceId),
-                index + 1,
+                annotationPromptLabel(annotation, index + 1),
               ),
             )
             .join("\n\n")
         : "No structured open questions.",
     ].join("\n"),
+    questionLabels: stableQuestionLabels(questions),
     sourceScope: "course_questions",
     title: `${course.shortCode} active questions`,
   };
@@ -570,7 +586,10 @@ export function resourceQuestions(
         annotation,
         resourceById.get(annotation.resourceId) ?? resource,
         options.questionLabels?.[annotation.id] ??
-          (options.questionLabelStart ?? 1) + index,
+          annotationPromptLabel(
+            annotation,
+            (options.questionLabelStart ?? 1) + index,
+          ),
       ),
     ];
   });
@@ -585,14 +604,8 @@ export function resourceQuestions(
     ].join("\n"),
     parentDiscussionId: options.parentDiscussionId,
     questionLabelStart: options.questionLabelStart ?? 1,
-    questionLabels: options.questionLabels
-      ? Object.fromEntries(
-          questions.flatMap((annotation) => {
-            const label = options.questionLabels?.[annotation.id];
-            return label ? [[annotation.id, label]] : [];
-          }),
-        )
-      : undefined,
+    questionLabels:
+      options.questionLabels ?? stableQuestionLabels(questions),
     sourceResourceId: resource.parentResourceId ?? resource.id,
     sourceScope: options.parentDiscussionId
       ? "resource_questions_continuation"

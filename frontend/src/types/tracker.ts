@@ -118,6 +118,8 @@ export type AnnotationAnswerReference = {
 
 export type Annotation = {
   id: string;
+  /** Immutable readable identity; UUID `id` remains the canonical join key. */
+  stableLabel?: string | null;
   resourceId: string;
   kind: AnnotationKind;
   status: AnnotationStatus;

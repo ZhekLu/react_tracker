@@ -207,6 +207,13 @@ function normalizeDisplayBody(value: string): string {
 
   return normalized
     .join("\n")
+    // ChatGPT's rendered-copy payload occasionally degrades an underbrace
+    // subscript into `*{...}`.  This is structure, not multiplication.
+    .replace(/(\\underbrace\{[^\n]+\})\s*\*\{([^\n]+)\}/g, "$1_{$2}")
+    .replace(
+      /(\\underbrace\{[\s\S]*?\})\s*\*\{(\\text\{[^}]*\})\}/g,
+      "$1_{$2}",
+    )
     .replace(/\\left\{/g, "\\left\\{")
     .replace(/\\right\}/g, "\\right\\}")
     // ChatGPT sometimes formats a subtraction sign as an underline-like row
@@ -216,8 +223,30 @@ function normalizeDisplayBody(value: string): string {
     .replace(/\n=\n/g, " = ")
     .replace(/\n([+\-=])\s*/g, " $1 ")
     .replace(/(?:\s*=\s*){2,}/g, " = ")
+    .replace(/^=\s*\n/, "= ")
     .replace(/[ \t]+/g, " ")
     .trim();
+}
+
+/**
+ * A copied ChatGPT display delimiter can arrive as a Markdown heading `# [`.
+ * When it immediately follows another display, ChatGPT used that heading-like
+ * token for a continuation equals line (the browser still renders `= ...`).
+ * Preserve that information before the generic heading cleanup erases it.
+ */
+function restoreHeadingCorruptedDisplayOpenings(value: string): string {
+  const lines = value.split("\n");
+  const output: string[] = [];
+  for (const line of lines) {
+    if (!/^ {0,3}#\s+\[\s*$/.test(line)) {
+      output.push(line);
+      continue;
+    }
+    const previous = [...output].reverse().find((candidate) => candidate.trim());
+    output.push("[");
+    if (previous?.trim() === "]") output.push("====");
+  }
+  return output.join("\n");
 }
 
 function restoreBracketDisplayMath(value: string): string {
@@ -324,7 +353,9 @@ function canonicalizeExternalMarkdown(value: string): string {
     (_match, closing: string, tag: string) =>
       `<${closing}${tag.replaceAll("\\_", "_")}>`,
   );
-  const protectedCode = protectFencedCode(normalizedExportTags);
+  const protectedCode = protectFencedCode(
+    restoreHeadingCorruptedDisplayOpenings(normalizedExportTags),
+  );
   const protectedInline = protectInlineCode(protectedCode.markdown);
   const normalized = protectedInline.markdown
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
@@ -376,6 +407,7 @@ function smallDisplayMath(node: { value: string }): boolean {
   const latex = node.value.trim();
   return (
     latex.length <= 56 &&
+    !/^=/.test(latex) &&
     !/[\n]|\\\\|\\(?:begin|end|sum|prod|int|underbrace|boxed|left|right)\b/.test(
       latex,
     )

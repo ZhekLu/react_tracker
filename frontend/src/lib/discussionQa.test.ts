@@ -96,6 +96,50 @@ describe("discussion QA review model", () => {
     );
   });
 
+  it("keeps answer editor identities stable while preceding answers are deleted", () => {
+    const labels = Array.from({ length: 6 }, (_, index) => index + 11);
+    let current = {
+      ...discussion,
+      messages: [{
+        ...discussion.messages[0],
+        body: {
+          markdown: labels.map((number) => [
+            `## Q-${String(number).padStart(3, "0")} — answer ${number}`,
+            "",
+            `Body that belongs only to Q-${number}.`,
+          ].join("\n")).join("\n\n"),
+        },
+        annotationLinks: [],
+      }],
+      questionIds: [],
+      questionLabels: [],
+    } as unknown as Discussion;
+    const initialSections = discussionQaSections(current, []);
+    const drafts = new Map(
+      initialSections.map((section) => [section.id, section.bodyMarkdown]),
+    );
+
+    for (const deleted of [11, 12, 13, 14]) {
+      const sections = discussionQaSections(current, []);
+      const remaining = sections.filter(
+        (section) => section.label !== `Q-${String(deleted).padStart(3, "0")}`,
+      );
+      current = {
+        ...current,
+        messages: [{
+          ...current.messages[0],
+          body: { markdown: reconstructQaMessage(remaining, drafts).markdown },
+        }],
+      } as Discussion;
+    }
+
+    const markdown = current.messages[0].body.markdown ?? "";
+    expect(markdown).not.toContain("Q-011");
+    expect(markdown).not.toContain("Q-014");
+    expect(markdown).toContain("## Q-015 — answer 15\n\nBody that belongs only to Q-15.");
+    expect(markdown).toContain("## Q-016 — answer 16\n\nBody that belongs only to Q-16.");
+  });
+
   it("does not guess a legacy follow-up section inside an explicit batch", () => {
     const followup = {
       anchor: {

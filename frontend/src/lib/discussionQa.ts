@@ -27,6 +27,26 @@ export type ReconstructedQaMessage = {
   sectionBodyOffsets: Map<string, number>;
 };
 
+function qaSectionIdentity(
+  messageId: string,
+  label: string,
+  headingLine: string,
+  occurrence: number,
+): string {
+  // Array positions are not identities: deleting Q-011 used to rename Q-012
+  // to the former Q-011 editor key, which then saved Q-011's draft underneath
+  // Q-012.  A section's persisted prompt label and heading remain stable when
+  // neighboring answers are edited or removed.  The occurrence only
+  // distinguishes intentional v2 answers with an identical heading.
+  return [
+    messageId,
+    "answer",
+    encodeURIComponent(label.toLowerCase()),
+    encodeURIComponent(headingLine.toLowerCase()),
+    occurrence,
+  ].join(":");
+}
+
 /**
  * Resolve readable Q-### and Q-###-Fn labels inside one discussion only.
  *
@@ -285,15 +305,24 @@ export function discussionQaSections(
         title: "Introduction",
       });
     }
+    const headingOccurrences = new Map<string, number>();
     parsed.sections.forEach((section, index) => {
       const headingLine = section.markdown.match(/^#{1,6}\s+.+$/m)?.[0] ?? "";
+      const occurrenceKey = `${section.label}\u0000${headingLine}`;
+      const occurrence = (headingOccurrences.get(occurrenceKey) ?? 0) + 1;
+      headingOccurrences.set(occurrenceKey, occurrence);
       sections.push({
         bodyMarkdown: section.markdown.replace(
           /^#{1,6}\s+.+(?:\n+|$)/,
           "",
         ),
         headingLine,
-        id: `${message.id}:answer:${index}`,
+        id: qaSectionIdentity(
+          message.id,
+          section.label,
+          headingLine,
+          occurrence,
+        ),
         kind: "answer",
         label: section.label,
         messageId: message.id,

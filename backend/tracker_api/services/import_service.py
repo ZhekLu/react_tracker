@@ -36,6 +36,8 @@ IMPORTABLE_TABLES = frozenset(
         "assets",
         "document_assets",
         "annotation_assets",
+        "question_identities",
+        "annotation_question_identities",
         "prompt_batches",
         "prompt_batch_items",
         "discussion_threads",

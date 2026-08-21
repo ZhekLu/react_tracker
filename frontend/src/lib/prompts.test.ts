@@ -84,6 +84,35 @@ describe("task question prompts", () => {
     expect(payload.markdown).not.toContain("Q-023");
     expect(payload.parentDiscussionId).toBe("day-8-discussion");
   });
+
+  it("uses the immutable readable identity without renumbering a later prompt", () => {
+    const first = question("first", "book", 5);
+    first.stableLabel = "Q-b-05-004";
+    const second = question("second", "book", 5);
+    second.stableLabel = "Q-b-05-009";
+    const course = {
+      annotations: [first, second],
+      resources: [{ id: "book", kind: "book", title: "RL Book" }],
+      shortCode: "TORL",
+      title: "Trustworthy Offline RL",
+    } as unknown as Course;
+    const day = { id: "day-5", number: 5 } as StudyDay;
+    const task = {
+      chapterNumbers: [5],
+      id: "read-chapter-5",
+      resourceIds: ["book"],
+      title: "Read chapter 5",
+    } as Task;
+
+    const payload = taskQuestions(course, day, task, {
+      annotationIds: [second.id],
+      unansweredOnly: true,
+    });
+
+    expect(payload.markdown).toContain("### Q-b-05-009");
+    expect(payload.markdown).not.toContain("Q-001");
+    expect(payload.questionLabels).toEqual({ second: "Q-b-05-009" });
+  });
 });
 
 describe("resource question prompts", () => {

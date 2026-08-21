@@ -2,6 +2,8 @@
 
 For the keyboard-first study loop and current interaction conventions, see
 [UI_WORKFLOWS.md](UI_WORKFLOWS.md).
+For the immutable question-ID and discussion-mapping contract, see
+[docs/discussion-data-integrity.md](docs/discussion-data-integrity.md).
 
 This repository is the full tracker application. Its source history and runtime
 are independent from the legacy generated `tracker.html` project in the parent
@@ -355,12 +357,15 @@ Edit any tutor message and select prose, a formula, or a code block. The compact
 selection card creates a follow-up attached to that exact excerpt; `Cmd+Enter`
 queues it and **Save** stores the edited message and its follow-ups together.
 **Copy follow-ups** includes the selected excerpt and question under stable
-root-scoped headings such as `Q-002-F1`; original copied questions keep `Q-###`.
-This makes follow-ups and newly copied questions safe to combine in one tutor
-request. The annotation UUID is the canonical identity, while the readable label
-is local to one discussion and is reused whenever the same unanswered question
-is copied again. Repeated tutor answers under one exact heading become editable,
-independently deletable answer versions on the same QA page.
+root-scoped headings such as `Q-b-05-009-F1`; original copied questions keep
+their immutable labels such as `Q-b-05-009`. This makes follow-ups and newly
+copied questions safe to combine in one tutor request. The annotation UUID is
+the canonical database identity, while the readable label is assigned once to
+the logical question and remains stable across tasks, discussions, copies, and
+answer versions. Historical prompts that used discussion-local `Q-###` aliases
+remain resolvable within their original prompt batch. Repeated tutor answers
+under one exact heading become editable, independently deletable answer versions
+on the same QA page.
 `Cmd+H` and `Cmd+Shift+H` also work on formula/code selections: those structured
 highlights are stored as review annotations and appear in **Highlights** with
 surrounding context even though no colour overlay is drawn on the formula/code.
