@@ -288,6 +288,8 @@ type ApiDiscussion = {
     annotation_id: string;
     message_id: string;
     message_revision: number;
+    section_id?: string | null;
+    section_fingerprint?: string | null;
     viewed_at: string;
   }[];
   title: string;
@@ -345,6 +347,23 @@ export type DiscussionMessageInput = {
     annotationId: string;
     relation: DiscussionQuestionRelation;
   }[];
+};
+
+export type DiscussionAnswerImportInput = {
+  answers: Array<{
+    markdown: string;
+    editorJson?: Record<string, unknown> | null;
+    plainText: string;
+    annotationLinks?: {
+      annotationId: string;
+      relation: DiscussionQuestionRelation;
+    }[];
+  }>;
+  importedFromClipboard?: boolean;
+};
+
+type DiscussionAnswerImportResponse = MutationResponse & {
+  message_ids: string[];
 };
 
 export type DiscussionMessageUpdateInput = {
@@ -926,6 +945,8 @@ function discussion(api: ApiDiscussion): Discussion {
       annotationId: item.annotation_id,
       messageId: item.message_id,
       messageRevision: item.message_revision,
+      sectionId: item.section_id,
+      sectionFingerprint: item.section_fingerprint,
       viewedAt: item.viewed_at,
     })),
     title: api.title,
@@ -1615,6 +1636,30 @@ export async function createDiscussionMessage(
   });
 }
 
+export async function importDiscussionAnswers(
+  discussionId: string,
+  input: DiscussionAnswerImportInput,
+): Promise<DiscussionAnswerImportResponse> {
+  return requestJson<DiscussionAnswerImportResponse>(
+    `/discussions/${discussionId}/answers/import`,
+    {
+      body: JSON.stringify({
+        answers: input.answers.map((answer) => ({
+          markdown: answer.markdown,
+          editor_json: answer.editorJson,
+          plain_text: answer.plainText,
+          annotation_links: (answer.annotationLinks ?? []).map((link) => ({
+            annotation_id: link.annotationId,
+            relation: link.relation,
+          })),
+        })),
+        imported_from_clipboard: input.importedFromClipboard ?? false,
+      }),
+      method: "POST",
+    },
+  );
+}
+
 export async function updateDiscussionMessage(
   messageId: string,
   input: DiscussionMessageUpdateInput,
@@ -1710,11 +1755,15 @@ export async function linkDiscussionQuestion(
 export async function reviewDiscussionQa(
   discussionId: string,
   messageId: string,
+  sectionId: string,
+  sectionFingerprint: string,
   questionIds: string[],
 ): Promise<MutationResponse> {
   return requestJson<MutationResponse>(`/discussions/${discussionId}/qa-review`, {
     body: JSON.stringify({
       message_id: messageId,
+      section_id: sectionId,
+      section_fingerprint: sectionFingerprint,
       question_ids: questionIds,
     }),
     method: "PUT",

@@ -92,6 +92,14 @@ Reasons:
   the conservative normalizer and never reflow a user's manual paragraphs.
 - Follow-up questions are annotations anchored to discussion messages and use
   the same queue and prompt-batch workflow as source-document questions.
+- A pasted tutor response is an import envelope, not a durable aggregate.
+  Question headings are split transactionally into independent assistant
+  messages. Preambles are folded into the first answer, trailing/additional
+  headings remain in the final or surrounding answer, and heading-free prose
+  remains one answer. The original combined clipboard response is not stored.
+- QA visibility derives from the canonical annotation state plus the exact
+  reviewed answer-section fingerprint. It never derives from exercise-note
+  prose, message array position, or an unrelated sibling section revision.
 - Discussion deletion soft-deletes the generated resource, thread, and messages.
   This removes it from normal projections while retaining rows for recovery and
   audit history.

@@ -9,6 +9,7 @@ import {
 import type {
   Annotation,
   Discussion,
+  Note,
 } from "../../types/tracker";
 
 export type QaReviewItem = {
@@ -22,6 +23,119 @@ export type QaReviewItem = {
   section?: DiscussionQaSection;
   sectionDiscussionId?: string;
 };
+
+export type QaReviewFilter = "all" | "open" | "new";
+
+export type QaReviewRecord = Discussion["qaReviews"][number] & {
+  discussionId: string;
+};
+
+export type QaReviewStatus =
+  | "new"
+  | "updated"
+  | "viewed"
+  | "understood"
+  | "skipped";
+
+/**
+ * Fingerprint one parsed answer section, not its containing tutor message.
+ *
+ * Message revisions are intentionally excluded: editing Q-001 in a response
+ * must not make Q-002..Q-020 appear updated. FNV-1a is sufficient here because
+ * this is a change detector, not an identity or a security boundary.
+ */
+export function qaSectionFingerprint(section: DiscussionQaSection): string {
+  const value = [
+    "qa-section-v1",
+    section.id,
+    section.headingLine.trim(),
+    section.bodyMarkdown.replace(/\r\n?/g, "\n").trim(),
+  ].join("\u0000");
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `v1-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function activeQuestion(question: Annotation): boolean {
+  return (
+    question.status === "open" &&
+    !question.postponed &&
+    !question.skipped
+  );
+}
+
+function reviewMatchesSection(
+  review: QaReviewRecord,
+  item: QaReviewItem,
+): boolean {
+  const section = item.section;
+  if (!section || review.discussionId !== item.sectionDiscussionId) return false;
+  if (review.sectionId && review.sectionFingerprint) {
+    return (
+      review.sectionId === section.id &&
+      review.sectionFingerprint === qaSectionFingerprint(section)
+    );
+  }
+  // A legacy record can only prove that the exact source message was viewed.
+  // It is deliberately not invalidated by another discussion's message.
+  return review.messageId === section.messageId;
+}
+
+export function qaReviewStatus(
+  item: QaReviewItem | undefined,
+  reviews: readonly QaReviewRecord[],
+  visited = false,
+): QaReviewStatus {
+  if (!item) return "new";
+  const unresolved = item.questions.filter(
+    (question) => question.status !== "answered" && question.status !== "archived",
+  );
+  if (unresolved.length > 0 && unresolved.every((question) => question.skipped)) {
+    return "skipped";
+  }
+  if (
+    item.questions.length > 0 &&
+    item.questions.every(
+      (question) => question.status === "answered" || question.status === "archived",
+    )
+  ) {
+    return "understood";
+  }
+  const active = item.questions.filter(activeQuestion);
+  const matchingIds = new Set(
+    reviews
+      .filter((review) => reviewMatchesSection(review, item))
+      .map((review) => review.annotationId),
+  );
+  const current =
+    active.length > 0 && active.every((question) => matchingIds.has(question.id));
+  if (visited || current) return "viewed";
+  const hasPriorReview = reviews.some((review) =>
+    item.questions.some((question) => question.id === review.annotationId),
+  );
+  const hasFollowup = item.questions.some(
+    (question) => question.origin === "discussion_review_followup",
+  );
+  const hasAnotherAnswer = (item.answers?.length ?? 0) > 1;
+  return hasPriorReview || hasFollowup || hasAnotherAnswer ? "updated" : "new";
+}
+
+export function qaReviewItemVisible(
+  item: QaReviewItem,
+  filter: QaReviewFilter,
+  reviews: readonly QaReviewRecord[],
+  visited = false,
+): boolean {
+  if (filter === "all") return true;
+  if (!item.questions.length) return true;
+  if (!item.questions.some(activeQuestion)) return false;
+  if (filter === "open") return true;
+  const status = qaReviewStatus(item, reviews, visited);
+  return status === "new" || status === "updated";
+}
 
 function compareAnswerRecords(
   left: { section: DiscussionQaSection },
@@ -117,6 +231,33 @@ export function inferredExerciseLabels(item: QaReviewItem): string[] {
     }
   }
   return labels.length ? labels : ["Exercise"];
+}
+
+/** Exact persisted exercise mapping; matching tutor prose is never a link. */
+export function exerciseSolutionNoteMatches(
+  note: Note,
+  item: QaReviewItem,
+  exerciseLabels: readonly string[],
+): boolean {
+  if (note.kind !== "exercise_solution") return false;
+  if (item.questions.length > 0) {
+    const questionIds = new Set(item.questions.map((question) => question.id));
+    return note.links.some(
+      (link) =>
+        link.entityType === "annotation" && questionIds.has(link.entityId),
+    );
+  }
+  return (
+    Boolean(item.section?.messageId) &&
+    note.links.some(
+      (link) =>
+        link.entityType === "discussion_message" &&
+        link.entityId === item.section?.messageId,
+    ) &&
+    exerciseLabels.every((label) =>
+      (note.document.markdown ?? note.document.plainText).includes(label),
+    )
+  );
 }
 
 export function sourceQuestionForReview(

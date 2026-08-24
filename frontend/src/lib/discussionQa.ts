@@ -27,6 +27,38 @@ export type ReconstructedQaMessage = {
   sectionBodyOffsets: Map<string, number>;
 };
 
+export type NormalizedTutorAnswer = {
+  annotationIds: string[];
+  markdown: string;
+  plainText: string;
+};
+
+type TutorAnswerEnvelope = {
+  markdown: string;
+  preamble: string;
+};
+
+function exerciseAnswerEnvelopes(markdown: string): TutorAnswerEnvelope[] {
+  const headings = [...markdown.matchAll(/^(#{1,6})[ \t]+(.+)$/gm)]
+    .map((match) => ({
+      index: match.index ?? 0,
+      level: match[1].length,
+      title: match[2].replace(/[*_`]/g, "").trim(),
+    }))
+    .filter((heading) =>
+      /^Exercises?\s+\d+(?:\.\d+)+(?:\b|\s|[,/&-])/i.test(heading.title),
+    );
+  if (!headings.length) return [];
+  const boundaryLevel = Math.min(...headings.map((heading) => heading.level));
+  const boundaries = headings.filter((heading) => heading.level === boundaryLevel);
+  return boundaries.map((heading, index) => ({
+    markdown: markdown
+      .slice(heading.index, boundaries[index + 1]?.index ?? markdown.length)
+      .trim(),
+    preamble: index === 0 ? markdown.slice(0, heading.index).trim() : "",
+  }));
+}
+
 function qaSectionIdentity(
   messageId: string,
   label: string,
@@ -334,6 +366,120 @@ export function discussionQaSections(
       });
     });
     return sections;
+  });
+}
+
+/**
+ * Split one pasted tutor response into independently editable answer records.
+ *
+ * The pasted response is an import envelope, not a persisted entity. Question
+ * headings are authoritative boundaries. Introductory prose is folded into the
+ * first answer, postscript prose naturally remains in the final answer, and
+ * nested/non-question headings remain part of their surrounding answer. When
+ * there are no question headings, explicit Exercise headings are accepted as
+ * boundaries; generic headings alone remain one answer.
+ */
+export function normalizeTutorAnswerInstances(
+  discussion: Discussion | undefined,
+  annotations: Annotation[],
+  markdownInput: string,
+  annotationIds: readonly string[] = [],
+): NormalizedTutorAnswer[] {
+  const markdown = normalizeDiscussionMarkdown(markdownInput);
+  if (!markdown) return [];
+  const parsedEnvelope = discussionAnswerSections(markdown);
+  const hasQuestionHeadings = parsedEnvelope.sections.some(
+    (section) => section.labels.length > 0,
+  );
+  if (!hasQuestionHeadings) {
+    const exerciseEnvelopes = exerciseAnswerEnvelopes(markdown);
+    const linkedIds = [...new Set(annotationIds)];
+    if (!exerciseEnvelopes.length) {
+      return [{
+        annotationIds: linkedIds,
+        markdown,
+        plainText: markdown,
+      }];
+    }
+    return exerciseEnvelopes.map((answer) => {
+      const answerMarkdown = normalizeDiscussionMarkdown(
+        [answer.preamble, answer.markdown].filter(Boolean).join("\n\n"),
+      );
+      return {
+        annotationIds: exerciseEnvelopes.length === 1 ? linkedIds : [],
+        markdown: answerMarkdown,
+        plainText: answerMarkdown,
+      };
+    });
+  }
+  const baseDiscussion =
+    discussion ??
+    ({
+      initialPromptBatchId: null,
+      messages: [],
+      questionIds: [],
+      questionLabels: [],
+    } as unknown as Discussion);
+  const pendingMessageId = "__pending_tutor_answer_import__";
+  const sequenceNumber =
+    Math.max(0, ...baseDiscussion.messages.map((message) => message.sequenceNumber)) + 1;
+  const linkedIds = [...new Set(annotationIds)];
+  const transient = {
+    ...baseDiscussion,
+    messages: [
+      ...baseDiscussion.messages,
+      {
+        annotationLinks: linkedIds.map((annotationId) => ({
+          annotationId,
+          relation: "references" as const,
+        })),
+        body: {
+          canonicalFormat: "markdown" as const,
+          id: `${pendingMessageId}:document`,
+          markdown,
+          plainText: markdown,
+          revision: 1,
+          updatedAt: "",
+        },
+        createdAt: "",
+        id: pendingMessageId,
+        importedFromClipboard: true,
+        revision: 1,
+        role: "assistant" as const,
+        sequenceNumber,
+      },
+    ],
+    questionIds: [...new Set([...baseDiscussion.questionIds, ...linkedIds])],
+  } satisfies Discussion;
+  const sections = discussionQaSections(transient, annotations).filter(
+    (section) => section.messageId === pendingMessageId,
+  );
+  const preamble = sections.find((section) => section.kind === "preamble");
+  const answerSections = sections.filter(
+    (section) => section.kind === "answer" || section.kind === "unstructured",
+  );
+  if (!answerSections.length) {
+    return [{ annotationIds: linkedIds, markdown, plainText: markdown }];
+  }
+  return answerSections.map((section, index) => {
+    const answerMarkdown = normalizeDiscussionMarkdown(
+      [
+        index === 0 ? preamble?.bodyMarkdown ?? "" : "",
+        section.headingLine,
+        section.bodyMarkdown,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    );
+    const sectionAnnotationIds = [...new Set(section.questionIds)];
+    return {
+      annotationIds:
+        answerSections.length === 1 && !sectionAnnotationIds.length
+          ? linkedIds
+          : sectionAnnotationIds,
+      markdown: answerMarkdown,
+      plainText: answerMarkdown,
+    };
   });
 }
 

@@ -7,6 +7,8 @@ import {
 import { normalizeDiscussionMarkdown } from "./discussionText";
 import day5TutorExpected from "./day5TutorResponse.expected.fixture.md?raw";
 import day5TutorResponse from "./day5TutorResponse.raw.fixture.md?raw";
+import chapter5TutorExpected from "./chapter5TutorResponse.expected.fixture.md?raw";
+import chapter5TutorResponse from "./chapter5TutorResponse.raw.fixture.md?raw";
 
 const fixture = String.raw`
 # Q-001
@@ -275,6 +277,32 @@ c=d
       (match) => match[1].trim(),
     );
     expect(displays.length).toBeGreaterThan(40);
+    for (const latex of displays) {
+      expect(() =>
+        renderToString(latex, { displayMode: true, throwOnError: true }),
+      ).not.toThrow();
+    }
+  });
+
+  it("parses the complete Chapter 5 review response exactly and into valid KaTeX", () => {
+    const imported = importPastedMarkdown(chapter5TutorResponse);
+
+    expect(imported).toBe(chapter5TutorExpected.trim());
+    expect(imported.match(/^### Q-\d{3}\b/gm)).toHaveLength(6);
+    expect(imported).toContain("\\tag{5.14}");
+    expect(imported).toContain(
+      "\\mathbb E_b[M_{t+1}\\mid \\text{history through }S_{t+1}] = 1",
+    );
+    expect(imported).toContain(
+      "\\boxed{\n\\text{same expectation, extra variance}.\n}",
+    );
+    expect(importPastedMarkdown(imported)).toBe(imported);
+
+    const displays = Array.from(
+      imported.matchAll(/\$\$([\s\S]*?)\$\$/g),
+      (match) => match[1].trim(),
+    );
+    expect(displays.length).toBeGreaterThan(45);
     for (const latex of displays) {
       expect(() =>
         renderToString(latex, { displayMode: true, throwOnError: true }),

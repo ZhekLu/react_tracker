@@ -27,6 +27,8 @@ from ..schemas.workspace import (
     DayStatusCommand,
     Discussion,
     DiscussionAnswerDeleteCommand,
+    DiscussionAnswerImportCommand,
+    DiscussionAnswerImportResponse,
     DiscussionAttentionCommand,
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
@@ -1311,7 +1313,8 @@ def _discussions(
     for row in _rows(
         connection,
         """
-        SELECT discussion_id, annotation_id, message_id, message_revision, viewed_at
+        SELECT discussion_id, annotation_id, message_id, message_revision,
+               section_id, section_fingerprint, viewed_at
         FROM discussion_qa_reviews
         WHERE discussion_id IN (
           SELECT id FROM discussion_threads
@@ -1326,6 +1329,16 @@ def _discussions(
                 annotation_id=str(row["annotation_id"]),
                 message_id=str(row["message_id"]),
                 message_revision=int(row["message_revision"]),
+                section_id=(
+                    str(row["section_id"])
+                    if row["section_id"] is not None
+                    else None
+                ),
+                section_fingerprint=(
+                    str(row["section_fingerprint"])
+                    if row["section_fingerprint"] is not None
+                    else None
+                ),
                 viewed_at=str(row["viewed_at"]),
             )
         )
@@ -4217,6 +4230,51 @@ def create_discussion_message(
     return _mutation_result(row)
 
 
+def import_discussion_answers(
+    connection: Connection,
+    discussion_id: str,
+    command: DiscussionAnswerImportCommand,
+) -> DiscussionAnswerImportResponse:
+    """Persist a pasted tutor response as independent answer messages.
+
+    The request transaction is the import envelope; the original combined
+    response is deliberately not stored.  Each answer therefore owns its
+    document, revision, annotation links, edit history, and delete lifecycle.
+    """
+    message_ids: list[str] = []
+    for answer in command.answers:
+        result = create_discussion_message(
+            connection,
+            discussion_id,
+            DiscussionMessageCreateCommand(
+                role="assistant",
+                markdown=answer.markdown,
+                editor_json=answer.editor_json,
+                plain_text=answer.plain_text,
+                imported_from_clipboard=command.imported_from_clipboard,
+                annotation_links=answer.annotation_links,
+            ),
+        )
+        message_ids.append(result.id)
+    thread = _one_or_none(
+        connection,
+        """
+        SELECT id, revision, updated_at
+        FROM discussion_threads
+        WHERE id = :id AND deleted_at IS NULL
+        """,
+        {"id": discussion_id},
+    )
+    if thread is None:
+        raise EntityNotFoundError(f"Discussion does not exist: {discussion_id}")
+    return DiscussionAnswerImportResponse(
+        id=str(thread["id"]),
+        revision=int(thread["revision"]),
+        updated_at=str(thread["updated_at"]),
+        message_ids=message_ids,
+    )
+
+
 def update_discussion_message(
     connection: Connection,
     message_id: str,
@@ -4829,14 +4887,16 @@ def review_discussion_qa(
                 """
                 INSERT INTO discussion_qa_reviews (
                   discussion_id, annotation_id, message_id, message_revision,
-                  viewed_at, updated_at
+                  section_id, section_fingerprint, viewed_at, updated_at
                 ) VALUES (
                   :discussion_id, :annotation_id, :message_id, :message_revision,
-                  :viewed_at, :updated_at
+                  :section_id, :section_fingerprint, :viewed_at, :updated_at
                 )
                 ON CONFLICT(discussion_id, annotation_id) DO UPDATE SET
                   message_id = excluded.message_id,
                   message_revision = excluded.message_revision,
+                  section_id = excluded.section_id,
+                  section_fingerprint = excluded.section_fingerprint,
                   viewed_at = excluded.viewed_at,
                   updated_at = excluded.updated_at
                 """
@@ -4846,6 +4906,8 @@ def review_discussion_qa(
                 "annotation_id": annotation_id,
                 "message_id": command.message_id,
                 "message_revision": int(message["revision"]),
+                "section_id": command.section_id,
+                "section_fingerprint": command.section_fingerprint,
                 "viewed_at": now,
                 "updated_at": now,
             },

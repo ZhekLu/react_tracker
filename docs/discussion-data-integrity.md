@@ -25,9 +25,39 @@ The ordinal is local to the resource and scope. It is not recalculated when ques
 4. Follow-ups keep the original root label and add an `-F<n>` suffix.
 5. QA editor sections use a key derived from message UUID, prompt label, heading, and same-heading occurrence. Array position is deliberately excluded: deleting an earlier answer cannot move a stale draft under a later heading.
 
+The pasted response is only an import envelope. It is never stored as one large
+discussion message. Each mapped answer becomes its own assistant message with
+its own document, annotation UUID links, revision history, editor state, and
+delete lifecycle. A second paste for the same question creates another answer
+version linked to the same canonical question rather than overwriting or
+duplicating the question.
+
+QA state belongs to the canonical annotation, not to an answer or exercise
+projection. `annotations.status`, `postponed_at`, and `skipped_at` are the
+authoritative understood/later/skipped state. A QA visit stores the exact answer
+section ID and a content fingerprint. Editing a sibling answer therefore cannot
+make an old understood question appear updated. Exercise badges are projections
+of explicit `note_links` rows to the annotation UUID; matching prose such as
+"Exercise 5.5" is never treated as a relationship.
+
 ## Parser contract
 
-`frontend/src/lib/day5TutorResponse.raw.fixture.md` is the exact full tutor response that exposed the display-math bug. Its manually reviewed canonical result is stored beside it as `day5TutorResponse.expected.fixture.md`. The test verifies byte-for-byte normalization, idempotence, all 20 answer sections, and KaTeX validity for every display formula.
+`frontend/src/lib/chapter5TutorResponse.raw.fixture.md` is the exact full tutor
+response that exposed the display-math bug. Its manually reviewed canonical
+result is stored beside it as
+`chapter5TutorResponse.expected.fixture.md`. The test verifies byte-for-byte
+normalization, idempotence, answer headings, and KaTeX validity for every
+display formula.
+
+Import boundaries never discard prose:
+
+- a preamble before the first `Q-...` heading is folded into the first answer;
+- a postscript and additional/nested headings remain in the surrounding or
+  final answer;
+- without `Q-...` headings, `Exercise ...` headings are accepted as explicit
+  answer boundaries, with shared introductory prose folded into the first;
+- generic headings alone do not manufacture fake QA cards: the response is
+  stored as one independent answer.
 
 Focused tests also preserve the earlier regressions: heading-corrupted display delimiters, lost subtraction rows, malformed bracket displays, short display equations, block quotes, fenced code, and follow-up labels.
 
@@ -40,4 +70,8 @@ Focused tests also preserve the earlier regressions: heading-corrupted display d
 - Position, current open-question order, and creation date are never identity.
 - Every destructive QA edit is reconstructed from stable section keys and persists through document revisions.
 
-These invariants are enforced by migration `0019_stable_question_identities.sql` and covered by backend, prompt-generation, discussion-mapping, QA-deletion, and full-response parser tests.
+These invariants are enforced by migrations
+`0019_stable_question_identities.sql` and
+`0020_qa_review_section_fingerprints.sql`, and covered by backend,
+prompt-generation, discussion-mapping, QA-state, QA-deletion, independent-answer
+import, and full-response parser tests.

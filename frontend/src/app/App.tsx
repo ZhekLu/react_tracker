@@ -18,6 +18,7 @@ import {
   fetchCourses,
   fetchCourseWorkspace,
   importMaccyImageQuestions,
+  importDiscussionAnswers,
   linkDiscussionQuestion,
   openResource,
   openResourceFile,
@@ -72,7 +73,10 @@ import {
 } from "../lib/prompts";
 import { normalizeDiscussionMarkdown } from "../lib/discussionText";
 import { importPastedMarkdown } from "../lib/discussionImport";
-import { responseQuestionIds } from "../lib/discussionQa";
+import {
+  normalizeTutorAnswerInstances,
+  responseQuestionIds,
+} from "../lib/discussionQa";
 import {
   parseExerciseProgress,
   serializeExerciseProgress,
@@ -1722,11 +1726,34 @@ export function App() {
       ),
     ];
     void runMutation(async () => {
-      await createDiscussionMessage(discussionId, {
-        ...input,
-        annotationLinks,
+      if (input.role !== "assistant") {
+        await createDiscussionMessage(discussionId, {
+          ...input,
+          annotationLinks,
+          markdown,
+          plainText: markdown,
+        });
+        return;
+      }
+      const relationByAnnotationId = new Map(
+        annotationLinks.map((link) => [link.annotationId, link.relation]),
+      );
+      const answers = normalizeTutorAnswerInstances(
+        discussion,
+        workspace?.annotations ?? [],
         markdown,
-        plainText: markdown,
+        annotationLinks.map((link) => link.annotationId),
+      );
+      await importDiscussionAnswers(discussionId, {
+        answers: answers.map((answer) => ({
+          annotationLinks: answer.annotationIds.map((annotationId) => ({
+            annotationId,
+            relation: relationByAnnotationId.get(annotationId) ?? "references",
+          })),
+          markdown: answer.markdown,
+          plainText: answer.plainText,
+        })),
+        importedFromClipboard: input.importedFromClipboard,
       });
     });
   }
@@ -1897,13 +1924,22 @@ export function App() {
         const annotationLinks = existingDiscussion
           ? responseQuestionLinks(existingDiscussion, markdown)
           : [];
-        await createDiscussionMessage(discussion.id, {
-          annotationLinks,
-          importedFromClipboard: true,
-          linkPromptQuestions: false,
+        const answers = normalizeTutorAnswerInstances(
+          existingDiscussion,
+          workspace.annotations,
           markdown,
-          plainText: markdown,
-          role: "assistant",
+          annotationLinks.map((link) => link.annotationId),
+        );
+        await importDiscussionAnswers(discussion.id, {
+          answers: answers.map((answer) => ({
+            annotationLinks: answer.annotationIds.map((annotationId) => ({
+              annotationId,
+              relation: "references",
+            })),
+            markdown: answer.markdown,
+            plainText: answer.plainText,
+          })),
+          importedFromClipboard: true,
         });
       });
       setFocusedResourceId(resourceId);
@@ -1933,10 +1969,18 @@ export function App() {
   function handleDiscussionQaViewed(
     discussionId: string,
     messageId: string,
+    sectionId: string,
+    sectionFingerprint: string,
     questionIds: string[],
   ) {
     void runMutation(async () => {
-      await reviewDiscussionQa(discussionId, messageId, questionIds);
+      await reviewDiscussionQa(
+        discussionId,
+        messageId,
+        sectionId,
+        sectionFingerprint,
+        questionIds,
+      );
     });
   }
 

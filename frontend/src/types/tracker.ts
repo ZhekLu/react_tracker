@@ -323,6 +323,8 @@ export type Discussion = {
     annotationId: string;
     messageId: string;
     messageRevision: number;
+    sectionId?: string | null;
+    sectionFingerprint?: string | null;
     viewedAt: string;
   }[];
   title: string;

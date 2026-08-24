@@ -254,6 +254,8 @@ class DiscussionQaReview(StrictModel):
     annotation_id: str
     message_id: str
     message_revision: int
+    section_id: str | None = None
+    section_fingerprint: str | None = None
     viewed_at: str
 
 
@@ -558,6 +560,22 @@ class DiscussionMessageCreateCommand(StrictModel):
     )
 
 
+class DiscussionAnswerImportItem(StrictModel):
+    """One normalized tutor answer extracted from a pasted response."""
+
+    markdown: str = ""
+    editor_json: dict[str, Any] | None = None
+    plain_text: str = ""
+    annotation_links: list[DiscussionMessageAnnotationInput] = Field(
+        default_factory=list
+    )
+
+
+class DiscussionAnswerImportCommand(StrictModel):
+    answers: list[DiscussionAnswerImportItem] = Field(min_length=1)
+    imported_from_clipboard: bool = False
+
+
 class DiscussionMessageUpdateCommand(RevisionCommand):
     document_revision: int = Field(ge=1)
     markdown: str = ""
@@ -597,6 +615,8 @@ class DiscussionQuestionLinkCommand(StrictModel):
 
 class DiscussionQaReviewCommand(StrictModel):
     message_id: str
+    section_id: str
+    section_fingerprint: str
     question_ids: list[str] = Field(min_length=1)
 
 
@@ -658,6 +678,10 @@ class MutationResponse(StrictModel):
     id: str
     revision: int
     updated_at: str
+
+
+class DiscussionAnswerImportResponse(MutationResponse):
+    message_ids: list[str] = Field(default_factory=list)
 
 
 class PromptAttachmentItem(StrictModel):

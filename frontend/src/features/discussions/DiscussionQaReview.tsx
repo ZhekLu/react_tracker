@@ -55,9 +55,15 @@ import type {
   ImportantAnswerInput,
 } from "../../types/tracker";
 import {
+  exerciseSolutionNoteMatches,
   inferredExerciseLabels,
+  qaReviewItemVisible,
+  qaReviewStatus,
   qaReviewThreads,
+  qaSectionFingerprint,
+  type QaReviewFilter,
   type QaReviewItem,
+  type QaReviewRecord,
 } from "./discussionQaReviewModel";
 
 type DiscussionQaReviewProps = {
@@ -95,6 +101,8 @@ type DiscussionQaReviewProps = {
   onQaViewed: (
     discussionId: string,
     messageId: string,
+    sectionId: string,
+    sectionFingerprint: string,
     questionIds: string[],
   ) => void;
   onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;
@@ -196,19 +204,8 @@ function ExerciseSolutionMapper({
   const options = exerciseTaskOptions(course, item, exerciseLabels[0]);
   const [taskId, setTaskId] = useState(options[0]?.task.id ?? "");
   const mappedOption = options.find(({ task }) =>
-    task.notes.some(
-      (note) =>
-        note.kind === "exercise_solution" &&
-        (
-          note.links.some(
-            (link) =>
-              link.entityType === "annotation" &&
-              item.questions.some((question) => question.id === link.entityId),
-          ) ||
-          initialLabels.every((label) =>
-            (note.document.markdown ?? note.document.plainText).includes(label),
-          )
-        ),
+    task.notes.some((note) =>
+      exerciseSolutionNoteMatches(note, item, initialLabels),
     ),
   );
 
@@ -528,10 +525,6 @@ export function DiscussionQaReview({
   onQaViewed,
   onUpdateMessage,
 }: DiscussionQaReviewProps) {
-  const parsedSections = useMemo(
-    () => discussionQaSections(discussion, course.annotations),
-    [course.annotations, discussion],
-  );
   const courseSections = useMemo(
     () =>
       course.discussions.flatMap((item) =>
@@ -551,12 +544,18 @@ export function DiscussionQaReview({
     [course.resources],
   );
   const labelsByAnnotationId = useMemo(() => {
-    const labels = new Map<string, string>();
+    const labels = new Map(
+      course.annotations.flatMap((annotation) =>
+        annotation.stableLabel
+          ? [[annotation.id, annotation.stableLabel] as const]
+          : [],
+      ),
+    );
     course.discussions.forEach((item) =>
       item.questionLabels.forEach((label) =>
-        label.annotationIds.forEach((annotationId) =>
-          labels.set(annotationId, label.label),
-        ),
+        label.annotationIds.forEach((annotationId) => {
+          if (!labels.has(annotationId)) labels.set(annotationId, label.label);
+        }),
       ),
     );
     const discussionMessageIds = new Set(
@@ -583,7 +582,7 @@ export function DiscussionQaReview({
             item.label === label && !item.annotationIds.includes(annotation.id),
         );
         if (!belongsToThisDiscussion && collidesWithLocalLabel) return;
-        labels.set(annotation.id, label);
+        if (!labels.has(annotation.id)) labels.set(annotation.id, label);
       }
     });
     return labels;
@@ -597,12 +596,13 @@ export function DiscussionQaReview({
       ),
     [course.discussions],
   );
-  const qaReviewByAnnotationId = useMemo(
+  const qaReviewRecords = useMemo<QaReviewRecord[]>(
     () =>
-      new Map(
-        course.discussions.flatMap((item) =>
-          item.qaReviews.map((review) => [review.annotationId, review] as const),
-        ),
+      course.discussions.flatMap((item) =>
+        item.qaReviews.map((review) => ({
+          ...review,
+          discussionId: item.id,
+        })),
       ),
     [course.discussions],
   );
@@ -681,7 +681,7 @@ export function DiscussionQaReview({
   const [reviewItemsBySection, setReviewItemsBySection] = useState(
     new Map<string, DiscussionReviewItem[]>(),
   );
-  const [reviewFilter, setReviewFilter] = useState<"all" | "open" | "new">(
+  const [reviewFilter, setReviewFilter] = useState<QaReviewFilter>(
     initialFilter ?? (questionIds?.length ? "all" : "open"),
   );
   const [activeIndex, setActiveIndex] = useState(0);
@@ -698,49 +698,18 @@ export function DiscussionQaReview({
     () => new Set(),
   );
   const visibleItems = useMemo(
-    () => {
-      if (reviewFilter === "all") return allItems;
-      if (reviewFilter === "open") {
-        return allItems.filter(
-            (item) =>
-              !item.questions.length ||
-              inferredExerciseLabels(item).some((label) =>
-                /^Exercise\s+\d/i.test(label),
-              ) ||
-              item.questions.some(
-                (question) =>
-                  question.status === "open" &&
-                  !question.postponed &&
-                  !question.skipped,
-              ),
-          );
-      }
-      return allItems.filter((item) => {
-        if (unresolvedQuestionsAreSkipped(item.questions)) return false;
-        if (visitedItemIds.has(item.id)) return false;
-        const message = item.section
-          ? messageById.get(item.section.messageId)
-          : undefined;
-        const reviews = item.questions
-          .map((question) => qaReviewByAnnotationId.get(question.id))
-          .filter((review): review is Discussion["qaReviews"][number] =>
-            Boolean(review),
-          );
-        if (!reviews.length) return true;
-        return Boolean(
-          message &&
-          reviews.some(
-            (review) =>
-              review.messageId !== message.id ||
-              review.messageRevision < message.revision,
-          ),
-        );
-      });
-    },
+    () =>
+      allItems.filter((item) =>
+        qaReviewItemVisible(
+          item,
+          reviewFilter,
+          qaReviewRecords,
+          visitedItemIds.has(item.id),
+        ),
+      ),
     [
       allItems,
-      messageById,
-      qaReviewByAnnotationId,
+      qaReviewRecords,
       reviewFilter,
       visitedItemIds,
     ],
@@ -849,11 +818,9 @@ export function DiscussionQaReview({
     : undefined;
   const reviewUnits = allItems;
   const visitedUnits = reviewUnits.filter((item) =>
-    visitedItemIds.has(item.id) ||
-    (item.questions.length > 0 &&
-      item.questions.every((question) =>
-        qaReviewByAnnotationId.has(question.id),
-      )),
+    !["new", "updated"].includes(
+      qaReviewStatus(item, qaReviewRecords, visitedItemIds.has(item.id)),
+    ),
   ).length;
   const scopedQuestionIdSet = useMemo(
     () => new Set(questionIds ?? []),
@@ -873,72 +840,20 @@ export function DiscussionQaReview({
     : 0;
 
   const statusForItem = useCallback(
-    (item: QaReviewItem | undefined) => {
-      if (!item) return "new" as const;
-      const isFollowup = item.questions.some(
-        (question) => question.origin === "discussion_review_followup",
-      );
-      const message = item.section
-        ? messageById.get(item.section.messageId)
-        : undefined;
-      const reviews = item.questions
-        .map((question) => qaReviewByAnnotationId.get(question.id))
-        .filter((review): review is Discussion["qaReviews"][number] =>
-          Boolean(review),
-        );
-      const hasEarlierVersion = Boolean(
-        (item.answers?.length ?? 0) > 1 ||
-          (item.section &&
-            parsedSections.some(
-              (section) =>
-                section.id !== item.section!.id &&
-                section.messageSequenceNumber < item.section!.messageSequenceNumber &&
-                section.questionIds.some((id) =>
-                  item.questions.some((question) => question.id === id),
-                ),
-            )),
-      );
-      const answerChanged = Boolean(
-        message &&
-          reviews.some(
-            (review) =>
-              review.messageId !== message.id ||
-              review.messageRevision < message.revision,
-          ),
-      );
-      if (
-        answerChanged ||
-        ((isFollowup || hasEarlierVersion) && !reviews.length)
-      ) {
-        return "updated" as const;
-      }
-      const wasReviewed =
-        reviews.length === item.questions.length || visitedItemIds.has(item.id);
-      if (
-        item.questions.length &&
-        unresolvedQuestionsAreSkipped(item.questions)
-      ) {
-        return "skipped" as const;
-      }
-      if (
-        wasReviewed &&
-        item.questions.length &&
-        item.questions.every((question) => question.status === "answered")
-      ) {
-        return "understood" as const;
-      }
-      if (wasReviewed) {
-        return "viewed" as const;
-      }
-      return "new" as const;
-    },
-    [messageById, parsedSections, qaReviewByAnnotationId, visitedItemIds],
+    (item: QaReviewItem | undefined) =>
+      qaReviewStatus(
+        item,
+        qaReviewRecords,
+        Boolean(item && visitedItemIds.has(item.id)),
+      ),
+    [qaReviewRecords, visitedItemIds],
   );
   const activeReviewStatus = statusForItem(activeItem);
 
   useEffect(() => {
     if (!activeItem?.section || !activeItem.questions.length) return;
-    const viewKey = `${activeItem.section.messageId}:${activeItem.section.id}`;
+    const fingerprint = qaSectionFingerprint(activeItem.section);
+    const viewKey = `${activeItem.section.messageId}:${activeItem.section.id}:${fingerprint}`;
     if (reportedViewKeys.current.has(viewKey)) return;
     reportedViewKeys.current.add(viewKey);
     const questionIds = activeItem.questions.map((question) => question.id);
@@ -946,6 +861,8 @@ export function DiscussionQaReview({
       onQaViewed(
         activeItem.sectionDiscussionId ?? discussion.id,
         activeItem.section!.messageId,
+        activeItem.section!.id,
+        fingerprint,
         questionIds,
       );
       setVisitedItemIds((current) => new Set([...current, activeItem.id]));

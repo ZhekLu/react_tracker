@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Annotation, Discussion } from "../types/tracker";
 import {
   discussionQaSections,
+  normalizeTutorAnswerInstances,
   reconstructQaMessage,
   responseQuestionIds,
 } from "./discussionQa";
@@ -62,6 +63,142 @@ const discussion = {
 } as Discussion;
 
 describe("discussion QA review model", () => {
+  it("normalizes a pasted tutor response into one persisted answer per question", () => {
+    const answers = normalizeTutorAnswerInstances(
+      discussion,
+      questions,
+      [
+        "A short orientation that must not become a fake question.",
+        "",
+        "## Q-001 — First",
+        "",
+        "First answer.",
+        "",
+        "### Detail",
+        "",
+        "Nested explanation.",
+        "",
+        "## Q-002 — Second",
+        "",
+        "Second answer.",
+        "",
+        "A final note remains with the final answer.",
+      ].join("\n"),
+      questions.map((question) => question.id),
+    );
+
+    expect(answers).toHaveLength(2);
+    expect(answers[0].annotationIds).toEqual(["question-1"]);
+    expect(answers[0].markdown).toContain("A short orientation");
+    expect(answers[0].markdown).toContain("### Detail");
+    expect(answers[1].annotationIds).toEqual(["question-2"]);
+    expect(answers[1].markdown).toContain("A final note remains");
+    expect(answers.map((answer) => answer.markdown).join("\n")).not.toContain(
+      "__pending_tutor_answer_import__",
+    );
+  });
+
+  it("keeps heading-free tutor prose as one standalone answer", () => {
+    const answers = normalizeTutorAnswerInstances(
+      discussion,
+      questions,
+      "One useful response without any headings.",
+      [questions[0].id],
+    );
+
+    expect(answers).toEqual([
+      {
+        annotationIds: [questions[0].id],
+        markdown: "One useful response without any headings.",
+        plainText: "One useful response without any headings.",
+      },
+    ]);
+  });
+
+  it("uses primary headings for tutor feedback that has no Q labels", () => {
+    const answers = normalizeTutorAnswerInstances(
+      undefined,
+      [],
+      "Intro.\n\n## Exercise 6.2\n\nFirst solution.\n\n## Exercise 6.6\n\nSecond solution.",
+    );
+
+    expect(answers).toHaveLength(2);
+    expect(answers[0].markdown).toContain("Intro.");
+    expect(answers[0].markdown).toContain("## Exercise 6.2");
+    expect(answers[1].markdown).toContain("## Exercise 6.6");
+  });
+
+  it("keeps an explicit link when one exercise answer is pasted directly", () => {
+    const answers = normalizeTutorAnswerInstances(
+      discussion,
+      questions,
+      "## Exercise 6.2\n\nA direct tutor solution.",
+      [questions[0].id],
+    );
+
+    expect(answers).toHaveLength(1);
+    expect(answers[0].annotationIds).toEqual([questions[0].id]);
+  });
+
+  it("folds generic introduction and summary headings into real answers", () => {
+    const answers = normalizeTutorAnswerInstances(
+      undefined,
+      [],
+      [
+        "## Orientation",
+        "",
+        "First, here is the shared context.",
+        "",
+        "## Exercise 6.2",
+        "",
+        "First solution.",
+        "",
+        "### Detail",
+        "",
+        "Keep this nested explanation.",
+        "",
+        "## Exercise 6.6",
+        "",
+        "Second solution.",
+        "",
+        "## Closing note",
+        "",
+        "This belongs to the final answer.",
+      ].join("\n"),
+    );
+
+    expect(answers).toHaveLength(2);
+    expect(answers[0].markdown).toContain("## Orientation");
+    expect(answers[0].markdown).toContain("## Exercise 6.2");
+    expect(answers[0].markdown).toContain("### Detail");
+    expect(answers[1].markdown).toContain("## Exercise 6.6");
+    expect(answers[1].markdown).toContain("## Closing note");
+  });
+
+  it("does not manufacture QA cards from generic headings without question boundaries", () => {
+    const markdown = "## Overview\n\nUseful context.\n\n## Summary\n\nOne conclusion.";
+    const answers = normalizeTutorAnswerInstances(undefined, [], markdown);
+
+    expect(answers).toEqual([
+      { annotationIds: [], markdown, plainText: markdown },
+    ]);
+  });
+
+  it("folds a headed preamble into the first Q answer and a postscript into the last", () => {
+    const answers = normalizeTutorAnswerInstances(
+      discussion,
+      questions,
+      "## Orientation\n\nShared context.\n\n## Q-001\n\nFirst.\n\n## Q-002\n\nSecond.\n\n## Postscript\n\nKeep this.",
+      questions.map((question) => question.id),
+    );
+
+    expect(answers).toHaveLength(2);
+    expect(answers[0].markdown).toContain("## Orientation");
+    expect(answers[0].markdown).toContain("## Q-001");
+    expect(answers[1].markdown).toContain("## Q-002");
+    expect(answers[1].markdown).toContain("## Postscript");
+  });
+
   it("keeps introduction sections and maps answer sections to questions", () => {
     const sections = discussionQaSections(discussion, questions);
 

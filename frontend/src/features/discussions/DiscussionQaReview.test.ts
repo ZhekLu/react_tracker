@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { Annotation, Discussion } from "../../types/tracker";
+import type { Annotation, Discussion, Note } from "../../types/tracker";
 import type { DiscussionQaSection } from "../../lib/discussionQa";
 import {
+  exerciseSolutionNoteMatches,
   inferredExerciseLabels,
+  qaReviewItemVisible,
   qaReviewItems,
+  qaReviewStatus,
   qaReviewThreads,
+  qaSectionFingerprint,
   sourceQuestionForReview,
 } from "./discussionQaReviewModel";
 
@@ -29,6 +33,113 @@ function annotation(
 }
 
 describe("focused discussion QA review units", () => {
+  it("never puts a canonically answered question back into open or new QA", () => {
+    const answered = annotation("answered", { status: "answered" });
+    const section = {
+      bodyMarkdown: "A persisted answer.",
+      headingLine: "## Q-001",
+      id: "section-1",
+      messageId: "message-1",
+      questionIds: [answered.id],
+    } as DiscussionQaSection;
+    const item = {
+      id: "item-1",
+      questions: [answered],
+      section,
+      sectionDiscussionId: "discussion-1",
+    };
+
+    expect(qaReviewStatus(item, [])).toBe("understood");
+    expect(qaReviewItemVisible(item, "open", [])).toBe(false);
+    expect(qaReviewItemVisible(item, "new", [])).toBe(false);
+  });
+
+  it("tracks freshness per answer section instead of the containing response", () => {
+    const question = annotation("question");
+    const section = {
+      bodyMarkdown: "The original answer.",
+      headingLine: "## Q-001",
+      id: "section-1",
+      messageId: "message-1",
+      questionIds: [question.id],
+    } as DiscussionQaSection;
+    const item = {
+      id: "item-1",
+      questions: [question],
+      section,
+      sectionDiscussionId: "discussion-1",
+    };
+    const reviews = [{
+      annotationId: question.id,
+      discussionId: "discussion-1",
+      messageId: section.messageId,
+      messageRevision: 99,
+      sectionId: section.id,
+      sectionFingerprint: qaSectionFingerprint(section),
+      viewedAt: "2026-07-23T03:00:00Z",
+    }];
+
+    expect(qaReviewStatus(item, reviews)).toBe("viewed");
+    expect(qaReviewItemVisible(item, "new", reviews)).toBe(false);
+
+    const changed = {
+      ...item,
+      section: { ...section, bodyMarkdown: "This answer alone changed." },
+    };
+    expect(qaReviewStatus(changed, reviews)).toBe("updated");
+    expect(qaReviewItemVisible(changed, "new", reviews)).toBe(true);
+  });
+
+  it("requires a structured annotation link for the exercise-mapped badge", () => {
+    const question = annotation("exercise-question");
+    const item = {
+      id: "exercise-answer",
+      questions: [question],
+      section: {
+        bodyMarkdown: "Tutor answer for Exercise 5.5.",
+        id: "section",
+        messageId: "message",
+      } as DiscussionQaSection,
+    };
+    const proseOnly: Note = {
+      attention: "none",
+      courseId: "course",
+      createdAt: "2026-07-23T00:00:00Z",
+      kind: "exercise_solution",
+      id: "solution-note",
+      document: {
+        canonicalFormat: "markdown",
+        editorJson: null,
+        id: "solution-document",
+        markdown: "# Exercise 5.5\n\nTutor answer",
+        plainText: "Exercise 5.5 Tutor answer",
+        revision: 1,
+        updatedAt: "2026-07-23T00:00:00Z",
+      },
+      links: [{
+        entityId: "message",
+        entityType: "discussion_message",
+        relation: "related",
+      }],
+      revision: 1,
+      status: "active",
+      updatedAt: "2026-07-23T00:00:00Z",
+    };
+    const exact: Note = {
+      ...proseOnly,
+      links: [{
+        entityId: question.id,
+        entityType: "annotation",
+        relation: "related",
+      }],
+    };
+
+    expect(exerciseSolutionNoteMatches(proseOnly, item, ["Exercise 5.5"]))
+      .toBe(false);
+    expect(exerciseSolutionNoteMatches(exact, item, ["Exercise 5.5"]))
+      .toBe(true);
+  });
+
   it("reviews a screenshot capture and its text capture as one answer group", () => {
     const textQuestion = annotation("text-question", {
       anchor: {

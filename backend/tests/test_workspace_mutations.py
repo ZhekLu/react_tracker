@@ -22,6 +22,7 @@ from tracker_api.repositories.workspace_repository import (
     delete_discussion_answer,
     delete_discussion_message,
     get_workspace,
+    import_discussion_answers,
     link_discussion_question,
     reconcile_toggl_entries,
     record_toggl_start,
@@ -41,6 +42,8 @@ from tracker_api.schemas.workspace import (
     AnnotationCommand,
     AnnotationCreateCommand,
     DiscussionAnswerDeleteCommand,
+    DiscussionAnswerImportCommand,
+    DiscussionAnswerImportItem,
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
     DiscussionMessageCreateCommand,
@@ -899,6 +902,8 @@ def test_qa_review_state_is_persisted_per_discussion_question(
             discussion.id,
             DiscussionQaReviewCommand(
                 message_id=message.id,
+                section_id="answer-section-q-001",
+                section_fingerprint="v1-current-answer",
                 question_ids=[question.id],
             ),
         )
@@ -908,6 +913,8 @@ def test_qa_review_state_is_persisted_per_discussion_question(
     assert review.annotation_id == question.id
     assert review.message_id == message.id
     assert review.message_revision == message.revision
+    assert review.section_id == "answer-section-q-001"
+    assert review.section_fingerprint == "v1-current-answer"
 
 
 def test_qa_review_accepts_a_companion_capture(tmp_path: Path) -> None:
@@ -942,12 +949,68 @@ def test_qa_review_accepts_a_companion_capture(tmp_path: Path) -> None:
             discussion.id,
             DiscussionQaReviewCommand(
                 message_id=message.id,
+                section_id="answer-section-context",
+                section_fingerprint="v1-context-answer",
                 question_ids=[capture.id],
             ),
         )
         workspace = get_workspace(connection, course_id)
 
     assert workspace.discussions[0].qa_reviews[0].annotation_id == capture.id
+
+
+def test_tutor_answer_import_persists_independent_messages_without_raw_envelope(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        questions = [
+            create_annotation(
+                connection,
+                AnnotationCreateCommand(
+                    resource_id=resource_id,
+                    kind="question",
+                    markdown=f"Question {index}",
+                ),
+            )
+            for index in (1, 2)
+        ]
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+            ),
+        )
+        imported = import_discussion_answers(
+            connection,
+            discussion.id,
+            DiscussionAnswerImportCommand(
+                imported_from_clipboard=True,
+                answers=[
+                    DiscussionAnswerImportItem(
+                        markdown=f"## Q-00{index}\n\nIndependent answer {index}.",
+                        annotation_links=[
+                            {
+                                "annotation_id": questions[index - 1].id,
+                                "relation": "references",
+                            }
+                        ],
+                    )
+                    for index in (1, 2)
+                ],
+            ),
+        )
+        workspace = get_workspace(connection, course_id)
+
+    messages = workspace.discussions[0].messages
+    assert imported.message_ids == [message.id for message in messages]
+    assert len(messages) == 2
+    assert messages[0].body.markdown == "## Q-001\n\nIndependent answer 1."
+    assert messages[1].body.markdown == "## Q-002\n\nIndependent answer 2."
+    assert messages[0].annotation_links[0].annotation_id == questions[0].id
+    assert messages[1].annotation_links[0].annotation_id == questions[1].id
+    assert all(message.imported_from_clipboard for message in messages)
 
 
 def test_prompt_discussion_skips_annotations_deleted_after_prompt_creation(

@@ -145,6 +145,8 @@ type DiscussionsViewProps = {
   onQaViewed: (
     discussionId: string,
     messageId: string,
+    sectionId: string,
+    sectionFingerprint: string,
     questionIds: string[],
   ) => void;
   onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;

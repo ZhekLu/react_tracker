@@ -21,6 +21,8 @@ from ..schemas.workspace import (
     CourseWorkspace,
     DayStatusCommand,
     DiscussionAnswerDeleteCommand,
+    DiscussionAnswerImportCommand,
+    DiscussionAnswerImportResponse,
     DiscussionAttentionCommand,
     DiscussionCreateCommand,
     DiscussionDeleteCommand,
@@ -929,6 +931,25 @@ def create_discussion_message(
 ) -> MutationResponse:
     try:
         return workspace_repository.create_discussion_message(
+            connection,
+            discussion_id,
+            command,
+        )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.post(
+    "/discussions/{discussion_id}/answers/import",
+    response_model=DiscussionAnswerImportResponse,
+)
+def import_discussion_answers(
+    discussion_id: str,
+    command: DiscussionAnswerImportCommand,
+    connection: Database,
+) -> DiscussionAnswerImportResponse:
+    try:
+        return workspace_repository.import_discussion_answers(
             connection,
             discussion_id,
             command,
