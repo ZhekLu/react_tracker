@@ -835,6 +835,9 @@ function TaskCapturePanel({
       annotation.status === "open" &&
       annotation.postponed,
   );
+  const allQuestions = taskCaptures.filter(({ annotation }) =>
+    ["question", "todo"].includes(annotation.kind),
+  );
   const logicalQuestionCount = (
     questions: Array<{ annotation: Annotation; resource: Resource }>,
   ) =>
@@ -846,12 +849,17 @@ function TaskCapturePanel({
     ).size;
   const activeQuestionCount = logicalQuestionCount(activeQuestions);
   const postponedQuestionCount = logicalQuestionCount(postponedQuestions);
+  const allQuestionCount = logicalQuestionCount(allQuestions);
   const [open, setOpen] = useState(false);
-  const [captureFilter, setCaptureFilter] = useState<"all" | "active" | "later">("all");
+  const [captureFilter, setCaptureFilter] = useState<
+    "all" | "active" | "questions" | "later"
+  >("all");
   const showingQuestionsOnly =
     captureFilter === "active" && activeQuestions.length > 0;
   const showingPostponedOnly =
     captureFilter === "later" && postponedQuestions.length > 0;
+  const showingAllQuestionsOnly =
+    captureFilter === "questions" && allQuestions.length > 0;
   const importedCaptures = taskCaptures.filter(({ annotation }) =>
     ["drawboard_cloud", "drawboard_cloud_ink", "pdf_import"].includes(
       annotation.origin,
@@ -861,7 +869,9 @@ function TaskCapturePanel({
     ? activeQuestions
     : showingPostponedOnly
       ? postponedQuestions
-      : taskCaptures;
+      : showingAllQuestionsOnly
+        ? allQuestions
+        : taskCaptures;
   const manualQuestions = visibleCaptures.filter(
     ({ annotation, resource }) =>
       (resource.kind !== "book" || chapterScope.size === 0) &&
@@ -925,6 +935,23 @@ function TaskCapturePanel({
               {activeQuestionCount === 1 ? "" : "s"}
             </button>
           ) : null}
+          {allQuestionCount ? (
+            <button
+              aria-pressed={showingAllQuestionsOnly}
+              className={`question history ${showingAllQuestionsOnly ? "active" : ""}`}
+              onClick={() => {
+                setCaptureFilter((current) =>
+                  current === "questions" ? "all" : "questions",
+                );
+                setOpen(true);
+              }}
+              title="Show every question from this task, including understood and skipped questions"
+              type="button"
+            >
+              <BookMarked size={12} />
+              {allQuestionCount} all question{allQuestionCount === 1 ? "" : "s"}
+            </button>
+          ) : null}
           {postponedQuestionCount ? (
             <button
               aria-pressed={showingPostponedOnly}
@@ -973,9 +1000,11 @@ function TaskCapturePanel({
           {manualQuestionGroups.map(({ annotations, resource }) => (
             <ResourceQuestionShelf
               annotations={annotations}
-              initiallyOpen={showingQuestionsOnly || annotations.some(
-                (annotation) => annotation.status === "open",
-              )}
+              initiallyOpen={
+                showingQuestionsOnly ||
+                showingAllQuestionsOnly ||
+                annotations.some((annotation) => annotation.status === "open")
+              }
               key={`${resource.id}:${captureFilter}`}
               onAnnotationChange={onAnnotationChange}
               onDiscuss={() => onOpenDiscussion(resource.id)}

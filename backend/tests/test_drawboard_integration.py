@@ -297,7 +297,12 @@ Stop when: the chapter is read. {{#day01-stop}}
     return str(resource_id)
 
 
-def _cloud_extraction(content: str, revision: str) -> DrawboardExtraction:
+def _cloud_extraction(
+    content: str,
+    revision: str,
+    *,
+    page: int = 11,
+) -> DrawboardExtraction:
     return DrawboardExtraction(
         source_url=SHARE_URL,
         document_id=DOCUMENT_ID,
@@ -305,7 +310,7 @@ def _cloud_extraction(content: str, revision: str) -> DrawboardExtraction:
             DrawboardCapture(
                 fingerprint=f"drawboard-{DOCUMENT_ID}-insert-1",
                 source_revision=revision,
-                page=11,
+                page=page,
                 annotation_kind="TextInsert",
                 color="red",
                 rgb=[1.0, 0.0, 0.0],
@@ -340,20 +345,36 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
         )
     with transaction() as connection:
         first = collect_resource_pdf_annotations(connection, resource_id)
+        first_identity = connection.execute(
+            text(
+                """
+                SELECT a.id, qi.readable_label
+                FROM annotations a
+                JOIN annotation_question_identities aqi ON aqi.annotation_id = a.id
+                JOIN question_identities qi ON qi.id = aqi.question_identity_id
+                WHERE a.resource_id = :resource_id
+                """
+            ),
+            {"resource_id": resource_id},
+        ).mappings().one()
     with transaction() as connection:
         second = collect_resource_pdf_annotations(connection, resource_id)
 
-    current = _cloud_extraction("Why exactly?", "2")
+    # Drawboard annotation identity is independent of the current PDF page.
+    # Inserting a page before the annotation must move, not duplicate, it.
+    current = _cloud_extraction("Why exactly?", "2", page=12)
     with transaction() as connection:
         third = collect_resource_pdf_annotations(connection, resource_id)
         row = connection.execute(
             text(
                 """
-                SELECT a.kind, a.status, d.plain_text, aa.page_number,
-                       aa.selector_json
+                SELECT a.id, a.kind, a.status, d.plain_text, aa.page_number,
+                       aa.selector_json, qi.readable_label
                 FROM annotations a
                 JOIN documents d ON d.id = a.body_document_id
                 JOIN annotation_anchors aa ON aa.annotation_id = a.id
+                JOIN annotation_question_identities aqi ON aqi.annotation_id = a.id
+                JOIN question_identities qi ON qi.id = aqi.question_identity_id
                 WHERE a.resource_id = :resource_id
                 """
             ),
@@ -378,7 +399,7 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
             ),
             {"resource_id": resource_id},
         ).scalar_one()
-    current = _cloud_extraction("Why exactly?", "2")
+    current = _cloud_extraction("Why exactly?", "2", page=12)
     with transaction() as connection:
         revived = collect_resource_pdf_annotations(connection, resource_id)
         active_count = connection.execute(
@@ -408,7 +429,9 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
     assert row["kind"] == "question"
     assert row["status"] == "open"
     assert row["plain_text"] == "Why exactly?"
-    assert row["page_number"] == 11
+    assert row["page_number"] == 12
+    assert row["id"] == first_identity["id"]
+    assert row["readable_label"] == first_identity["readable_label"]
     assert '"sourceRevision":"2"' in row["selector_json"]
     assert removed.removed_count == 1
     assert active_after_removal == 0
@@ -486,6 +509,78 @@ def test_cloud_collection_prompts_for_new_exact_colors_and_reclassifies(
     assert first_kind == "question"
     assert updated.updated_count == 1
     assert final_kind == "highlight"
+
+
+def test_recoloring_an_answered_question_preserves_question_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resource_id = _seed_cloud_resource(tmp_path)
+    extraction = DrawboardExtraction(
+        source_url=SHARE_URL,
+        document_id=DOCUMENT_ID,
+        captures=[
+            DrawboardCapture(
+                fingerprint=f"drawboard-{DOCUMENT_ID}-resolved-highlight",
+                source_revision="1",
+                page=11,
+                annotation_kind="TextHighlight",
+                color="custom",
+                rgb=[0.6, 0.2, 0.1],
+                quote="Why does this work?",
+                comment="",
+                is_question=True,
+                created_at="2026-07-01T10:00:00Z",
+                rect=[4.0, 8.0, 25.0, 12.0],
+            )
+        ],
+        red_ink=[],
+        ignored={},
+    )
+    monkeypatch.setattr(
+        pdf_annotation_service,
+        "extract_drawboard_annotations",
+        lambda _source_url: extraction,
+    )
+
+    with transaction() as connection:
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection,
+            resource_id,
+            {"#99331A": "question"},
+        )
+        collect_resource_pdf_annotations(connection, resource_id)
+        connection.execute(
+            text(
+                """
+                UPDATE annotations
+                SET status = 'answered', answered_at = '2026-08-28T10:00:00+00:00'
+                WHERE resource_id = :resource_id
+                """
+            ),
+            {"resource_id": resource_id},
+        )
+
+    with transaction() as connection:
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection,
+            resource_id,
+            {"#99331A": "regular"},
+        )
+        collect_resource_pdf_annotations(connection, resource_id)
+        row = connection.execute(
+            text(
+                """
+                SELECT kind, status
+                FROM annotations
+                WHERE resource_id = :resource_id
+                """
+            ),
+            {"resource_id": resource_id},
+        ).mappings().one()
+
+    assert row["kind"] == "question"
+    assert row["status"] == "answered"
 
 
 def test_red_highlight_inside_handwriting_group_is_not_a_second_question(

@@ -46,11 +46,27 @@ function repairOrphanInlineMath(value: string): string {
   );
 }
 
+function repairInlineMathWordBoundaries(value: string): string {
+  return value.replace(
+    /([\p{L}\p{N}])?((?<!\$)\$([^$\n]+)\$(?!\$))([\p{L}\p{N}])?/gu,
+    (match, before: string | undefined, wrapped: string, latex: string, after: string | undefined) => {
+      if (!before && !after) return match;
+      // Numeric currency is not an inline-math atom. Technical formulas are
+      // separated from prose so a highlight spanning an atom cannot glue the
+      // surrounding words to it when Markdown is serialized.
+      if (/^\s*\d+(?:[.,]\d+)?\s*$/.test(latex)) return match;
+      return `${before ? `${before} ` : ""}${wrapped}${after ? ` ${after}` : ""}`;
+    },
+  );
+}
+
 export function normalizeDiscussionMarkdown(value: string): string {
   const protectedMarkdown = protectFencedCode(value);
   const normalized = normalizeMathMarkdown(
     repairOrphanInlineMath(
-      normalizeHtmlSpaceEntities(protectedMarkdown.value),
+      repairInlineMathWordBoundaries(
+        normalizeHtmlSpaceEntities(protectedMarkdown.value),
+      ),
     ),
   )
     .replace(/\r\n?/g, "\n")

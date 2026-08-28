@@ -56,6 +56,7 @@ import type {
 } from "../../types/tracker";
 import {
   exerciseSolutionNoteMatches,
+  centeredQaSourceScrollTop,
   inferredExerciseLabels,
   qaReviewItemVisible,
   qaReviewStatus,
@@ -396,12 +397,21 @@ function SourcePreview({
     const current = currentPageRef.current;
     if (!pages || !current) return;
     window.requestAnimationFrame(() => {
-      const pagesTop = pages.getBoundingClientRect().top;
-      const currentTop = current.getBoundingClientRect().top;
-      pages.scrollTop = Math.max(
-        0,
-        pages.scrollTop + currentTop - pagesTop - 8,
-      );
+      const pagesRect = pages.getBoundingClientRect();
+      const currentRect = current.getBoundingClientRect();
+      const focusRects = [...current.querySelectorAll<SVGRectElement>(
+        ".qaSourceFocus rect",
+      )].map((element) => element.getBoundingClientRect());
+      pages.scrollTop = centeredQaSourceScrollTop({
+        currentBottom: currentRect.bottom,
+        currentScrollTop: pages.scrollTop,
+        currentTop: currentRect.top,
+        focusRects: focusRects
+          .filter((rect) => rect.width > 0 && rect.height > 0)
+          .map((rect) => ({ bottom: rect.bottom, top: rect.top })),
+        viewportHeight: pages.clientHeight,
+        viewportTop: pagesRect.top,
+      });
     });
   }, []);
 

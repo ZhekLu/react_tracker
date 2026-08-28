@@ -2525,7 +2525,7 @@ def upsert_imported_annotation(
     existing = _one_or_none(
         connection,
         """
-        SELECT a.id, a.body_document_id, a.deleted_at,
+        SELECT a.id, a.body_document_id, a.deleted_at, a.kind, a.status,
                aa.annotation_id AS anchor_annotation_id, aa.selector_json,
                d.plain_text AS body_plain_text
         FROM annotations a
@@ -2561,6 +2561,16 @@ def upsert_imported_annotation(
         and previous_metadata.get("colorRoleRevision")
         != next_color_role_revision
     )
+    preserve_resolved_question_kind = bool(
+        str(existing["kind"]) in {"question", "todo"}
+        and str(existing["status"]) != "open"
+        and command.kind not in {"question", "todo"}
+    )
+    preserve_resolved_question_status = bool(
+        str(existing["kind"]) in {"question", "todo"}
+        and str(existing["status"]) != "open"
+        and existing["deleted_at"] is None
+    )
     if (
         existing["deleted_at"] is None
         and previous_sync_revision == source_revision
@@ -2588,12 +2598,15 @@ def upsert_imported_annotation(
             UPDATE annotations
             SET external_id = :external_id,
                 kind = CASE
+                  WHEN :preserve_resolved_question_kind THEN kind
                   WHEN :revive OR :reclassify THEN :kind
                   ELSE kind
                 END,
                 status = CASE
-                  WHEN :revive OR (:reclassify AND :kind = 'question')
+                  WHEN :revive
                     THEN 'open'
+                  WHEN :preserve_resolved_question_status THEN status
+                  WHEN :reclassify AND :kind = 'question' THEN 'open'
                   ELSE status
                 END,
                 priority = CASE WHEN :revive THEN :priority ELSE priority END,
@@ -2612,6 +2625,8 @@ def upsert_imported_annotation(
             "priority": command.priority,
             "revive": existing["deleted_at"] is not None,
             "reclassify": reclassify,
+            "preserve_resolved_question_kind": preserve_resolved_question_kind,
+            "preserve_resolved_question_status": preserve_resolved_question_status,
             "now": now,
         },
     )

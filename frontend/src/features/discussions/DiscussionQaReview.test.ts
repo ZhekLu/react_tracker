@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Annotation, Discussion, Note } from "../../types/tracker";
 import type { DiscussionQaSection } from "../../lib/discussionQa";
 import {
+  centeredQaSourceScrollTop,
   exerciseSolutionNoteMatches,
   inferredExerciseLabels,
   qaReviewItemVisible,
@@ -33,6 +34,17 @@ function annotation(
 }
 
 describe("focused discussion QA review units", () => {
+  it("centers the exact annotation focus instead of the top of its PDF page", () => {
+    expect(centeredQaSourceScrollTop({
+      currentBottom: 1300,
+      currentScrollTop: 50,
+      currentTop: 100,
+      focusRects: [{ bottom: 540, top: 500 }],
+      viewportHeight: 400,
+      viewportTop: 100,
+    })).toBe(270);
+  });
+
   it("never puts a canonically answered question back into open or new QA", () => {
     const answered = annotation("answered", { status: "answered" });
     const section = {

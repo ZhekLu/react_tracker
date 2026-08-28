@@ -4833,15 +4833,21 @@ button.taskMetaBadge:disabled {
 }
 
 .drawboardPaletteDialog {
+  display: flex;
+  flex-direction: column;
   width: min(820px, calc(100vw - 32px));
   max-height: min(780px, calc(100vh - 32px));
+  overflow: hidden;
 }
 
 .drawboardPaletteList {
   display: grid;
+  flex: 1 1 auto;
   gap: 10px;
   margin: 18px 0;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 4px;
 }
 
@@ -5265,6 +5271,12 @@ button.taskMetaBadge:disabled {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 5px 0;
+}
+
+.markdownMath .katex,
+.discussionRichSurface .katex,
+.richEditorSurface .katex {
+  white-space: nowrap;
 }
 
 .questionFormulaPreview {

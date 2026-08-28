@@ -599,6 +599,26 @@ def _is_vertical_guide(ink: DrawboardInk) -> bool:
     )
 
 
+def _member_vertical_guide_bounds(ink: DrawboardInk) -> list[tuple[float, float]]:
+    """Return original guide bands even after several inks were grouped."""
+
+    bounds: list[tuple[float, float]] = []
+    for vertices in ink.ink_vertex_sets:
+        points = [point for point in vertices if len(point) >= 2]
+        if not points:
+            continue
+        xs = [float(point[0]) for point in points]
+        ys = [float(point[1]) for point in points]
+        width = max(xs) - min(xs)
+        height = max(ys) - min(ys)
+        if (
+            height >= INK_VERTICAL_GUIDE_MIN_HEIGHT
+            and height >= max(width, 1.0) * INK_VERTICAL_GUIDE_ASPECT_RATIO
+        ):
+            bounds.append((min(ys), max(ys)))
+    return bounds
+
+
 def _vertical_ranges_overlap(
     first: tuple[float, float],
     second: tuple[float, float],
@@ -823,7 +843,17 @@ def _groups_are_near_duplicates(
         and _vertical_overlap_amount(first_bounds, second_bounds) / shorter_height
         >= INK_GROUP_VERTICAL_DUPLICATE_THRESHOLD
     )
-    return area_containment or vertical_duplicate
+    # Deliberately overlapping red guide strokes are the user's explicit way
+    # of saying that two handwritten fragments belong to one question.  The
+    # older ratio threshold missed small-but-real overlaps and produced two
+    # almost identical screenshots.  Merely adjacent guides still remain
+    # separate because their geometric overlap is zero.
+    deliberately_overlapping = any(
+        _vertical_overlap_amount(first_guide, second_guide) > 0
+        for first_guide in _member_vertical_guide_bounds(first)
+        for second_guide in _member_vertical_guide_bounds(second)
+    )
+    return area_containment or vertical_duplicate or deliberately_overlapping
 
 
 def _merge_contained_ink_groups(groups: list[DrawboardInk]) -> list[DrawboardInk]:

@@ -2753,6 +2753,11 @@
   text-align: center;
 }
 
+.discussionRichSurface [data-type="block-math"] > *,
+.richEditorSurface [data-type="block-math"] > * {
+  min-width: max-content;
+}
+
 .discussionRichSurface [data-type="inline-math"] {
   max-width: 100%;
 }

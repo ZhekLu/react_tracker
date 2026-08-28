@@ -12,6 +12,34 @@ import type {
   Note,
 } from "../../types/tracker";
 
+export function centeredQaSourceScrollTop(input: {
+  currentScrollTop: number;
+  viewportTop: number;
+  viewportHeight: number;
+  currentTop: number;
+  currentBottom: number;
+  focusRects: Array<{ top: number; bottom: number }>;
+}): number {
+  const visibleFocusRects = input.focusRects.filter(
+    (rect) => rect.bottom > rect.top,
+  );
+  const focusTop = visibleFocusRects.length
+    ? Math.min(...visibleFocusRects.map((rect) => rect.top))
+    : input.currentTop;
+  const focusBottom = visibleFocusRects.length
+    ? Math.max(...visibleFocusRects.map((rect) => rect.bottom))
+    : input.currentBottom;
+  const focusHeight = Math.max(1, focusBottom - focusTop);
+  const centeredOffset = Math.max(
+    8,
+    (input.viewportHeight - Math.min(focusHeight, input.viewportHeight)) / 2,
+  );
+  return Math.max(
+    0,
+    input.currentScrollTop + focusTop - input.viewportTop - centeredOffset,
+  );
+}
+
 export type QaReviewItem = {
   answers?: Array<{
     discussionId: string;

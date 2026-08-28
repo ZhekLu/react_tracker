@@ -9,6 +9,7 @@ import day5TutorExpected from "./day5TutorResponse.expected.fixture.md?raw";
 import day5TutorResponse from "./day5TutorResponse.raw.fixture.md?raw";
 import chapter5TutorExpected from "./chapter5TutorResponse.expected.fixture.md?raw";
 import chapter5TutorResponse from "./chapter5TutorResponse.raw.fixture.md?raw";
+import chapter7TutorResponse from "./chapter7TutorResponse.raw.fixture.md?raw";
 
 const fixture = String.raw`
 # Q-001
@@ -28,6 +29,40 @@ def update(value):
 `;
 
 describe("discussion paste importer", () => {
+  it("preserves the full Chapter 7 response and its three-part underbrace display", () => {
+    const imported = importPastedMarkdown(chapter7TutorResponse);
+    const expectedDisplay = String.raw`\underbrace{v_\pi(s)}_{\text{true quantity we want}}
+\qquad
+\underbrace{V(s)}_{\text{our current estimate}}
+\qquad
+\underbrace{G}_{\text{sample target used to improve }V}.`;
+
+    expect(imported).toContain(expectedDisplay);
+    expect(imported).toContain(String.raw`\boxed{v_\pi,\text{ not }v_*}`);
+    expect(importPastedMarkdown(imported)).toBe(imported);
+
+    const displays = Array.from(
+      imported.matchAll(/\$\$([\s\S]*?)\$\$/g),
+      (match) => match[1].trim(),
+    );
+    expect(displays.length).toBeGreaterThan(10);
+    for (const latex of displays) {
+      expect(() =>
+        renderToString(latex, { displayMode: true, throwOnError: true }),
+      ).not.toThrow();
+    }
+  });
+
+  it("restores prose spacing around inline formulas after highlighting", () => {
+    expect(
+      normalizeDiscussionMarkdown(
+        "The last$n$actions are strengthened and the target$Q$changes.",
+      ),
+    ).toBe("The last $n$ actions are strengthened and the target $Q$ changes.");
+    expect(normalizeDiscussionMarkdown("It costs US$5 today.")).toBe(
+      "It costs US$5 today.",
+    );
+  });
   it("canonicalizes the real ChatGPT tutor response without structural debris", () => {
     const imported = importPastedMarkdown(fixture);
 
