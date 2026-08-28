@@ -290,6 +290,25 @@ def test_slightly_overlapping_guides_are_one_intentional_question() -> None:
         "guide-second",
         "note-second",
     }
+    assert groups[0].rect == [5.0, 20.0, 190.0, 210.0]
+
+
+def test_nearby_non_overlapping_guides_remain_separate_questions() -> None:
+    first_guide = _ink("guide-first", [5.0, 20.0, 8.0, 100.0])
+    first_note = _ink("note-first", [12.0, 30.0, 180.0, 90.0])
+    second_guide = _ink("guide-second", [5.0, 104.0, 8.0, 190.0])
+    second_note = _ink("note-second", [12.0, 115.0, 190.0, 180.0])
+
+    groups = group_red_ink_annotations(
+        [first_guide, first_note, second_guide, second_note],
+        tolerance=2.0,
+    )
+
+    assert len(groups) == 2
+    assert [group.rect for group in groups] == [
+        [5.0, 20.0, 180.0, 100.0],
+        [5.0, 104.0, 190.0, 190.0],
+    ]
 
 
 def test_handwriting_image_contains_nearby_ink_and_highlights(

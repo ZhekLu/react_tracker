@@ -6,6 +6,7 @@ import type {
   StudyDay,
   Task,
 } from "../types/tracker";
+import { isTrackedQuestion } from "./questionIdentity";
 import promptTemplates from "../config/promptTemplates.json";
 import {
   exerciseNumbersInText,
@@ -179,7 +180,7 @@ function dayScopedAnnotations(course: Course, day: StudyDay): Annotation[] {
 function activeQuestions(annotations: Annotation[]): Annotation[] {
   return annotations.filter(
     (annotation) =>
-      ["question", "todo"].includes(annotation.kind) &&
+      isTrackedQuestion(annotation) &&
       annotation.status === "open" &&
       !annotation.postponed &&
       !annotation.skipped,

@@ -71,6 +71,7 @@ import { discussionExportSegments } from "../../lib/discussionExports";
 import { DiscussionQaReview } from "./DiscussionQaReview";
 import { discussionReviewPrompt } from "./discussionReviewExport";
 import { resourceScopedAnnotations } from "../../lib/prompts";
+import { isTrackedQuestion } from "../../lib/questionIdentity";
 
 type DiscussionsViewProps = {
   course: Course;
@@ -990,12 +991,12 @@ export function DiscussionsView({
     .filter((annotation) => annotation.status !== "archived")
     .sort((left, right) => {
       const leftOpenQuestion =
-        ["question", "todo"].includes(left.kind) &&
+        isTrackedQuestion(left) &&
         left.status === "open" &&
         !left.postponed &&
         !left.skipped;
       const rightOpenQuestion =
-        ["question", "todo"].includes(right.kind) &&
+        isTrackedQuestion(right) &&
         right.status === "open" &&
         !right.postponed &&
         !right.skipped;
@@ -1014,7 +1015,7 @@ export function DiscussionsView({
       [
         ...linkedQuestions,
         ...allActiveCaptures.filter((annotation) =>
-          ["question", "todo"].includes(annotation.kind),
+          isTrackedQuestion(annotation),
         ),
       ].map((annotation) => [annotation.id, annotation]),
     ).values(),
@@ -1030,7 +1031,7 @@ export function DiscussionsView({
   const resourceChapterGroups = discussion?.scopeType === "resource"
     ? [
         ...coverageQuestions
-          .filter((annotation) => ["question", "todo"].includes(annotation.kind))
+          .filter(isTrackedQuestion)
           .reduce((groups, annotation) => {
             const chapterNumber = annotationChapterNumber(annotation);
             const key = chapterNumber === null ? "other" : String(chapterNumber);
@@ -1081,7 +1082,7 @@ export function DiscussionsView({
     discussion?.scopeType === "resource"
       ? coverageQuestions.filter(
           (question) =>
-            ["question", "todo"].includes(question.kind) &&
+            isTrackedQuestion(question) &&
             question.status === "open" &&
             !question.postponed &&
             !question.skipped &&
@@ -1309,7 +1310,7 @@ export function DiscussionsView({
                           ? coverageQuestions
                               .filter(
                                 (annotation) =>
-                                  ["question", "todo"].includes(annotation.kind) &&
+                                  isTrackedQuestion(annotation) &&
                                   annotation.status !== "archived" &&
                                   (annotation.discussionResponseCount ?? 0) > 0,
                               )

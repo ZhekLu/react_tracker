@@ -433,13 +433,80 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
     assert row["id"] == first_identity["id"]
     assert row["readable_label"] == first_identity["readable_label"]
     assert '"sourceRevision":"2"' in row["selector_json"]
-    assert removed.removed_count == 1
-    assert active_after_removal == 0
-    assert revived.updated_count == 1
+    # Drawboard is a mutable source, but the tracker is the durable question
+    # record. Removing or recolouring a source mark must never erase a question
+    # (or its identity, status, notes, answers, and follow-ups) from the tracker.
+    assert removed.removed_count == 0
+    assert active_after_removal == 1
+    assert revived.existing_count == 1
     assert active_count == 1
 
 
-def test_cloud_collection_prompts_for_new_exact_colors_and_reclassifies(
+def test_missing_regular_drawboard_highlight_is_still_soft_deleted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resource_id = _seed_cloud_resource(tmp_path)
+    current = DrawboardExtraction(
+        source_url=SHARE_URL,
+        document_id=DOCUMENT_ID,
+        captures=[
+            DrawboardCapture(
+                fingerprint=f"drawboard-{DOCUMENT_ID}-ordinary-highlight",
+                source_revision="1",
+                page=11,
+                annotation_kind="TextHighlight",
+                color="yellow",
+                rgb=[1.0, 0.8, 0.1],
+                quote="Ordinary reference highlight",
+                comment="",
+                is_question=False,
+                created_at="2026-07-01T10:00:00Z",
+                rect=[4.0, 8.0, 25.0, 12.0],
+            )
+        ],
+        red_ink=[],
+        ignored={},
+    )
+    monkeypatch.setattr(
+        pdf_annotation_service,
+        "extract_drawboard_annotations",
+        lambda _source_url: current,
+    )
+    with transaction() as connection:
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection,
+            resource_id,
+            {"#FFCC1A": "regular"},
+        )
+        created = collect_resource_pdf_annotations(connection, resource_id)
+
+    current = DrawboardExtraction(
+        source_url=SHARE_URL,
+        document_id=DOCUMENT_ID,
+        captures=[],
+        red_ink=[],
+        ignored={},
+    )
+    with transaction() as connection:
+        removed = collect_resource_pdf_annotations(connection, resource_id)
+        active_count = connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM annotations
+                WHERE resource_id = :resource_id AND deleted_at IS NULL
+                """
+            ),
+            {"resource_id": resource_id},
+        ).scalar_one()
+
+    assert created.created_count == 1
+    assert removed.removed_count == 1
+    assert active_count == 0
+
+
+def test_cloud_collection_keeps_question_kind_after_color_role_changes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -490,9 +557,17 @@ def test_cloud_collection_prompts_for_new_exact_colors_and_reclassifies(
             {"#33CC4C": "question"},
         )
         created = collect_resource_pdf_annotations(connection, resource_id)
-        first_kind = connection.execute(
-            text("SELECT kind FROM annotations")
-        ).scalar_one()
+        first = connection.execute(
+            text(
+                """
+                SELECT a.kind, a.status, qi.readable_label
+                FROM annotations a
+                JOIN annotation_question_identities aqi
+                  ON aqi.annotation_id = a.id
+                JOIN question_identities qi ON qi.id = aqi.question_identity_id
+                """
+            )
+        ).mappings().one()
 
     with transaction() as connection:
         pdf_annotation_service.save_drawboard_color_roles(
@@ -501,14 +576,162 @@ def test_cloud_collection_prompts_for_new_exact_colors_and_reclassifies(
             {"#33CC4C": "regular"},
         )
         updated = collect_resource_pdf_annotations(connection, resource_id)
-        final_kind = connection.execute(
-            text("SELECT kind FROM annotations")
-        ).scalar_one()
+        final = connection.execute(
+            text(
+                """
+                SELECT a.kind, a.status, qi.readable_label
+                FROM annotations a
+                JOIN annotation_question_identities aqi
+                  ON aqi.annotation_id = a.id
+                JOIN question_identities qi ON qi.id = aqi.question_identity_id
+                """
+            )
+        ).mappings().one()
 
     assert created.created_count == 1
-    assert first_kind == "question"
+    assert first["kind"] == "question"
+    assert first["status"] == "open"
     assert updated.updated_count == 1
-    assert final_kind == "highlight"
+    assert final["kind"] == "question"
+    assert final["status"] == "open"
+    assert final["readable_label"] == first["readable_label"]
+
+
+def test_question_kind_repair_restores_brown_successor_and_group_identity(
+    tmp_path: Path,
+) -> None:
+    resource_id = _seed_cloud_resource(tmp_path)
+    predecessor_id = "deleted-question-capture"
+    successor_id = "current-brown-capture"
+    identity_id = "stable-question-identity"
+    timestamp = "2026-08-28T10:00:00+00:00"
+    context_group = "pdf-paragraph-question-history"
+    with transaction() as connection:
+        course_id = str(
+            connection.execute(
+                text("SELECT course_id FROM resources WHERE id = :id"),
+                {"id": resource_id},
+            ).scalar_one()
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE resources
+                SET metadata_json = json_set(
+                  COALESCE(metadata_json, '{}'), '$.plan_resource_id', 'rl-book'
+                )
+                WHERE id = :id
+                """
+            ),
+            {"id": resource_id},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO annotations (
+                  id, resource_id, kind, status, priority, origin,
+                  created_at, updated_at, deleted_at, revision
+                ) VALUES
+                  (:predecessor, :resource, 'question', 'answered', 'normal',
+                   'drawboard_cloud', :now, :now, :now, 1),
+                  (:successor, :resource, 'highlight', 'answered', 'normal',
+                   'drawboard_cloud', :now, :now, NULL, 1)
+                """
+            ),
+            {
+                "predecessor": predecessor_id,
+                "successor": successor_id,
+                "resource": resource_id,
+                "now": timestamp,
+            },
+        )
+        selector = (
+            '{"chapterNumber":7,"contextGroupId":"'
+            + context_group
+            + '","colorRoleRevision":"drawboard-color-role-v2:'
+            '#B49791:regular:regular"}'
+        )
+        for annotation_id in (predecessor_id, successor_id):
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO annotation_anchors (
+                      annotation_id, anchor_type, page_number, selector_json,
+                      created_at, updated_at
+                    ) VALUES (
+                      :annotation_id, 'pdf_text', 172, :selector_json, :now, :now
+                    )
+                    """
+                ),
+                {
+                    "annotation_id": annotation_id,
+                    "selector_json": selector,
+                    "now": timestamp,
+                },
+            )
+        connection.execute(
+            text(
+                """
+                INSERT INTO question_identities (
+                  id, course_id, resource_id, resource_code, scope_code,
+                  ordinal, readable_label, created_at
+                ) VALUES (
+                  :id, :course_id, :resource_id, 'b', '07', 99,
+                  'Q-b-07-099', :now
+                )
+                """
+            ),
+            {
+                "id": identity_id,
+                "course_id": course_id,
+                "resource_id": resource_id,
+                "now": timestamp,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO annotation_question_identities (
+                  annotation_id, question_identity_id, created_at
+                ) VALUES (:annotation_id, :identity_id, :now)
+                """
+            ),
+            {
+                "annotation_id": predecessor_id,
+                "identity_id": identity_id,
+                "now": timestamp,
+            },
+        )
+
+    migration_path = (
+        Path(__file__).parents[1]
+        / "tracker_api/migrations/0021_question_kind_identity_invariant.sql"
+    )
+    raw_connection = get_engine().raw_connection()
+    try:
+        raw_connection.executescript(migration_path.read_text(encoding="utf-8"))
+        raw_connection.commit()
+    finally:
+        raw_connection.close()
+
+    with transaction() as connection:
+        repaired = connection.execute(
+            text(
+                """
+                SELECT a.kind, a.status, qi.readable_label
+                FROM annotations a
+                JOIN annotation_question_identities aqi
+                  ON aqi.annotation_id = a.id
+                JOIN question_identities qi ON qi.id = aqi.question_identity_id
+                WHERE a.id = :id
+                """
+            ),
+            {"id": successor_id},
+        ).mappings().one()
+
+    assert repaired["kind"] == "question"
+    assert repaired["status"] == "answered"
+    assert repaired["readable_label"] == "Q-b-07-099"
 
 
 def test_recoloring_an_answered_question_preserves_question_history(

@@ -42,6 +42,7 @@ import {
   upsertNote,
 } from "../api/trackerApi";
 import { withQuestionAnswerReferences } from "../lib/questionAnswerReferences";
+import { isTrackedQuestion } from "../lib/questionIdentity";
 import { AppShell } from "../components/AppShell";
 import type { ResourceCaptureInput } from "../components/annotations/InlineCaptureEditor";
 import type { DiscussionReviewItem } from "../components/editor/DiscussionMarkdownSurface";
@@ -872,7 +873,7 @@ export function App() {
     }
     const nextQuestions = scopedAnnotations.filter(
       (annotation) =>
-        ["question", "todo"].includes(annotation.kind) &&
+        isTrackedQuestion(annotation) &&
         annotation.status === "open" &&
         !annotation.postponed &&
         !annotation.skipped &&
@@ -915,7 +916,7 @@ export function App() {
     );
     const nextQuestions = resourceScopedAnnotations(workspace, rootResource).filter(
       (annotation) =>
-        ["question", "todo"].includes(annotation.kind) &&
+        isTrackedQuestion(annotation) &&
         annotation.status === "open" &&
         !annotation.postponed &&
         !annotation.skipped &&
@@ -1055,7 +1056,7 @@ export function App() {
     const questionIds = resourceScopedAnnotations(workspace, rootResource)
       .filter(
         (annotation) =>
-          ["question", "todo"].includes(annotation.kind) &&
+          isTrackedQuestion(annotation) &&
           annotation.status !== "archived" &&
           (annotation.discussionResponseCount ?? 0) > 0,
       )
@@ -1091,7 +1092,7 @@ export function App() {
     const questionIds = taskScopedAnnotations(workspace, day, task)
       .filter(
         (annotation) =>
-          ["question", "todo"].includes(annotation.kind) &&
+          isTrackedQuestion(annotation) &&
           annotation.status !== "archived" &&
           (annotation.discussionResponseCount ?? 0) > 0,
       )

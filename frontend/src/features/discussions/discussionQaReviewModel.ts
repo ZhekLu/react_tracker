@@ -6,6 +6,7 @@ import {
   discussionQaSections,
   type DiscussionQaSection,
 } from "../../lib/discussionQa";
+import { isTrackedQuestion } from "../../lib/questionIdentity";
 import type {
   Annotation,
   Discussion,
@@ -336,7 +337,7 @@ export function qaReviewItems(
     .map((id) => annotationById.get(id))
     .filter(
       (item): item is Annotation =>
-        Boolean(item && ["question", "todo"].includes(item.kind)),
+        Boolean(item && isTrackedQuestion(item)),
     );
   const unmapped = [
     ...unmappedQuestions

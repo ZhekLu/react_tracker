@@ -2561,14 +2561,11 @@ def upsert_imported_annotation(
         and previous_metadata.get("colorRoleRevision")
         != next_color_role_revision
     )
-    preserve_resolved_question_kind = bool(
+    preserve_question_kind = bool(
         str(existing["kind"]) in {"question", "todo"}
-        and str(existing["status"]) != "open"
-        and command.kind not in {"question", "todo"}
     )
-    preserve_resolved_question_status = bool(
+    preserve_question_status = bool(
         str(existing["kind"]) in {"question", "todo"}
-        and str(existing["status"]) != "open"
         and existing["deleted_at"] is None
     )
     if (
@@ -2598,14 +2595,14 @@ def upsert_imported_annotation(
             UPDATE annotations
             SET external_id = :external_id,
                 kind = CASE
-                  WHEN :preserve_resolved_question_kind THEN kind
+                  WHEN :preserve_question_kind THEN kind
                   WHEN :revive OR :reclassify THEN :kind
                   ELSE kind
                 END,
                 status = CASE
                   WHEN :revive
                     THEN 'open'
-                  WHEN :preserve_resolved_question_status THEN status
+                  WHEN :preserve_question_status THEN status
                   WHEN :reclassify AND :kind = 'question' THEN 'open'
                   ELSE status
                 END,
@@ -2625,8 +2622,8 @@ def upsert_imported_annotation(
             "priority": command.priority,
             "revive": existing["deleted_at"] is not None,
             "reclassify": reclassify,
-            "preserve_resolved_question_kind": preserve_resolved_question_kind,
-            "preserve_resolved_question_status": preserve_resolved_question_status,
+            "preserve_question_kind": preserve_question_kind,
+            "preserve_question_status": preserve_question_status,
             "now": now,
         },
     )
@@ -2648,22 +2645,31 @@ def soft_delete_stale_imported_annotations(
         for row in _rows(
             connection,
             """
-            SELECT id, origin, source_fingerprint
-            FROM annotations
-            WHERE resource_id = :resource_id
-              AND origin IN (
+            SELECT a.id, a.origin, a.source_fingerprint, a.kind,
+                   EXISTS (
+                     SELECT 1
+                     FROM annotation_question_identities aqi
+                     WHERE aqi.annotation_id = a.id
+                   ) AS has_question_identity
+            FROM annotations a
+            WHERE a.resource_id = :resource_id
+              AND a.origin IN (
                 'drawboard_cloud',
                 'drawboard_cloud_ink',
                 'pdf_import'
               )
-              AND deleted_at IS NULL
+              AND a.deleted_at IS NULL
             """,
             {"resource_id": resource_id},
         )
         if (
-            str(row["origin"]) == "pdf_import"
-            or str(row["source_fingerprint"] or "")
-            not in active_cloud_fingerprints
+            str(row["kind"]) not in {"question", "todo"}
+            and not bool(row["has_question_identity"])
+            and (
+                str(row["origin"]) == "pdf_import"
+                or str(row["source_fingerprint"] or "")
+                not in active_cloud_fingerprints
+            )
         )
     ]
     if not stale_ids:

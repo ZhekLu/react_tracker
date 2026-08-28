@@ -12,6 +12,7 @@ import {
   qaSectionFingerprint,
   sourceQuestionForReview,
 } from "./discussionQaReviewModel";
+import { isTrackedQuestion } from "../../lib/questionIdentity";
 
 function annotation(
   id: string,
@@ -314,6 +315,71 @@ describe("focused discussion QA review units", () => {
     expect(threads[0].answers?.map((item) => item.section.bodyMarkdown)).toEqual([
       "First answer.",
       "Updated answer.",
+    ]);
+  });
+
+  it("restores a recoloured book question and its day-discussion follow-up", () => {
+    const root = annotation("book-question", {
+      kind: "highlight",
+      stableLabel: "Q-b-07-009",
+    });
+    const followup = annotation("book-followup", {
+      anchor: {
+        anchorType: "discussion_selection",
+        discussionMessageId: "book-answer",
+        metadata: { rootQuestionIds: [root.id], sectionLabel: "Q-028" },
+        quote: "Original tutor explanation.",
+      },
+      origin: "discussion_review_followup",
+    });
+    const bookRound = {
+      id: "book-round",
+      messages: [{
+        annotationLinks: [{ annotationId: root.id, relation: "answers" }],
+        body: { markdown: "## Q-028\n\nOriginal tutor explanation." },
+        createdAt: "2026-08-27T01:00:00Z",
+        id: "book-answer",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [root.id],
+      questionLabels: [{ annotationIds: [root.id], label: "Q-028" }],
+    } as unknown as Discussion;
+    const dayRound = {
+      id: "day-eight-round",
+      messages: [{
+        annotationLinks: [{ annotationId: followup.id, relation: "answers" }],
+        body: { markdown: "## Q-028-F2\n\nRefined follow-up answer." },
+        createdAt: "2026-08-28T01:00:00Z",
+        id: "day-eight-answer",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [followup.id],
+      questionLabels: [{ annotationIds: [followup.id], label: "Q-028-F2" }],
+    } as unknown as Discussion;
+    const resourceScope = [root, followup]
+      .filter(isTrackedQuestion)
+      .map((item) => item.id);
+
+    const threads = qaReviewThreads(
+      [bookRound, dayRound],
+      [root, followup],
+      bookRound,
+      resourceScope,
+    );
+
+    expect(resourceScope).toContain(root.id);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].questions.map((item) => item.id)).toEqual([
+      root.id,
+      followup.id,
+    ]);
+    expect(threads[0].answers?.map((item) => item.section.bodyMarkdown)).toEqual([
+      "Original tutor explanation.",
+      "Refined follow-up answer.",
     ]);
   });
 

@@ -39,6 +39,7 @@ import type {
   ResourceStatus,
   ResourceChapterStatus,
 } from "../../types/tracker";
+import { isTrackedQuestion } from "../../lib/questionIdentity";
 
 type ResourcesViewProps = {
   course: Course;
@@ -146,7 +147,7 @@ function ResourceRow({
   const sourcePath = resource.version?.localPath ?? resource.canonicalUrl ?? undefined;
   const questions = resource.annotations.filter(
     (annotation) =>
-      ["question", "todo"].includes(annotation.kind) &&
+      isTrackedQuestion(annotation) &&
       annotation.status !== "archived",
   );
   const firstOpenQuestion =
