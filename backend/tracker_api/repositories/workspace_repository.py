@@ -1857,6 +1857,92 @@ def update_exam_question_status(
     return _mutation_result(row)
 
 
+def _sync_question_identity_state(
+    connection: Connection,
+    annotation_id: str,
+    command: AnnotationCommand,
+    *,
+    timestamp: str,
+) -> None:
+    """Keep every live capture of one logical question in one state.
+
+    A Drawboard question may contain a text highlight plus one or more ink
+    captures. Those rows share an immutable question identity; status and queue
+    metadata belong to that logical question, not to an individual capture.
+    """
+
+    if all(
+        value is None
+        for value in (
+            command.status,
+            command.priority,
+            command.postponed,
+            command.skipped,
+        )
+    ):
+        return
+    identity_id = connection.execute(
+        text(
+            """
+            SELECT question_identity_id
+            FROM annotation_question_identities
+            WHERE annotation_id = :annotation_id
+            """
+        ),
+        {"annotation_id": annotation_id},
+    ).scalar_one_or_none()
+    if identity_id is None:
+        return
+    connection.execute(
+        text(
+            """
+            UPDATE annotations
+            SET status = COALESCE(:status, status),
+                priority = COALESCE(:priority, priority),
+                answered_at = CASE
+                  WHEN :status = 'answered' THEN :now
+                  ELSE answered_at
+                END,
+                archived_at = CASE
+                  WHEN :status = 'archived' THEN :now
+                  ELSE archived_at
+                END,
+                postponed_at = CASE
+                  WHEN :status IN ('answered', 'archived') OR :skipped = 1 THEN NULL
+                  WHEN :postponed IS NULL THEN postponed_at
+                  WHEN :postponed = 1 THEN :now
+                  ELSE NULL
+                END,
+                skipped_at = CASE
+                  WHEN :status IN ('answered', 'archived') THEN NULL
+                  WHEN :postponed = 1 THEN NULL
+                  WHEN :skipped IS NULL THEN skipped_at
+                  WHEN :skipped = 1 THEN :now
+                  ELSE NULL
+                END,
+                updated_at = :now,
+                revision = revision + 1
+            WHERE id <> :annotation_id
+              AND deleted_at IS NULL
+              AND id IN (
+                SELECT sibling.annotation_id
+                FROM annotation_question_identities sibling
+                WHERE sibling.question_identity_id = :question_identity_id
+              )
+            """
+        ),
+        {
+            "annotation_id": annotation_id,
+            "question_identity_id": str(identity_id),
+            "status": command.status,
+            "priority": command.priority,
+            "postponed": command.postponed,
+            "skipped": command.skipped,
+            "now": timestamp,
+        },
+    )
+
+
 def update_annotation(
     connection: Connection,
     annotation_id: str,
@@ -1911,6 +1997,7 @@ def update_annotation(
           ELSE NULL
         END""",
     ]
+    now = _now()
     response = _update_with_revision(
         connection,
         table_name="annotations",
@@ -1923,13 +2010,18 @@ def update_annotation(
             "priority": command.priority,
             "postponed": command.postponed,
             "skipped": command.skipped,
-            "now": _now(),
+            "now": now,
         },
     )
-    _ensure_question_identity(connection, annotation_id, timestamp=_now())
+    _ensure_question_identity(connection, annotation_id, timestamp=now)
+    _sync_question_identity_state(
+        connection,
+        annotation_id,
+        command,
+        timestamp=now,
+    )
     if command.markdown is None and command.plain_text is None:
         return response
-    now = _now()
     markdown = command.markdown or command.plain_text or ""
     plain_text = command.plain_text if command.plain_text is not None else markdown
     content_hash = hashlib.sha256(markdown.encode("utf-8")).hexdigest()

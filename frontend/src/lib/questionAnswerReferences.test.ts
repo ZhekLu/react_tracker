@@ -89,4 +89,26 @@ describe("question answer references", () => {
     expect(stillOpen.answerReferences).toEqual([]);
     expect(stillOpen.discussionResponseCount).toBe(1);
   });
+
+  it("shares one answer across visual captures with the same stable identity", () => {
+    const course = courseWith("answers", "answered");
+    const primary = {
+      ...course.annotations[0],
+      stableLabel: "Q-b-07-008",
+    };
+    const recolouredCapture = {
+      ...primary,
+      id: "question-1-recoloured-capture",
+    };
+    course.annotations = [primary, recolouredCapture];
+    course.resources[0].annotations = [primary, recolouredCapture];
+
+    const enriched = withQuestionAnswerReferences(course);
+
+    expect(enriched.annotations[0].discussionResponseCount).toBe(1);
+    expect(enriched.annotations[1].discussionResponseCount).toBe(1);
+    expect(enriched.annotations[1].answerReferences).toEqual(
+      enriched.annotations[0].answerReferences,
+    );
+  });
 });

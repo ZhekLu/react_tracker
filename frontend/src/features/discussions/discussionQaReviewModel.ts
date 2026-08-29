@@ -6,7 +6,10 @@ import {
   discussionQaSections,
   type DiscussionQaSection,
 } from "../../lib/discussionQa";
-import { isTrackedQuestion } from "../../lib/questionIdentity";
+import {
+  isTrackedQuestion,
+  trackedQuestionKey,
+} from "../../lib/questionIdentity";
 import type {
   Annotation,
   Discussion,
@@ -432,6 +435,35 @@ export function qaReviewThreads(
     roots.forEach((id) => components.add(id));
     components.union(roots);
   });
+  // A logical PDF question can have several visual captures (for example, a
+  // highlighted sentence plus overlapping handwriting). Stable identity joins
+  // those captures even when a historical answer was linked to a different
+  // member than the currently visible source capture.
+  const rootsByStableKey = new Map<string, string[]>();
+  annotations
+    .filter(
+      (annotation) =>
+        annotation.origin !== "discussion_review_followup" &&
+        isTrackedQuestion(annotation) &&
+        Boolean(annotation.stableLabel),
+    )
+    .forEach((annotation) => {
+      const key = trackedQuestionKey(annotation);
+      const roots = rootQuestionIds(annotation, annotationById);
+      roots.forEach((id) => components.add(id));
+      rootsByStableKey.set(key, [
+        ...new Set([...(rootsByStableKey.get(key) ?? []), ...roots]),
+      ]);
+    });
+  rootsByStableKey.forEach((roots) => components.union(roots));
+
+  const allRootIdsByComponent = new Map<string, string[]>();
+  [...new Set([...rootsByAnnotationId.values()].flat())].forEach((rootId) => {
+    const componentId = components.find(rootId);
+    allRootIdsByComponent.set(componentId, [
+      ...new Set([...(allRootIdsByComponent.get(componentId) ?? []), rootId]),
+    ]);
+  });
 
   const promptQuestionIds = activeDiscussion.questionLabels.flatMap(
     (item) => item.annotationIds,
@@ -495,7 +527,9 @@ export function qaReviewThreads(
 
   const questionThreads = [...groupedRoots.entries()]
     .map(([componentId, rootIds]) => {
-      const componentRootIds = [...new Set(rootIds)];
+      const componentRootIds = allRootIdsByComponent.get(componentId) ?? [
+        ...new Set(rootIds),
+      ];
       const rootQuestions = componentRootIds
         .map((id) => annotationById.get(id))
         .filter((item): item is Annotation => Boolean(item));

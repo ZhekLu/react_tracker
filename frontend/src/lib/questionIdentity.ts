@@ -16,3 +16,12 @@ export function isTrackedQuestion(
     Boolean(annotation.stableLabel)
   );
 }
+
+/** A logical key shared by every visual capture of the same question. */
+export function trackedQuestionKey(
+  annotation: Pick<Annotation, "id" | "stableLabel">,
+): string {
+  return annotation.stableLabel
+    ? `stable:${annotation.stableLabel}`
+    : `annotation:${annotation.id}`;
+}

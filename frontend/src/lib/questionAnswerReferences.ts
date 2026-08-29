@@ -4,6 +4,7 @@ import type {
   AnnotationAnswerReference,
   Course,
 } from "../types/tracker";
+import { trackedQuestionKey } from "./questionIdentity";
 
 function answerReferencesByAnnotation(
   course: Course,
@@ -21,13 +22,31 @@ function answerReferencesByAnnotation(
       if (section.kind === "preamble") continue;
       const message = messageById.get(section.messageId);
       if (!message) continue;
+      const sectionQuestionKeys = new Set(
+        section.questionIds
+          .map((annotationId) => annotationById.get(annotationId))
+          .filter((annotation): annotation is Annotation => Boolean(annotation))
+          .map(trackedQuestionKey),
+      );
       for (const annotationId of section.questionIds) {
         const annotation = annotationById.get(annotationId);
+        if (!annotation) continue;
+        const questionKey = trackedQuestionKey(annotation);
         const isCanonicalAnswer = message.annotationLinks.some(
-          (link) =>
-            link.annotationId === annotationId && link.relation === "answers",
+          (link) => {
+            const linked = annotationById.get(link.annotationId);
+            return (
+              link.relation === "answers" &&
+              Boolean(linked) &&
+              trackedQuestionKey(linked!) === questionKey
+            );
+          },
         );
-        if (annotation?.status !== "answered" || !isCanonicalAnswer) continue;
+        if (
+          annotation.status !== "answered" ||
+          !isCanonicalAnswer ||
+          !sectionQuestionKeys.has(questionKey)
+        ) continue;
         const reference: AnnotationAnswerReference = {
           discussionId: discussion.id,
           discussionTitle: discussion.title,
@@ -38,9 +57,9 @@ function answerReferencesByAnnotation(
           sectionLabel: section.label,
           title: section.title,
         };
-        const current = references.get(annotationId) ?? [];
+        const current = references.get(questionKey) ?? [];
         if (!current.some((item) => item.id === reference.id)) {
-          references.set(annotationId, [...current, reference]);
+          references.set(questionKey, [...current, reference]);
         }
       }
     }
@@ -49,22 +68,28 @@ function answerReferencesByAnnotation(
 }
 
 function discussionResponseCountsByAnnotation(course: Course): Map<string, number> {
-  const sectionIdsByAnnotation = new Map<string, Set<string>>();
+  const annotationById = new Map(
+    course.annotations.map((annotation) => [annotation.id, annotation]),
+  );
+  const sectionIdsByQuestion = new Map<string, Set<string>>();
 
   for (const discussion of course.discussions) {
     for (const section of discussionQaSections(discussion, course.annotations)) {
       if (section.kind === "preamble") continue;
       for (const annotationId of section.questionIds) {
-        const current = sectionIdsByAnnotation.get(annotationId) ?? new Set<string>();
+        const annotation = annotationById.get(annotationId);
+        if (!annotation) continue;
+        const questionKey = trackedQuestionKey(annotation);
+        const current = sectionIdsByQuestion.get(questionKey) ?? new Set<string>();
         current.add(section.id);
-        sectionIdsByAnnotation.set(annotationId, current);
+        sectionIdsByQuestion.set(questionKey, current);
       }
     }
   }
 
   return new Map(
-    [...sectionIdsByAnnotation].map(([annotationId, sectionIds]) => [
-      annotationId,
+    [...sectionIdsByQuestion].map(([questionKey, sectionIds]) => [
+      questionKey,
       sectionIds.size,
     ]),
   );
@@ -80,8 +105,9 @@ export function withQuestionAnswerReferences(course: Course): Course {
   const discussionResponseCounts = discussionResponseCountsByAnnotation(course);
   const enrich = (annotation: Annotation): Annotation => ({
     ...annotation,
-    answerReferences: references.get(annotation.id) ?? [],
-    discussionResponseCount: discussionResponseCounts.get(annotation.id) ?? 0,
+    answerReferences: references.get(trackedQuestionKey(annotation)) ?? [],
+    discussionResponseCount:
+      discussionResponseCounts.get(trackedQuestionKey(annotation)) ?? 0,
   });
   return {
     ...course,

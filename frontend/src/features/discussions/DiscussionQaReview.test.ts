@@ -35,6 +35,47 @@ function annotation(
 }
 
 describe("focused discussion QA review units", () => {
+  it("joins a historical answer to the current capture by stable identity", () => {
+    const historical = annotation("historical-red-ink", {
+      stableLabel: "Q-b-07-008",
+    });
+    const current = annotation("current-brown-mark", {
+      stableLabel: "Q-b-07-008",
+    });
+    const discussion = {
+      id: "book-chapter-seven",
+      messages: [{
+        annotationLinks: [{
+          annotationId: historical.id,
+          relation: "answers",
+        }],
+        body: { markdown: "## Q-b-07-008\n\nThe retained answer." },
+        createdAt: "2026-07-23T01:00:00Z",
+        id: "answer-1",
+        role: "assistant",
+        sequenceNumber: 1,
+      }],
+      qaReviews: [],
+      questionIds: [current.id],
+      questionLabels: [{
+        annotationIds: [current.id],
+        label: "Q-b-07-008",
+      }],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads(
+      [discussion],
+      [historical, current],
+      discussion,
+    );
+
+    expect(threads).toHaveLength(1);
+    expect(threads[0].rootQuestions?.map((question) => question.id).sort())
+      .toEqual([current.id, historical.id].sort());
+    expect(threads[0].answers?.map((answer) => answer.section.bodyMarkdown))
+      .toEqual(["The retained answer."]);
+  });
+
   it("centers the exact annotation focus instead of the top of its PDF page", () => {
     expect(centeredQaSourceScrollTop({
       currentBottom: 1300,

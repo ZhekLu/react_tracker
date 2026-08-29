@@ -2189,12 +2189,13 @@ def test_postponed_question_groups_leave_active_counts_without_losing_state(
         initial = get_workspace(connection, course_id)
         assert initial.days[0].open_question_count == 1
 
-        for question in questions:
-            update_annotation(
-                connection,
-                question.id,
-                AnnotationCommand(revision=question.revision, postponed=True),
-            )
+        # One API mutation updates the one logical question even though the PDF
+        # importer stored two visual captures for its shared context group.
+        update_annotation(
+            connection,
+            questions[0].id,
+            AnnotationCommand(revision=questions[0].revision, postponed=True),
+        )
         postponed = get_workspace(connection, course_id)
 
         postponed_questions = [
@@ -2227,6 +2228,51 @@ def test_postponed_question_groups_leave_active_counts_without_losing_state(
     )
     assert answered_first.status == "answered"
     assert answered_first.postponed is False
+    answered_group = [
+        annotation
+        for annotation in answered.annotations
+        if annotation.id in {question.id for question in questions}
+    ]
+    assert {annotation.status for annotation in answered_group} == {"answered"}
+    assert all(annotation.postponed is False for annotation in answered_group)
+
+
+def test_question_identity_prevents_source_refresh_from_hiding_history(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        question = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Keep me after the PDF mark disappears.",
+                origin="drawboard_cloud_ink",
+            ),
+        )
+        with pytest.raises(
+            IntegrityError,
+            match="question visibility is immutable after identity assignment",
+        ):
+            connection.execute(
+                text(
+                    """
+                    UPDATE annotations
+                    SET deleted_at = '2026-08-29T12:00:00Z'
+                    WHERE id = :annotation_id
+                    """
+                ),
+                {"annotation_id": question.id},
+            )
+        workspace = get_workspace(connection, course_id)
+
+    restored = next(
+        annotation
+        for annotation in workspace.annotations
+        if annotation.id == question.id
+    )
+    assert restored.kind == "question"
 
 
 def test_skipped_question_leaves_active_counts_without_archiving_history(
