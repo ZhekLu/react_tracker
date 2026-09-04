@@ -98,6 +98,36 @@ describe("discussion paste importer", () => {
     expect(imported).toContain("```python\ndef value():");
   });
 
+  it("preserves multiline ASCII diagrams as fenced code blocks", () => {
+    const imported = importPastedMarkdown([
+      "Imagine a rectangular grid:",
+      "",
+      "```text",
+      "+---+---+---+",
+      "|   |   |   |",
+      "+---+---+---+",
+      "|   | s |   |",
+      "+---+---+---+",
+      "```",
+      "",
+      "Then use shifted tilings:",
+      "",
+      "```text",
+      "Tiling 1: |---|---|---|",
+      "",
+      "Tiling 2:   |---|---|---|",
+      "```",
+    ].join("\n"));
+
+    expect(imported).toContain(
+      "```text\n+---+---+---+\n|   |   |   |\n+---+---+---+",
+    );
+    expect(imported).toContain(
+      "```text\nTiling 1: |---|---|---|\n\nTiling 2:",
+    );
+    expect(importPastedMarkdown(imported)).toBe(imported);
+  });
+
   it("does not squeeze paragraphs during an ordinary manual save", () => {
     expect(normalizeDiscussionMarkdown("First.\n\nOne word")).toBe(
       "First.\n\nOne word",

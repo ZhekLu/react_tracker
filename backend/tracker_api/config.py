@@ -21,24 +21,21 @@ class Settings(BaseSettings):
     app_name: str = "Study Tracker API"
     host: str = "127.0.0.1"
     port: int = 8787
+    log_level: str = "debug"
     database_path: Path = Field(default=DATA_DIR / "tracker_v2.db")
     frontend_origin: str = "http://127.0.0.1:5174"
     helper_config_path: Path = Field(default=DATA_DIR / "toggl_config.json")
     helper_state_path: Path = Field(default=DATA_DIR / "toggl_state.json")
     drawboard_state_path: Path = Field(default=DATA_DIR / "drawboard_state.json")
     annotation_image_dir: Path = Field(default=DATA_DIR / "annotation_images")
-    chatgpt_attachment_dir: Path = Field(
-        default=DATA_DIR / "chatgpt_prompt_attachments"
-    )
+    chatgpt_attachment_dir: Path = Field(default=DATA_DIR / "chatgpt_prompt_attachments")
     maccy_database_path: Path = Field(
         default=Path.home()
         / "Library/Containers/org.p0deje.Maccy/Data/Library/Application Support"
         / "Maccy/Storage.sqlite"
     )
     frontend_dist_path: Path = Field(default=PROJECT_ROOT / "frontend" / "dist")
-    course_files_config_path: Path = Field(
-        default=PROJECT_ROOT / "course_files.json"
-    )
+    course_files_config_path: Path = Field(default=PROJECT_ROOT / "course_files.json")
 
     @property
     def database_url(self) -> str:

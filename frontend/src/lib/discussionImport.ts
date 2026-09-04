@@ -416,8 +416,12 @@ function smallDisplayMath(node: { value: string }): boolean {
 
 function compactTextCode(node: Code): Paragraph | Code {
   const compact = normalizedInlineText(node.value);
+  const nonEmptyLines = node.value
+    .split("\n")
+    .filter((line) => line.trim()).length;
   if (
     node.lang?.toLocaleLowerCase() !== "text" ||
+    nonEmptyLines > 1 ||
     compact.length > 160 ||
     sentenceCount(compact) > 1 ||
     /[┌┐└┘├┤┬┴┼│─]/u.test(node.value)

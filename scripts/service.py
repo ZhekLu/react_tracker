@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import logging
+import os
 import shlex
 import shutil
 import signal
@@ -12,6 +14,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 SESSION = "study-tracker"
@@ -22,6 +25,9 @@ FRONTEND_INDEX = ROOT / "frontend" / "dist" / "index.html"
 LOG_DIR = ROOT / "data" / "logs"
 LOG_PATH = LOG_DIR / "tracker.log"
 HEALTH_URL = "http://127.0.0.1:8787/api/health"
+LOG_MAX_BYTES = int(os.getenv("TRACKER_LOG_MAX_BYTES", str(5 * 1024 * 1024)))
+LOG_BACKUP_COUNT = int(os.getenv("TRACKER_LOG_BACKUP_COUNT", "4"))
+LOG_LEVEL = os.getenv("TRACKER_LOG_LEVEL", "DEBUG").upper()
 
 
 class ServiceError(RuntimeError):
@@ -96,10 +102,7 @@ def start() -> None:
         return
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     script_path = Path(__file__).resolve()
-    command = (
-        f"exec {shlex.quote(sys.executable)} {shlex.quote(str(script_path))} run"
-        f" >> {shlex.quote(str(LOG_PATH))} 2>&1"
-    )
+    command = f"exec {shlex.quote(sys.executable)} {shlex.quote(str(script_path))} run"
     run_tmux(
         "new-session",
         "-d",
@@ -140,8 +143,7 @@ def status() -> None:
             "-p",
             "-t",
             SESSION,
-            "#{session_name}: #{session_windows} window(s); "
-            "created #{t:session_created}",
+            "#{session_name}: #{session_windows} window(s); created #{t:session_created}",
             capture_output=True,
         ).stdout.strip()
         print(f"tmux: running ({details})")
@@ -160,6 +162,20 @@ def attach() -> None:
 def run_server() -> None:
     """Supervise the single app process inside tmux and restart after a crash."""
 
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    service_logger = logging.getLogger("tracker.service")
+    service_logger.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
+    service_logger.propagate = False
+    if not service_logger.handlers:
+        handler = RotatingFileHandler(
+            LOG_PATH,
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=LOG_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        service_logger.addHandler(handler)
+
     stopping = False
     child: subprocess.Popen[str] | None = None
 
@@ -176,14 +192,29 @@ def run_server() -> None:
             [str(PYTHON), "-m", "tracker_api.main"],
             cwd=BACKEND,
             text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
         )
+        assert child.stdout is not None
+        for raw_line in child.stdout:
+            line = raw_line.rstrip("\n")
+            if line.startswith("ERROR") or "Traceback (most recent call last)" in line:
+                level = logging.ERROR
+            elif line.startswith("WARNING"):
+                level = logging.WARNING
+            elif line.startswith("DEBUG"):
+                level = logging.DEBUG
+            else:
+                level = logging.INFO
+            service_logger.log(level, "%s", line)
         return_code = child.wait()
         child = None
         if stopping:
             break
-        print(
-            f"Tracker exited with code {return_code}; restarting in 2 seconds.",
-            flush=True,
+        service_logger.error(
+            "Tracker exited with code %s; restarting in 2 seconds.",
+            return_code,
         )
         time.sleep(2.0)
 

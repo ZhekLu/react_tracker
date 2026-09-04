@@ -241,9 +241,7 @@ def test_contained_guide_groups_become_one_screenshot() -> None:
     inner_guide = _ink("guide-inner", [20.0, 20.0, 22.0, 80.0])
     inner_text = _ink("inner-text", [21.0, 20.0, 90.0, 80.0])
 
-    groups = group_red_ink_annotations(
-        [outer_guide, outer_text, inner_guide, inner_text]
-    )
+    groups = group_red_ink_annotations([outer_guide, outer_text, inner_guide, inner_text])
 
     assert len(groups) == 1
     assert set(groups[0].member_fingerprints) == {
@@ -260,9 +258,7 @@ def test_overlapping_vertical_crop_bands_become_one_screenshot() -> None:
     right_guide = _ink("guide-right", [280.0, 24.0, 283.0, 116.0])
     right_note = _ink("note-right", [300.0, 30.0, 420.0, 110.0])
 
-    groups = group_red_ink_annotations(
-        [left_guide, left_note, right_guide, right_note]
-    )
+    groups = group_red_ink_annotations([left_guide, left_note, right_guide, right_note])
 
     assert len(groups) == 1
     assert set(groups[0].member_fingerprints) == {
@@ -279,9 +275,7 @@ def test_slightly_overlapping_guides_are_one_intentional_question() -> None:
     second_guide = _ink("guide-second", [5.0, 112.0, 8.0, 210.0])
     second_note = _ink("note-second", [12.0, 125.0, 190.0, 195.0])
 
-    groups = group_red_ink_annotations(
-        [first_guide, first_note, second_guide, second_note]
-    )
+    groups = group_red_ink_annotations([first_guide, first_note, second_guide, second_note])
 
     assert len(groups) == 1
     assert set(groups[0].member_fingerprints) == {
@@ -357,12 +351,7 @@ def test_handwriting_image_contains_nearby_ink_and_highlights(
         scale=2,
         stroke_width=2,
     )
-    output = (
-        tmp_path
-        / "annotation-images"
-        / "resource-1"
-        / "target.png"
-    )
+    output = tmp_path / "annotation-images" / "resource-1" / "target.png"
     pixmap = pymupdf.Pixmap(output)
     pixels = [
         tuple(pixmap.samples[index : index + pixmap.n])
@@ -371,10 +360,40 @@ def test_handwriting_image_contains_nearby_ink_and_highlights(
 
     assert any(red > 180 and green < 150 for red, green, _blue in pixels)
     assert any(blue > 180 and red < 150 for red, _green, blue in pixels)
-    assert any(
-        red > 210 and green > 190 and blue < 245
-        for red, green, blue in pixels
+    assert any(red > 210 and green > 190 and blue < 245 for red, green, blue in pixels)
+    get_settings.cache_clear()
+
+
+def test_invalid_handwriting_crop_does_not_abort_other_images(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_path = tmp_path / "source.pdf"
+    document = pymupdf.open()
+    document.new_page(width=200, height=200)
+    document.save(source_path)
+    document.close()
+
+    monkeypatch.setenv(
+        "TRACKER_ANNOTATION_IMAGE_DIR",
+        str(tmp_path / "annotation-images"),
     )
+    get_settings.cache_clear()
+    outside_page = _ink("outside-page", [10.0, 450.0, 80.0, 480.0])
+    valid = _ink("valid", [10.0, 70.0, 80.0, 95.0])
+
+    urls = render_ink_context_images(
+        source_path,
+        "resource-1",
+        [outside_page, valid],
+        page_inks=[outside_page, valid],
+        margin=12,
+        scale=2,
+    )
+
+    assert "outside-page" not in urls
+    assert "valid" in urls
+    assert (tmp_path / "annotation-images" / "resource-1" / "valid.png").is_file()
     get_settings.cache_clear()
 
 
@@ -420,12 +439,7 @@ def test_complete_annotated_page_preserves_highlight_and_ink(
     )
 
     assert 1 in urls
-    output = (
-        tmp_path
-        / "annotation-images"
-        / "resource-1"
-        / "drawboard-page-1.png"
-    )
+    output = tmp_path / "annotation-images" / "resource-1" / "drawboard-page-1.png"
     assert output.is_file()
     pixmap = pymupdf.Pixmap(output)
     pixels = [
@@ -433,10 +447,7 @@ def test_complete_annotated_page_preserves_highlight_and_ink(
         for index in range(0, len(pixmap.samples), pixmap.n)
     ]
     assert any(red > 180 and green < 150 for red, green, _blue in pixels)
-    assert any(
-        red > 210 and green > 190 and blue < 245
-        for red, green, blue in pixels
-    )
+    assert any(red > 210 and green > 190 and blue < 245 for red, green, blue in pixels)
     get_settings.cache_clear()
 
 
@@ -478,12 +489,7 @@ def test_multiline_highlight_does_not_fill_between_its_quads(
         captures=[highlight],
         scale=2,
     )
-    output = (
-        tmp_path
-        / "annotation-images"
-        / "resource-1"
-        / "drawboard-page-1.png"
-    )
+    output = tmp_path / "annotation-images" / "resource-1" / "drawboard-page-1.png"
     pixmap = pymupdf.Pixmap(output)
 
     def pixel(x: int, y: int) -> tuple[int, int, int]:

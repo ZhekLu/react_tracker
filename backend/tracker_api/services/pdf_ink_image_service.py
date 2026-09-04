@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import re
 from collections.abc import Iterable
@@ -24,6 +25,8 @@ PDF_BLEND_MODES = {
     "overlay": "Overlay",
     "screen": "Screen",
 }
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class PdfInkImageError(RuntimeError):
@@ -104,12 +107,7 @@ def _ink_coordinate_paths(value: object) -> list[list[tuple[float, float]]]:
         numbers = [float(item) for item in value]
         if len(numbers) < 4:
             return []
-        return [
-            [
-                (numbers[index], numbers[index + 1])
-                for index in range(0, len(numbers) - 1, 2)
-            ]
-        ]
+        return [[(numbers[index], numbers[index + 1]) for index in range(0, len(numbers) - 1, 2)]]
 
     points = [_point(item) for item in value]
     if points and all(point is not None for point in points):
@@ -170,10 +168,7 @@ def _numeric_points(value: object) -> list[tuple[float, float]] | None:
     ):
         return None
     numbers = [float(number) for number in value]
-    return [
-        (numbers[index], numbers[index + 1])
-        for index in range(0, len(numbers), 2)
-    ]
+    return [(numbers[index], numbers[index + 1]) for index in range(0, len(numbers), 2)]
 
 
 def _decode_drawboard_segment(
@@ -448,14 +443,20 @@ def _render_ink(
         )
         overlay_page.show_pdf_page(overlay_page.rect, source_document, ink.page - 1)
         pdf_rect = drawboard_rect_to_pdf(ink.rect, source_page.rect.height)
-        y0 = max(0.0, (pdf_rect[1] if pdf_rect else 0.0) - margin)
-        y1 = min(
-            source_page.rect.height,
-            (pdf_rect[3] if pdf_rect else source_page.rect.height) + margin,
-        )
+        if len(pdf_rect) == 4 and not all(math.isfinite(value) for value in pdf_rect):
+            raise PdfInkImageError(f"Ink has non-finite crop coordinates: {ink.fingerprint}")
+        raw_y0 = min(pdf_rect[1], pdf_rect[3]) if len(pdf_rect) == 4 else 0.0
+        raw_y1 = max(pdf_rect[1], pdf_rect[3]) if len(pdf_rect) == 4 else source_page.rect.height
+        y0 = max(source_page.rect.y0, raw_y0 - margin)
+        y1 = min(source_page.rect.y1, raw_y1 + margin)
         clip = pymupdf.Rect(  # type: ignore[no-untyped-call]
-            0, y0, source_page.rect.width, y1
+            source_page.rect.x0, y0, source_page.rect.x1, y1
         )
+        if clip.is_empty or not clip.is_valid or clip.width * scale < 1 or clip.height * scale < 1:
+            raise PdfInkImageError(
+                "Ink crop is outside the matching PDF page: "
+                f"{ink.fingerprint} page={ink.page} rect={ink.rect}"
+            )
 
         for capture in captures:
             if capture.page != ink.page:
@@ -503,14 +504,23 @@ def _render_ink(
                         stroke_opacity=stroke_opacity,
                         overlay=True,
                     )
-        pixmap = overlay_page.get_pixmap(
-            matrix=pymupdf.Matrix(scale, scale),  # type: ignore[no-untyped-call]
-            clip=clip,
-            alpha=False,
-            colorspace=pymupdf.csRGB,
-        )
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        pixmap.save(output_path)  # type: ignore[no-untyped-call]
+        try:
+            pixmap = overlay_page.get_pixmap(
+                matrix=pymupdf.Matrix(scale, scale),  # type: ignore[no-untyped-call]
+                clip=clip,
+                alpha=False,
+                colorspace=pymupdf.csRGB,
+            )
+            if pixmap.width < 1 or pixmap.height < 1:
+                raise PdfInkImageError(f"Ink crop rendered an empty image: {ink.fingerprint}")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            pixmap.save(output_path)  # type: ignore[no-untyped-call]
+        except PdfInkImageError:
+            raise
+        except Exception as error:
+            raise PdfInkImageError(
+                f"Could not render handwriting crop {ink.fingerprint} on page {ink.page}: {error}"
+            ) from error
     finally:
         overlay_document.close()  # type: ignore[no-untyped-call]
 
@@ -604,20 +614,14 @@ def render_annotated_page_images(
             source_path
         )
     except Exception as error:
-        raise PdfInkImageError(
-            f"Could not open PDF for annotated pages: {source_path}"
-        ) from error
+        raise PdfInkImageError(f"Could not open PDF for annotated pages: {source_path}") from error
     capture_list = list(captures)
     ink_list = list(page_inks)
     urls: dict[int, str] = {}
     try:
         for page_number in sorted(set(pages)):
-            page_captures = [
-                item for item in capture_list if item.page == page_number
-            ]
-            page_ink_items = [
-                item for item in ink_list if item.page == page_number
-            ]
+            page_captures = [item for item in capture_list if item.page == page_number]
+            page_ink_items = [item for item in ink_list if item.page == page_number]
             if not page_captures and not page_ink_items:
                 continue
             image_id = f"drawboard-page-{page_number}"
@@ -676,16 +680,27 @@ def render_ink_context_images(
         for ink in inks:
             image_id = ink.fingerprint
             output_path = annotation_image_path(resource_id, image_id)
-            _render_ink(
-                source_document,
-                ink,
-                output_path,
-                captures=capture_list,
-                page_inks=page_ink_list,
-                margin=margin,
-                scale=scale,
-                stroke_width=stroke_width,
-            )
+            try:
+                _render_ink(
+                    source_document,
+                    ink,
+                    output_path,
+                    captures=capture_list,
+                    page_inks=page_ink_list,
+                    margin=margin,
+                    scale=scale,
+                    stroke_width=stroke_width,
+                )
+            except PdfInkImageError as error:
+                logger.warning(
+                    "Skipping invalid handwriting crop resource_id=%s "
+                    "fingerprint=%s page=%s error=%s",
+                    resource_id,
+                    ink.fingerprint,
+                    ink.page,
+                    error,
+                )
+                continue
             urls[ink.fingerprint] = annotation_image_url(
                 resource_id,
                 image_id,

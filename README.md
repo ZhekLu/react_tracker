@@ -66,6 +66,14 @@ make service-stop
 make service-start
 ```
 
+The persistent log is `data/logs/tracker.log`. It includes request IDs for every
+API read and write, write outcomes at `INFO`, client failures at `WARNING`, and
+stack traces at `ERROR`. Debug request logging is enabled while the tracker is
+being stabilized. Set `TRACKER_LOG_LEVEL=INFO` in `backend/.env` and restart the
+service to disable it later. Logs rotate automatically at 5 MiB with four old
+files retained; `TRACKER_LOG_MAX_BYTES` and `TRACKER_LOG_BACKUP_COUNT` can
+override those service defaults.
+
 To run the built app in the foreground instead:
 
 ```sh
