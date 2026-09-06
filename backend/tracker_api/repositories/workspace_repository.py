@@ -2862,6 +2862,14 @@ def _prompt_item_question_label(
           AND pb.deleted_at IS NULL
           AND pbi.question_label = :question_label
           AND pbi.annotation_id <> :annotation_id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM annotation_question_identities requested_identity
+            JOIN annotation_question_identities owner_identity
+              ON owner_identity.question_identity_id = requested_identity.question_identity_id
+            WHERE requested_identity.annotation_id = :annotation_id
+              AND owner_identity.annotation_id = pbi.annotation_id
+          )
         LIMIT 1
         """,
         {

@@ -4840,6 +4840,120 @@ button.taskMetaBadge:disabled {
   overflow: hidden;
 }
 
+.promptQuestionSelectionDialog {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, calc(100vw - 32px));
+  max-height: min(860px, calc(100vh - 32px));
+  overflow: hidden;
+}
+
+.promptQuestionSelectionDialog > header > div {
+  min-width: 0;
+}
+
+.promptQuestionSelectionDialog > header h2 {
+  margin: 2px 0 4px;
+}
+
+.promptQuestionSelectionDialog > header p:last-child {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.promptQuestionSelectionActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 17px 0 12px;
+}
+
+.promptQuestionSelectionActions > span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.promptQuestionSelectionList {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 7px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 5px;
+}
+
+.promptQuestionSelectionList > label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.promptQuestionSelectionList > label.selected {
+  border-color: color-mix(in srgb, var(--course-accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--course-accent) 8%, var(--surface));
+}
+
+.promptQuestionSelectionList input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--course-accent);
+}
+
+.promptQuestionSelectionCopy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.promptQuestionSelectionCopy strong {
+  font-size: 0.8rem;
+}
+
+.promptQuestionSelectionCopy small {
+  color: color-mix(in srgb, var(--course-accent) 78%, var(--ink));
+  font-size: 0.68rem;
+  font-weight: 760;
+}
+
+.promptQuestionSelectionCopy > span {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 0.77rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.promptQuestionAttachmentBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.promptQuestionAttachmentBadge.hasAttachment {
+  border-color: color-mix(in srgb, var(--blue) 32%, var(--line));
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+
 .drawboardPaletteList {
   display: grid;
   flex: 1 1 auto;

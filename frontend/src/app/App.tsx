@@ -42,7 +42,11 @@ import {
   upsertNote,
 } from "../api/trackerApi";
 import { withQuestionAnswerReferences } from "../lib/questionAnswerReferences";
-import { isTrackedQuestion } from "../lib/questionIdentity";
+import {
+  isTrackedQuestion,
+  questionCaptureHasAttachment,
+  queuedTrackedQuestionGroups,
+} from "../lib/questionIdentity";
 import { AppShell } from "../components/AppShell";
 import type { ResourceCaptureInput } from "../components/annotations/InlineCaptureEditor";
 import type { DiscussionReviewItem } from "../components/editor/DiscussionMarkdownSurface";
@@ -59,7 +63,12 @@ import { SkillsView } from "../features/skills/SkillsView";
 import { QuestionDialog } from "../features/questions/QuestionDialog";
 import { QuestionExtractionDialog } from "../features/questions/QuestionExtractionDialog";
 import {
+  PromptQuestionSelectionDialog,
+  type PromptQuestionChoice,
+} from "../features/questions/PromptQuestionSelectionDialog";
+import {
   allQuestions,
+  annotationChapterNumber,
   annotationContext,
   dayPrompt,
   dayQuestions,
@@ -99,6 +108,7 @@ import type {
   DayStatus,
   Discussion,
   DiscussionMessage,
+  DiscussionQaViewInput,
   EntityNoteSaveInput,
   ExamQuestion,
   ExamStatus,
@@ -295,6 +305,10 @@ export function App() {
   const [pdfImportOverview, setPdfImportOverview] = useState<{
     items: PdfAnnotationCollectionItem[];
     resourceTitle: string;
+  } | null>(null);
+  const [promptQuestionSelection, setPromptQuestionSelection] = useState<{
+    choices: PromptQuestionChoice[];
+    resource: Resource;
   } | null>(null);
   const broadcastRef = useRef<BroadcastChannel | null>(null);
   const navigationIntentRef = useRef<"push" | "replace">("replace");
@@ -669,6 +683,10 @@ export function App() {
   async function savePromptBatch(
     payload: PromptPayload,
     label: string,
+    options: {
+      logicalQuestionCount?: number;
+      selectionConfirmed?: boolean;
+    } = {},
   ): Promise<string | null> {
     if (!workspace) return null;
     setError(null);
@@ -680,7 +698,7 @@ export function App() {
 
     const sourceAnnotationIds = payload.annotationIds ?? [];
     let attachmentPreview: Awaited<ReturnType<typeof previewPromptBatch>> | null = null;
-    if (sourceAnnotationIds.length > 20) {
+    if (sourceAnnotationIds.length > 20 && !options.selectionConfirmed) {
       try {
         attachmentPreview = await previewPromptBatch({
           annotationIds: sourceAnnotationIds,
@@ -704,8 +722,9 @@ export function App() {
       : "";
     const limitQuestions =
       sourceAnnotationIds.length > 20 &&
+      !options.selectionConfirmed &&
       window.confirm(
-        `${sourceAnnotationIds.length} question items are ready.${previewSummary}\n\nPress OK to prepare the first 20 questions, or Cancel to keep every question.`,
+        `${options.logicalQuestionCount ?? sourceAnnotationIds.length} question items are ready.${previewSummary}\n\nPress OK to prepare the first 20 questions, or Cancel to keep every question.`,
       );
     const annotationIds = limitQuestions
       ? sourceAnnotationIds.slice(0, 20)
@@ -763,8 +782,10 @@ export function App() {
     const attachmentMessage = attachmentCount
       ? ` ${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"} ready in ${batch.attachmentDirectory}.`
       : " No extra files were needed for this prompt.";
-    const questionMessage = sourceAnnotationIds.length
-      ? ` ${annotationIds.length}/${sourceAnnotationIds.length} question item${sourceAnnotationIds.length === 1 ? "" : "s"} included.`
+    const totalQuestionCount = options.logicalQuestionCount ?? sourceAnnotationIds.length;
+    const includedQuestionCount = options.logicalQuestionCount ?? annotationIds.length;
+    const questionMessage = totalQuestionCount
+      ? ` ${includedQuestionCount === totalQuestionCount ? totalQuestionCount : `${includedQuestionCount}/${totalQuestionCount}`} question item${totalQuestionCount === 1 ? "" : "s"} included.`
       : "";
     const warningMessage = batch.warnings.length
       ? ` ${batch.warnings.length} file warning${batch.warnings.length === 1 ? "" : "s"}.`
@@ -871,15 +892,9 @@ export function App() {
       setError("Create the day discussion first, then copy this task's next questions into it.");
       return;
     }
-    const nextQuestions = scopedAnnotations.filter(
-      (annotation) =>
-        isTrackedQuestion(annotation) &&
-        annotation.status === "open" &&
-        !annotation.postponed &&
-        !annotation.skipped &&
-        (annotation.discussionResponseCount ?? 0) === 0,
-    );
-    if (!nextQuestions.length) {
+    const nextGroups = queuedTrackedQuestionGroups(scopedAnnotations);
+    const nextQuestions = nextGroups.flatMap((group) => group.annotations);
+    if (!nextGroups.length) {
       setActionMessage("This task has no open question without a mapped tutor response.");
       return;
     }
@@ -898,12 +913,17 @@ export function App() {
     });
     const promptBatchId = await savePromptBatch(
       payload,
-      `Next ${nextQuestions.length} task question${nextQuestions.length === 1 ? "" : "s"} copied into “${discussion.title}”.`,
+      `Next ${nextGroups.length} task question${nextGroups.length === 1 ? "" : "s"} copied into “${discussion.title}”.`,
+      { logicalQuestionCount: nextGroups.length },
     );
     if (promptBatchId) await loadWorkspace(workspace.id);
   }
 
-  async function handleCopyResourceQuestions(resource: Resource) {
+  async function handleCopyResourceQuestions(
+    resource: Resource,
+    selectedQuestionKeys?: readonly string[],
+    selectionConfirmed = false,
+  ) {
     if (!workspace) return;
     const rootId = resource.parentResourceId ?? resource.id;
     const rootResource =
@@ -914,15 +934,10 @@ export function App() {
         candidate.scopeType === "resource" &&
         candidate.sourceResourceIds.includes(rootId),
     );
-    const nextQuestions = resourceScopedAnnotations(workspace, rootResource).filter(
-      (annotation) =>
-        isTrackedQuestion(annotation) &&
-        annotation.status === "open" &&
-        !annotation.postponed &&
-        !annotation.skipped &&
-        (annotation.discussionResponseCount ?? 0) === 0,
+    const queuedGroups = queuedTrackedQuestionGroups(
+      resourceScopedAnnotations(workspace, rootResource),
     );
-    if (!nextQuestions.length) {
+    if (!queuedGroups.length) {
       if (discussion) {
         navigationIntentRef.current = "push";
         setFocusedResourceId(discussion.id);
@@ -958,6 +973,40 @@ export function App() {
       }
       return;
     }
+    if (selectedQuestionKeys === undefined && queuedGroups.length > 20) {
+      const choices = queuedGroups.map((group): PromptQuestionChoice => {
+        const primary = group.annotations[0];
+        const chapter = annotationChapterNumber(primary);
+        const summary =
+          primary.body?.plainText.trim() ||
+          primary.anchor?.quote?.trim() ||
+          "Screenshot question";
+        return {
+          annotationIds: group.annotations.map((annotation) => annotation.id),
+          attachmentCount: group.annotations.filter(questionCaptureHasAttachment).length,
+          chapterLabel: chapter === null ? "Other location" : `Chapter ${chapter}`,
+          key: group.key,
+          label: primary.stableLabel ?? "Unlabelled question",
+          locationLabel: primary.anchor?.pageNumber
+            ? `p. ${primary.anchor.pageNumber}`
+            : "",
+          summary,
+        };
+      });
+      setPromptQuestionSelection({ choices, resource: rootResource });
+      return;
+    }
+    const selectedKeySet = selectedQuestionKeys
+      ? new Set(selectedQuestionKeys)
+      : null;
+    const nextGroups = selectedKeySet
+      ? queuedGroups.filter((group) => selectedKeySet.has(group.key))
+      : queuedGroups;
+    if (!nextGroups.length) {
+      setActionMessage("No questions were selected.");
+      return;
+    }
+    const nextQuestions = nextGroups.flatMap((group) => group.annotations);
     const questionLabels = questionLabelsForDiscussion(discussion, nextQuestions);
     const labelStart = Math.min(
       ...Object.values(questionLabels).map((label) =>
@@ -973,7 +1022,11 @@ export function App() {
     });
     const promptBatchId = await savePromptBatch(
       payload,
-      `Next ${nextQuestions.length} ${rootResource.kind === "book" ? "book" : "resource"} question${nextQuestions.length === 1 ? "" : "s"} copied in source order.`,
+      `Next ${nextGroups.length} ${rootResource.kind === "book" ? "book" : "resource"} question${nextGroups.length === 1 ? "" : "s"} copied in source order.`,
+      {
+        logicalQuestionCount: nextGroups.length,
+        selectionConfirmed,
+      },
     );
     if (!promptBatchId) return;
 
@@ -1968,19 +2021,19 @@ export function App() {
   }
 
   function handleDiscussionQaViewed(
-    discussionId: string,
-    messageId: string,
-    sectionId: string,
-    sectionFingerprint: string,
-    questionIds: string[],
+    views: DiscussionQaViewInput[],
   ) {
     void runMutation(async () => {
-      await reviewDiscussionQa(
-        discussionId,
-        messageId,
-        sectionId,
-        sectionFingerprint,
-        questionIds,
+      await Promise.all(
+        views.map((view) =>
+          reviewDiscussionQa(
+            view.discussionId,
+            view.messageId,
+            view.sectionId,
+            view.sectionFingerprint,
+            view.questionIds,
+          ),
+        ),
       );
     });
   }
@@ -2395,6 +2448,18 @@ export function App() {
           items={pdfImportOverview.items}
           onClose={() => setPdfImportOverview(null)}
           resourceTitle={pdfImportOverview.resourceTitle}
+        />
+      ) : null}
+      {promptQuestionSelection ? (
+        <PromptQuestionSelectionDialog
+          choices={promptQuestionSelection.choices}
+          onClose={() => setPromptQuestionSelection(null)}
+          onCopy={(keys) => {
+            const resource = promptQuestionSelection.resource;
+            setPromptQuestionSelection(null);
+            void handleCopyResourceQuestions(resource, keys, true);
+          }}
+          resourceTitle={promptQuestionSelection.resource.title}
         />
       ) : null}
     </>

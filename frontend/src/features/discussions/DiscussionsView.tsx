@@ -45,6 +45,7 @@ import type {
   Course,
   Discussion,
   DiscussionMessage,
+  DiscussionQaViewInput,
   DiscussionQuestionRelation,
   EntityNoteSaveInput,
   ExerciseSolutionMappingInput,
@@ -71,7 +72,11 @@ import { discussionExportSegments } from "../../lib/discussionExports";
 import { DiscussionQaReview } from "./DiscussionQaReview";
 import { discussionReviewPrompt } from "./discussionReviewExport";
 import { resourceScopedAnnotations } from "../../lib/prompts";
-import { isTrackedQuestion } from "../../lib/questionIdentity";
+import {
+  isTrackedQuestion,
+  queuedTrackedQuestionGroups,
+  trackedQuestionGroups,
+} from "../../lib/questionIdentity";
 
 type DiscussionsViewProps = {
   course: Course;
@@ -143,13 +148,7 @@ type DiscussionsViewProps = {
     annotationId: string,
     relation: DiscussionQuestionRelation,
   ) => void;
-  onQaViewed: (
-    discussionId: string,
-    messageId: string,
-    sectionId: string,
-    sectionFingerprint: string,
-    questionIds: string[],
-  ) => void;
+  onQaViewed: (views: DiscussionQaViewInput[]) => void;
   onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;
   onToggleImportantAnswer: (input: ImportantAnswerInput) => void;
 };
@@ -1080,14 +1079,7 @@ export function DiscussionsView({
   ).length;
   const queuedResourceQuestionCount =
     discussion?.scopeType === "resource"
-      ? coverageQuestions.filter(
-          (question) =>
-            isTrackedQuestion(question) &&
-            question.status === "open" &&
-            !question.postponed &&
-            !question.skipped &&
-            (question.discussionResponseCount ?? 0) === 0,
-        ).length
+      ? queuedTrackedQuestionGroups(coverageQuestions).length
       : 0;
   const highlightsOnly = highlightOnlyDiscussionId === discussion?.id;
   const reviewAnnotationsByMessage = useMemo(
@@ -1311,8 +1303,7 @@ export function DiscussionsView({
                               .filter(
                                 (annotation) =>
                                   isTrackedQuestion(annotation) &&
-                                  annotation.status !== "archived" &&
-                                  (annotation.discussionResponseCount ?? 0) > 0,
+                                  annotation.status !== "archived",
                               )
                               .map((annotation) => annotation.id)
                           : undefined;
@@ -1329,7 +1320,7 @@ export function DiscussionsView({
                           discussion.scopeType === "resource" ? "resource" : undefined,
                       });
                     }}
-                    title="Review every mapped answer in a focused workspace"
+                    title="Review answers and open questions in a focused workspace"
                     type="button"
                   >
                     <Sparkles size={14} />
@@ -1442,23 +1433,31 @@ export function DiscussionsView({
               </header>
               <div className="resourceDiscussionChapterGrid">
                 {resourceChapterGroups.map((group, index) => {
-                  const answerableIds = group.questions
-                    .filter(
-                      (question) =>
-                        question.status !== "archived" &&
-                        (question.discussionResponseCount ?? 0) > 0,
-                    )
-                    .map((question) => question.id);
-                  const openCount = group.questions.filter(
-                    (question) =>
-                      question.status === "open" &&
-                      !question.postponed &&
-                      !question.skipped,
+                  const logicalQuestions = trackedQuestionGroups(group.questions);
+                  const reviewQuestionIds = logicalQuestions.flatMap((question) =>
+                    question.annotations
+                      .filter((annotation) => annotation.status !== "archived")
+                      .map((annotation) => annotation.id),
+                  );
+                  const answeredCount = logicalQuestions.filter((question) =>
+                    question.annotations.some(
+                      (annotation) =>
+                        annotation.status !== "archived" &&
+                        (annotation.discussionResponseCount ?? 0) > 0,
+                    ),
+                  ).length;
+                  const openCount = logicalQuestions.filter((question) =>
+                    question.annotations.every(
+                      (annotation) =>
+                        annotation.status === "open" &&
+                        !annotation.postponed &&
+                        !annotation.skipped,
+                    ),
                   ).length;
                   return (
                     <button
                       className="resourceDiscussionChapter"
-                      disabled={!answerableIds.length}
+                      disabled={!reviewQuestionIds.length}
                       key={`${group.chapterNumber ?? "other"}:${group.label}`}
                       onClick={() => {
                         onTaskQaClose?.();
@@ -1469,7 +1468,7 @@ export function DiscussionsView({
                             group.chapterNumber === null
                               ? `${selectedSource?.title ?? discussion.title} · other locations`
                               : `${selectedSource?.title ?? discussion.title} · Chapter ${group.chapterNumber}`,
-                          questionIds: answerableIds,
+                          questionIds: reviewQuestionIds,
                           scopeKind: "resource",
                         });
                       }}
@@ -1483,7 +1482,7 @@ export function DiscussionsView({
                       </span>
                       <strong>{group.label}</strong>
                       <small>
-                        {answerableIds.length} answered · {openCount} open
+                        {answeredCount} answered · {openCount} open
                       </small>
                     </button>
                   );

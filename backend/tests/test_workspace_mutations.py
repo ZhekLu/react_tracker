@@ -856,6 +856,73 @@ def test_continuation_rejects_a_label_owned_by_another_question(
             )
 
 
+def test_continuation_accepts_companion_captures_with_one_stable_label(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        captures = [
+            create_annotation(
+                connection,
+                AnnotationCreateCommand(
+                    resource_id=resource_id,
+                    kind="question",
+                    markdown=f"Capture {index}",
+                    anchor=AnnotationAnchorCreate(
+                        page_number=11,
+                        metadata={"contextGroupId": "shared-prompt-question"},
+                    ),
+                ),
+            )
+            for index in (1, 2)
+        ]
+        workspace = get_workspace(connection, course_id)
+        by_id = {annotation.id: annotation for annotation in workspace.annotations}
+        label = by_id[captures[0].id].stable_label
+        assert label == by_id[captures[1].id].stable_label
+        initial = create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="First capture",
+                source_scope="resource_questions",
+                source_resource_id=resource_id,
+                markdown=f"# {label}\n\nFirst capture",
+                annotation_ids=[captures[0].id],
+                question_labels={captures[0].id: label or ""},
+            ),
+        )
+        discussion = create_discussion(
+            connection,
+            DiscussionCreateCommand(
+                course_id=course_id,
+                source_resource_id=resource_id,
+                initial_prompt_batch_id=initial.id,
+            ),
+        )
+        create_prompt_batch(
+            connection,
+            PromptBatchCreateCommand(
+                course_id=course_id,
+                title="All companion captures",
+                source_scope="resource_questions_continuation",
+                source_resource_id=resource_id,
+                parent_discussion_thread_id=discussion.id,
+                markdown=f"# {label}\n\nBoth captures",
+                annotation_ids=[captures[0].id, captures[1].id],
+                question_labels={capture.id: label or "" for capture in captures},
+            ),
+        )
+        updated = get_workspace(connection, course_id)
+
+    assert len(updated.discussions[0].question_labels) == 1
+    assert updated.discussions[0].question_labels[0].label == label
+    assert updated.discussions[0].question_labels[0].annotation_ids == [
+        captures[0].id,
+        captures[1].id,
+    ]
+
+
 def test_qa_review_state_is_persisted_per_discussion_question(
     tmp_path: Path,
 ) -> None:

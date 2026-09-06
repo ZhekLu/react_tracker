@@ -6,7 +6,11 @@ import type {
   StudyDay,
   Task,
 } from "../types/tracker";
-import { isTrackedQuestion } from "./questionIdentity";
+import {
+  isTrackedQuestion,
+  trackedQuestionGroups,
+  type TrackedQuestionGroup,
+} from "./questionIdentity";
 import promptTemplates from "../config/promptTemplates.json";
 import {
   exerciseNumbersInText,
@@ -238,6 +242,45 @@ function annotationLine(
     .join("\n");
 }
 
+function annotationGroupLine(
+  group: TrackedQuestionGroup,
+  resource: Resource | undefined,
+  label: number | string,
+): string {
+  if (group.annotations.length === 1) {
+    return annotationLine(group.annotations[0], resource, label);
+  }
+  const primary = group.annotations[0];
+  const questionLabel = typeof label === "number"
+    ? `Q-${String(label).padStart(3, "0")}`
+    : label;
+  const location = [
+    resource?.title,
+    primary.anchor?.pageNumber ? `page ${primary.anchor.pageNumber}` : null,
+    primary.anchor?.sectionTitle,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const unique = (values: Array<string | null | undefined>) => [
+    ...new Set(values.map((value) => value?.trim()).filter(Boolean)),
+  ] as string[];
+  const quotes = unique(group.annotations.map((annotation) => annotation.anchor?.quote));
+  const bodies = unique(group.annotations.map((annotation) => annotation.body?.plainText));
+  const notes = unique(group.annotations.map((annotation) => noteText(annotation.notes)));
+  return [
+    `### ${questionLabel} · ${location || "Tracker question"}`,
+    `Tracker annotation IDs: ${group.annotations.map((annotation) => annotation.id).join(", ")}`,
+    ...quotes.map((quote) => `> ${quote}`),
+    ...bodies,
+    bodies.length || quotes.length
+      ? ""
+      : "This item was flagged as an open question.",
+    notes.length ? `\n#### My note / attempted solution\n\n${notes.join("\n\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function annotationPromptLabel(
   annotation: Annotation,
   fallbackNumber: number,
@@ -256,6 +299,27 @@ function stableQuestionLabels(
   return labels.length ? Object.fromEntries(labels) : undefined;
 }
 
+function promptQuestionGroups(
+  annotations: readonly Annotation[],
+  options: {
+    annotationIds?: readonly string[];
+    unansweredOnly?: boolean;
+  } = {},
+): TrackedQuestionGroup[] {
+  const requestedIds = options.annotationIds
+    ? new Set(options.annotationIds)
+    : null;
+  return trackedQuestionGroups(activeQuestions([...annotations])).filter(
+    (group) =>
+      (!requestedIds ||
+        group.annotations.some((annotation) => requestedIds.has(annotation.id))) &&
+      (!options.unansweredOnly ||
+        group.annotations.every(
+          (annotation) => (annotation.discussionResponseCount ?? 0) === 0,
+        )),
+  );
+}
+
 export function taskQuestions(
   course: Course,
   day: StudyDay,
@@ -271,30 +335,26 @@ export function taskQuestions(
   const resourceById = new Map(
     course.resources.map((resource) => [resource.id, resource]),
   );
-  const requestedIds = options.annotationIds
-    ? new Set(options.annotationIds)
-    : null;
-  const questions = activeQuestions(taskScopedAnnotations(course, day, task))
-    .filter(
-      (annotation) =>
-        (!requestedIds || requestedIds.has(annotation.id)) &&
-        (!options.unansweredOnly ||
-          (annotation.discussionResponseCount ?? 0) === 0),
-    );
+  const questionGroups = promptQuestionGroups(
+    taskScopedAnnotations(course, day, task),
+    options,
+  );
+  const questions = questionGroups.flatMap((group) => group.annotations);
   const labelStart = options.questionLabelStart ?? 1;
   const markdown = [
     `# ${course.title} · Day ${day.number} · ${task.title}`,
     "",
-    questions.length
-      ? questions
-          .map((annotation, index) =>
-            annotationLine(
-              annotation,
+    questionGroups.length
+      ? questionGroups
+          .map((group, index) => {
+            const annotation = group.annotations[0];
+            return annotationGroupLine(
+              group,
               resourceById.get(annotation.resourceId),
               options.questionLabels?.[annotation.id] ??
                 annotationPromptLabel(annotation, labelStart + index),
-            ),
-          )
+            );
+          })
           .join("\n\n")
       : "No unanswered questions are attached to this task.",
   ].join("\n");
@@ -328,7 +388,8 @@ export function dayPrompt(
   const resources = [...resourceIds]
     .map((resourceId) => resourceById.get(resourceId))
     .filter((resource): resource is Resource => Boolean(resource));
-  const questions = activeQuestions(dayScopedAnnotations(course, day));
+  const questionGroups = promptQuestionGroups(dayScopedAnnotations(course, day));
+  const questions = questionGroups.flatMap((group) => group.annotations);
   const sections = day.sections.map((section) => {
     const taskLines = section.tasks.map((task) => {
       const linked = task.resourceIds
@@ -363,13 +424,14 @@ export function dayPrompt(
     .map((skillId) => skillById.get(skillId)?.name)
     .filter(Boolean)
     .map((skill) => `- ${skill}`);
-  const questionLines = questions.map((annotation, index) =>
-    annotationLine(
-      annotation,
+  const questionLines = questionGroups.map((group, index) => {
+    const annotation = group.annotations[0];
+    return annotationGroupLine(
+      group,
       resourceById.get(annotation.resourceId),
       annotationPromptLabel(annotation, index + 1),
-    ),
-  );
+    );
+  });
   const markdown = [
     `# Study session: ${course.title} · Day ${day.number}`,
     "",
@@ -408,21 +470,23 @@ export function dayQuestions(course: Course, day: StudyDay): PromptPayload {
   const resourceById = new Map(
     course.resources.map((resource) => [resource.id, resource]),
   );
-  const questions = activeQuestions(dayScopedAnnotations(course, day));
+  const questionGroups = promptQuestionGroups(dayScopedAnnotations(course, day));
+  const questions = questionGroups.flatMap((group) => group.annotations);
   const markdown = [
     `# ${course.title} · Day ${day.number} open questions`,
     "",
     `Topic: ${day.topic || day.title}`,
     "",
-    questions.length
-      ? questions
-          .map((annotation, index) =>
-            annotationLine(
-              annotation,
+    questionGroups.length
+      ? questionGroups
+          .map((group, index) => {
+            const annotation = group.annotations[0];
+            return annotationGroupLine(
+              group,
               resourceById.get(annotation.resourceId),
               annotationPromptLabel(annotation, index + 1),
-            ),
-          )
+            );
+          })
           .join("\n\n")
       : "No structured open questions are attached to this day.",
   ].join("\n");
@@ -440,21 +504,23 @@ export function allQuestions(course: Course): PromptPayload {
   const resourceById = new Map(
     course.resources.map((resource) => [resource.id, resource]),
   );
-  const questions = activeQuestions(course.annotations);
+  const questionGroups = promptQuestionGroups(course.annotations);
+  const questions = questionGroups.flatMap((group) => group.annotations);
   return {
     annotationIds: questions.map((annotation) => annotation.id),
     markdown: [
       `# ${course.title} · Active questions`,
       "",
-      questions.length
-        ? questions
-            .map((annotation, index) =>
-              annotationLine(
-                annotation,
+      questionGroups.length
+        ? questionGroups
+            .map((group, index) => {
+              const annotation = group.annotations[0];
+              return annotationGroupLine(
+                group,
                 resourceById.get(annotation.resourceId),
                 annotationPromptLabel(annotation, index + 1),
-              ),
-            )
+              );
+            })
             .join("\n\n")
         : "No structured open questions.",
     ].join("\n"),
@@ -554,16 +620,11 @@ export function resourceQuestions(
     unansweredOnly?: boolean;
   } = {},
 ): PromptPayload {
-  const requestedIds = options.annotationIds
-    ? new Set(options.annotationIds)
-    : null;
-  const questions = activeQuestions(resourceScopedAnnotations(course, resource))
-    .filter(
-      (annotation) =>
-        (!requestedIds || requestedIds.has(annotation.id)) &&
-        (!options.unansweredOnly ||
-          (annotation.discussionResponseCount ?? 0) === 0),
-    );
+  const questionGroups = promptQuestionGroups(
+    resourceScopedAnnotations(course, resource),
+    options,
+  );
+  const questions = questionGroups.flatMap((group) => group.annotations);
   const resourceById = new Map(
     course.resources.map((candidate) => [candidate.id, candidate]),
   );
@@ -571,7 +632,8 @@ export function resourceQuestions(
     resource.chapters.map((chapter) => [chapter.number, chapter.title]),
   );
   let previousChapter: number | null | undefined;
-  const questionBlocks = questions.flatMap((annotation, index) => {
+  const questionBlocks = questionGroups.flatMap((group, index) => {
+    const annotation = group.annotations[0];
     const chapter = annotationChapterNumber(annotation);
     const heading = chapter !== previousChapter
       ? [
@@ -583,8 +645,8 @@ export function resourceQuestions(
     previousChapter = chapter;
     return [
       ...heading,
-      annotationLine(
-        annotation,
+      annotationGroupLine(
+        group,
         resourceById.get(annotation.resourceId) ?? resource,
         options.questionLabels?.[annotation.id] ??
           annotationPromptLabel(
@@ -599,7 +661,7 @@ export function resourceQuestions(
     markdown: [
       `# ${course.title} · ${resource.title} questions`,
       "",
-      questions.length
+      questionGroups.length
         ? questionBlocks.join("\n\n")
         : "No structured open questions for this resource.",
     ].join("\n"),

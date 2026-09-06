@@ -49,6 +49,7 @@ import type {
   Course,
   Discussion,
   DiscussionMessage,
+  DiscussionQaViewInput,
   DiscussionQuestionRelation,
   Resource,
   ExerciseSolutionMappingInput,
@@ -99,13 +100,7 @@ type DiscussionQaReviewProps = {
     annotationId: string,
     relation: DiscussionQuestionRelation,
   ) => void;
-  onQaViewed: (
-    discussionId: string,
-    messageId: string,
-    sectionId: string,
-    sectionFingerprint: string,
-    questionIds: string[],
-  ) => void;
+  onQaViewed: (views: DiscussionQaViewInput[]) => void;
   onMapExerciseSolution: (input: ExerciseSolutionMappingInput) => void;
   onToggleImportantAnswer: (input: ImportantAnswerInput) => void;
   onUpdateMessage: (
@@ -636,8 +631,7 @@ export function DiscussionQaReview({
             section: latest?.section,
             sectionDiscussionId: latest?.discussionId,
           };
-        })
-        .filter((item) => item.answers.length > 0);
+        });
     },
     [course.annotations, course.discussions, discussion, hiddenSectionIds, questionIds],
   );
@@ -729,7 +723,9 @@ export function DiscussionQaReview({
     Math.min(activeIndex, Math.max(0, visibleItems.length - 1)),
   );
   const activeItem = visibleItems[boundedActiveIndex];
-  const reportedViewKeys = useRef(new Set<string>());
+  const pendingViewsByItemId = useRef(
+    new Map<string, { input: DiscussionQaViewInput; viewKey: string }>(),
+  );
   const activeRootQuestions = useMemo(
     () =>
       activeItem
@@ -864,21 +860,25 @@ export function DiscussionQaReview({
     if (!activeItem?.section || !activeItem.questions.length) return;
     const fingerprint = qaSectionFingerprint(activeItem.section);
     const viewKey = `${activeItem.section.messageId}:${activeItem.section.id}:${fingerprint}`;
-    if (reportedViewKeys.current.has(viewKey)) return;
-    reportedViewKeys.current.add(viewKey);
+    if (pendingViewsByItemId.current.get(activeItem.id)?.viewKey === viewKey) {
+      return;
+    }
     const questionIds = activeItem.questions.map((question) => question.id);
     const timer = window.setTimeout(() => {
-      onQaViewed(
-        activeItem.sectionDiscussionId ?? discussion.id,
-        activeItem.section!.messageId,
-        activeItem.section!.id,
-        fingerprint,
-        questionIds,
-      );
+      pendingViewsByItemId.current.set(activeItem.id, {
+        input: {
+          discussionId: activeItem.sectionDiscussionId ?? discussion.id,
+          messageId: activeItem.section!.messageId,
+          questionIds,
+          sectionFingerprint: fingerprint,
+          sectionId: activeItem.section!.id,
+        },
+        viewKey,
+      });
       setVisitedItemIds((current) => new Set([...current, activeItem.id]));
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [activeItem, discussion.id, onQaViewed]);
+  }, [activeItem, discussion.id]);
 
   const reconstructedByMessage = useMemo(
     () =>
@@ -1019,6 +1019,15 @@ export function DiscussionQaReview({
       setConfirmClose(true);
       return;
     }
+    closeSession();
+  }
+
+  function closeSession() {
+    const views = [...pendingViewsByItemId.current.values()].map(
+      ({ input }) => input,
+    );
+    pendingViewsByItemId.current.clear();
+    if (views.length) onQaViewed(views);
     onClose();
   }
 
@@ -1500,10 +1509,10 @@ export function DiscussionQaReview({
             <div className="qaCompletionHalo">
               <Sparkles size={38} />
             </div>
-            <h2>Every open question is reviewed</h2>
+            <h2>Nothing matches this QA filter</h2>
             <p>
-              Switch off “Open only” to revisit the full answer, including
-              orientation sections.
+              Choose Open questions or All answers to revisit the rest of this
+              resource scope.
             </p>
           </section>
         )}
@@ -1537,7 +1546,7 @@ export function DiscussionQaReview({
           confirmLabel="Discard edits"
           description="The answer edits and queued highlights or follow-ups in this QA session have not been saved."
           onCancel={() => setConfirmClose(false)}
-          onConfirm={onClose}
+          onConfirm={closeSession}
           title="Close without saving?"
         />
       ) : null}

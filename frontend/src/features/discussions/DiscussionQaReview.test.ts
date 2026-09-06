@@ -144,6 +144,57 @@ describe("focused discussion QA review units", () => {
     expect(qaReviewItemVisible(changed, "new", reviews)).toBe(true);
   });
 
+  it("keeps a locally visited card in New & updated until the session closes", () => {
+    const question = annotation("question");
+    const section = {
+      bodyMarkdown: "A new tutor answer.",
+      headingLine: "## Q-001",
+      id: "section-1",
+      messageId: "message-1",
+      questionIds: [question.id],
+    } as DiscussionQaSection;
+    const item = {
+      id: "item-1",
+      questions: [question],
+      section,
+      sectionDiscussionId: "discussion-1",
+    };
+
+    expect(qaReviewStatus(item, [], true)).toBe("viewed");
+    expect(qaReviewItemVisible(item, "new", [], true)).toBe(true);
+  });
+
+  it("keeps an unanswered scoped question in QA without a tutor section", () => {
+    const unanswered = annotation("unanswered", {
+      stableLabel: "Q-b-08-009",
+    });
+    const discussion = {
+      id: "book-resource-discussion",
+      messages: [],
+      qaReviews: [],
+      questionIds: [unanswered.id],
+      questionLabels: [{
+        annotationIds: [unanswered.id],
+        label: unanswered.stableLabel,
+      }],
+    } as unknown as Discussion;
+
+    const threads = qaReviewThreads(
+      [discussion],
+      [unanswered],
+      discussion,
+      [unanswered.id],
+    );
+
+    expect(threads).toHaveLength(1);
+    expect(threads[0].rootQuestions?.map((question) => question.id)).toEqual([
+      unanswered.id,
+    ]);
+    expect(threads[0].answers).toEqual([]);
+    expect(qaReviewItemVisible(threads[0], "new", [])).toBe(true);
+    expect(qaReviewItemVisible(threads[0], "open", [])).toBe(true);
+  });
+
   it("requires a structured annotation link for the exercise-mapped badge", () => {
     const question = annotation("exercise-question");
     const item = {

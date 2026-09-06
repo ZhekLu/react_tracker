@@ -170,4 +170,39 @@ describe("resource question prompts", () => {
       payload.markdown.indexOf("Q-008"),
     );
   });
+
+  it("copies one logical question with every companion capture", () => {
+    const first = question("first-capture", "book", 11);
+    const second = question("second-capture", "book", 11);
+    first.stableLabel = "Q-b-11-007";
+    second.stableLabel = "Q-b-11-007";
+    first.anchor!.metadata.contextGroupId = "shared-question";
+    second.anchor!.metadata.contextGroupId = "shared-question";
+    const book = {
+      chapters: [{ number: 11, title: "Off-policy Methods" }],
+      id: "book",
+      kind: "book",
+      title: "RL Book",
+    } as Resource;
+    const course = {
+      annotations: [first, second],
+      resources: [book],
+      shortCode: "TORL",
+      title: "Trustworthy Offline RL",
+    } as unknown as Course;
+
+    const payload = resourceQuestions(course, book, {
+      parentDiscussionId: "book-discussion",
+      unansweredOnly: true,
+    });
+
+    expect(payload.annotationIds).toEqual([first.id, second.id]);
+    expect(payload.questionLabels).toEqual({
+      [first.id]: "Q-b-11-007",
+      [second.id]: "Q-b-11-007",
+    });
+    expect(payload.markdown.match(/^### Q-b-11-007/gm)).toHaveLength(1);
+    expect(payload.markdown).toContain(first.id);
+    expect(payload.markdown).toContain(second.id);
+  });
 });

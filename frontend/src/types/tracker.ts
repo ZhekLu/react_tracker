@@ -335,6 +335,14 @@ export type Discussion = {
   messages: DiscussionMessage[];
 };
 
+export type DiscussionQaViewInput = {
+  discussionId: string;
+  messageId: string;
+  sectionId: string;
+  sectionFingerprint: string;
+  questionIds: string[];
+};
+
 export type Course = CourseSummary & {
   days: StudyDay[];
   resources: Resource[];

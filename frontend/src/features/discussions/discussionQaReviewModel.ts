@@ -159,13 +159,17 @@ export function qaReviewItemVisible(
   item: QaReviewItem,
   filter: QaReviewFilter,
   reviews: readonly QaReviewRecord[],
-  visited = false,
+  visitedInCurrentSession = false,
 ): boolean {
+  void visitedInCurrentSession;
   if (filter === "all") return true;
   if (!item.questions.length) return true;
   if (!item.questions.some(activeQuestion)) return false;
   if (filter === "open") return true;
-  const status = qaReviewStatus(item, reviews, visited);
+  // A local visit affects progress and badges immediately, but must not remove
+  // the card from New & updated. It becomes persisted filter state only when
+  // the user closes the QA session.
+  const status = qaReviewStatus(item, reviews);
   return status === "new" || status === "updated";
 }
 
@@ -565,7 +569,6 @@ export function qaReviewThreads(
         sectionDiscussionId: latest?.discussionId,
       } satisfies QaReviewItem;
     })
-    .filter((item) => item.answers.length > 0)
     .sort((left, right) => {
       if (scopedQuestionIds?.length) {
         const position = (item: QaReviewItem) =>
