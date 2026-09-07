@@ -43,6 +43,7 @@ import {
 } from "../api/trackerApi";
 import { withQuestionAnswerReferences } from "../lib/questionAnswerReferences";
 import {
+  canonicalQuestionCaptures,
   isTrackedQuestion,
   questionCaptureHasAttachment,
   queuedTrackedQuestionGroups,
@@ -893,7 +894,9 @@ export function App() {
       return;
     }
     const nextGroups = queuedTrackedQuestionGroups(scopedAnnotations);
-    const nextQuestions = nextGroups.flatMap((group) => group.annotations);
+    const nextQuestions = nextGroups.flatMap((group) =>
+      canonicalQuestionCaptures(group.annotations),
+    );
     if (!nextGroups.length) {
       setActionMessage("This task has no open question without a mapped tutor response.");
       return;
@@ -975,15 +978,16 @@ export function App() {
     }
     if (selectedQuestionKeys === undefined && queuedGroups.length > 20) {
       const choices = queuedGroups.map((group): PromptQuestionChoice => {
-        const primary = group.annotations[0];
+        const captures = canonicalQuestionCaptures(group.annotations);
+        const primary = captures[0] ?? group.annotations[0];
         const chapter = annotationChapterNumber(primary);
         const summary =
           primary.body?.plainText.trim() ||
           primary.anchor?.quote?.trim() ||
           "Screenshot question";
         return {
-          annotationIds: group.annotations.map((annotation) => annotation.id),
-          attachmentCount: group.annotations.filter(questionCaptureHasAttachment).length,
+          annotationIds: captures.map((annotation) => annotation.id),
+          attachmentCount: captures.filter(questionCaptureHasAttachment).length,
           chapterLabel: chapter === null ? "Other location" : `Chapter ${chapter}`,
           key: group.key,
           label: primary.stableLabel ?? "Unlabelled question",
@@ -1006,7 +1010,9 @@ export function App() {
       setActionMessage("No questions were selected.");
       return;
     }
-    const nextQuestions = nextGroups.flatMap((group) => group.annotations);
+    const nextQuestions = nextGroups.flatMap((group) =>
+      canonicalQuestionCaptures(group.annotations),
+    );
     const questionLabels = questionLabelsForDiscussion(discussion, nextQuestions);
     const labelStart = Math.min(
       ...Object.values(questionLabels).map((label) =>

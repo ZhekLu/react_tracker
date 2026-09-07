@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pymupdf
@@ -303,6 +304,59 @@ def test_nearby_non_overlapping_guides_remain_separate_questions() -> None:
         [5.0, 20.0, 180.0, 100.0],
         [5.0, 104.0, 190.0, 190.0],
     ]
+
+
+def test_chapter_11_page_282_page_frame_is_one_question() -> None:
+    fixture_path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "chapter11_page282_question_frame.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    inks = []
+    for item in fixture["annotations"]:
+        if item["annotationKind"] != "Ink":
+            continue
+        rect = item["rect"]
+        guide = item["guideBounds"]
+        # Preserve both the exact saved crop and the narrow framing stroke that
+        # produced it. Drawboard extraction sees these as individual inks;
+        # their first grouping pass then recreates the aggregate DB record.
+        inks.extend((
+            DrawboardInk(
+                fingerprint=item["sourceFingerprint"],
+                source_revision="fixture",
+                page=fixture["pageNumber"],
+                color="red",
+                rgb=item["rgb"],
+                created_at=item["createdAt"],
+                rect=[rect[0], guide[0], rect[0] + 0.5, guide[1]],
+                ink_vertex_sets=(
+                    [[rect[0], guide[0]], [rect[0] + 0.5, guide[1]]],
+                ),
+                member_fingerprints=(item["sourceFingerprint"],),
+            ),
+            DrawboardInk(
+                fingerprint=f'{item["sourceFingerprint"]}-content',
+                source_revision="fixture",
+                page=fixture["pageNumber"],
+                color="red",
+                rgb=item["rgb"],
+                created_at=item["createdAt"],
+                rect=rect,
+                ink_vertex_sets=(
+                    [[rect[0], rect[1]], [rect[2], rect[3]]],
+                ),
+                member_fingerprints=(f'{item["sourceFingerprint"]}-content',),
+            ),
+        ))
+
+    groups = group_red_ink_annotations(inks)
+
+    assert len(fixture["annotations"]) == 6
+    assert len(groups) == 1
+    assert groups[0].rect == [26.33, 1.07, 502.48, 590.9]
+    assert groups[0].fingerprint.endswith("a4761166017349cab2a50e9a8d1b4a2b")
 
 
 def test_handwriting_image_contains_nearby_ink_and_highlights(

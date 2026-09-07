@@ -24,6 +24,7 @@ from tracker_api.repositories.workspace_repository import (
     get_workspace,
     import_discussion_answers,
     link_discussion_question,
+    reconcile_imported_question_frame,
     reconcile_toggl_entries,
     record_toggl_start,
     resource_content_target,
@@ -589,6 +590,88 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
                     "replacement_annotation_id": third.id,
                 },
             )
+
+
+def test_expanding_drawboard_frame_preserves_one_logical_question(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+
+    def frame_command(
+        fingerprint: str,
+        rect: list[float],
+        members: list[str],
+        *,
+        origin: str = "drawboard_cloud_ink",
+        color_role: str = "drawboard-color-role-v2:#AF0001:question:ink-group",
+    ) -> AnnotationCreateCommand:
+        return AnnotationCreateCommand(
+            resource_id=resource_id,
+            kind="question",
+            origin=origin,
+            source_fingerprint=fingerprint,
+            markdown="Screenshot question",
+            plain_text="Screenshot question",
+            anchor=AnnotationAnchorCreate(
+                anchor_type="pdf_rect",
+                page_number=282,
+                rect=rect,
+                color="red",
+                annotation_kind="Ink" if origin.endswith("_ink") else "TextHighlight",
+                metadata={
+                    "colorRoleRevision": color_role,
+                    "inkMemberFingerprints": members,
+                    "pageHeight": 648.0,
+                },
+            ),
+        )
+
+    with transaction() as connection:
+        highlight = create_annotation(
+            connection,
+            frame_command(
+                "red-highlight",
+                [43.31, 36.61, 424.65, 57.52],
+                [],
+                origin="drawboard_cloud",
+                color_role="drawboard-color-role-v2:#FF0015:question:merged-with-ink",
+            ),
+        )
+        old = create_annotation(
+            connection,
+            frame_command("old-ink", [31.78, 156.02, 498.87, 503.01], ["shared"]),
+        )
+        edge = create_annotation(
+            connection,
+            frame_command("edge-ink", [337.83, 549.06, 495.12, 590.9], ["edge"]),
+        )
+        current = create_annotation(
+            connection,
+            frame_command(
+                "current-ink",
+                [26.33, 1.07, 502.48, 490.06],
+                ["shared", "current"],
+            ),
+        )
+
+        assert reconcile_imported_question_frame(
+            connection,
+            resource_id,
+            "current-ink",
+        ) == 4
+        workspace = get_workspace(connection, course_id)
+
+    by_id = {item.id: item for item in workspace.annotations}
+    for annotation_id in (highlight.id, old.id, edge.id, current.id):
+        assert by_id[annotation_id].anchor is not None
+        assert by_id[annotation_id].anchor.metadata["questionFrameId"] == old.id
+    assert "supersededByAnnotationId" not in by_id[current.id].anchor.metadata
+    assert by_id[current.id].anchor.rect == [26.33, 1.07, 502.48, 590.9]
+    for annotation_id in (highlight.id, old.id, edge.id):
+        assert (
+            by_id[annotation_id].anchor.metadata["supersededByAnnotationId"]
+            == current.id
+        )
 
 
 def test_reader_content_and_progress_are_persisted(tmp_path: Path) -> None:

@@ -174,7 +174,6 @@ function looksLikeDisplayMath(value: string): boolean {
 
 function normalizeDisplayBody(value: string): string {
   const lines = value
-    .replace(/\\\\(?=[A-Za-z])/g, "\\")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
@@ -226,6 +225,38 @@ function normalizeDisplayBody(value: string): string {
     .replace(/^=\s*\n/, "= ")
     .replace(/[ \t]+/g, " ")
     .trim();
+}
+
+function inlineReferenceLinks(value: string): string {
+  const definitions = new Map<string, { title: string; url: string }>();
+  const definitionPattern =
+    /^ {0,3}\[([^\]\n]+)\]:\s*(?:<([^>\n]+)>|(\S+?))(?:\s+(?:"([^"]*)"|'([^']*)'|\(([^)]*)\)))?\s*$/gm;
+  for (const match of value.matchAll(definitionPattern)) {
+    definitions.set(match[1].trim().toLowerCase(), {
+      title: match[4] ?? match[5] ?? match[6] ?? "",
+      url: match[2] ?? match[3] ?? "",
+    });
+  }
+  if (!definitions.size) return value;
+
+  const used = new Set<string>();
+  const expanded = value.replace(
+    /(!?)\[([^\]\n]+)\]\[([^\]\n]*)\]/g,
+    (match, image: string, label: string, reference: string) => {
+      const key = (reference || label).trim().toLowerCase();
+      const definition = definitions.get(key);
+      if (!definition) return match;
+      used.add(key);
+      const title = definition.title
+        ? ` "${definition.title.replaceAll('"', "&quot;")}"`
+        : "";
+      return `${image}[${label}](<${definition.url}>${title})`;
+    },
+  );
+  if (!used.size) return value;
+  return expanded.replace(definitionPattern, (line, reference: string) =>
+    used.has(reference.trim().toLowerCase()) ? "" : line,
+  );
 }
 
 /**
@@ -330,8 +361,13 @@ function restoreDegradedInlineMath(value: string): string {
       continue;
     }
     const body = value.slice(index + 1, closing - 1);
+    const bodyIsMarkdownLink =
+      /^!?\[[^\]\n]+\]\((?:<[^>\n]+>|[^)\n]+)(?:\s+"[^"\n]*")?\)$/.test(
+        body.trim(),
+      );
     if (
       !body.includes("\n") &&
+      !bodyIsMarkdownLink &&
       looksLikeDisplayMath(body)
     ) {
       output += `$${body.trim()}$`;
@@ -348,7 +384,7 @@ function restoreDegradedInlineMath(value: string): string {
 }
 
 function canonicalizeExternalMarkdown(value: string): string {
-  const normalizedExportTags = value.replace(
+  const normalizedExportTags = inlineReferenceLinks(value).replace(
     /&lt;(\/?)((?:[A-Za-z0-9]+)(?:\\?_[A-Za-z0-9]+)+)&gt;/gi,
     (_match, closing: string, tag: string) =>
       `<${closing}${tag.replaceAll("\\_", "_")}>`,

@@ -42,6 +42,7 @@ import {
   reconstructQaMessage,
   type DiscussionQaSection,
 } from "../../lib/discussionQa";
+import { canonicalQuestionCaptures } from "../../lib/questionIdentity";
 import type {
   Annotation,
   AnnotationKind,
@@ -373,10 +374,7 @@ function SourcePreview({
 }) {
   const pagesRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef<HTMLDivElement>(null);
-  const sourceQuestions = questions.filter(
-    (question, index) =>
-      questions.findIndex((candidate) => candidate.id === question.id) === index,
-  );
+  const sourceQuestions = canonicalQuestionCaptures(questions);
   const resourceGroups = [...sourceQuestions.reduce((groups, question) => {
     const current = groups.get(question.resourceId) ?? [];
     current.push(question);
@@ -729,9 +727,11 @@ export function DiscussionQaReview({
   const activeRootQuestions = useMemo(
     () =>
       activeItem
-        ? (activeItem.rootQuestions ?? activeItem.questions.filter(
-            (question) => question.origin !== "discussion_review_followup",
-          ))
+        ? canonicalQuestionCaptures(
+            activeItem.rootQuestions ?? activeItem.questions.filter(
+              (question) => question.origin !== "discussion_review_followup",
+            ),
+          )
         : [],
     [activeItem],
   );

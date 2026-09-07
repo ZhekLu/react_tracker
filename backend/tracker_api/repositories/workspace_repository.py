@@ -2727,6 +2727,210 @@ def upsert_imported_annotation(
     return "updated"
 
 
+def reconcile_imported_question_frame(
+    connection: Connection,
+    resource_id: str,
+    source_fingerprint: str,
+) -> int:
+    """Persist one logical frame across expanding Drawboard ink captures.
+
+    Drawboard gives a newly extended margin frame a new source fingerprint.
+    Existing question rows must remain immutable because answers and reviews
+    point at them, so frame membership is an alias in anchor metadata rather
+    than an identity rewrite or deletion. Older/subset captures remain in the
+    database and are marked as superseded only for visual presentation.
+    """
+
+    canonical = _one_or_none(
+        connection,
+        """
+        SELECT a.id, a.created_at, aa.page_number, aa.rect_json, aa.selector_json
+        FROM annotations a
+        JOIN annotation_anchors aa ON aa.annotation_id = a.id
+        WHERE a.resource_id = :resource_id
+          AND a.source_fingerprint = :source_fingerprint
+          AND a.origin = 'drawboard_cloud_ink'
+          AND a.deleted_at IS NULL
+        """,
+        {
+            "resource_id": resource_id,
+            "source_fingerprint": source_fingerprint,
+        },
+    )
+    if canonical is None or canonical["page_number"] is None:
+        return 0
+    canonical_metadata: dict[str, Any] = _json_loads(
+        canonical["selector_json"],
+        {},
+    )
+    canonical_members = {
+        str(item)
+        for item in canonical_metadata.get("inkMemberFingerprints", [])
+        if isinstance(item, str) and item
+    }
+    if not canonical_members:
+        return 0
+    canonical_rect: list[float] = _json_loads(canonical["rect_json"], [])
+    if len(canonical_rect) != 4:
+        return 0
+
+    candidates = _rows(
+        connection,
+        """
+        SELECT a.id, a.origin, a.source_fingerprint, a.created_at,
+               aa.rect_json, aa.selector_json, qi.readable_label
+        FROM annotations a
+        JOIN annotation_anchors aa ON aa.annotation_id = a.id
+        JOIN annotation_question_identities aqi ON aqi.annotation_id = a.id
+        JOIN question_identities qi ON qi.id = aqi.question_identity_id
+        WHERE a.resource_id = :resource_id
+          AND aa.page_number = :page_number
+          AND a.kind IN ('question', 'todo')
+          AND a.deleted_at IS NULL
+        ORDER BY a.created_at, a.id
+        """,
+        {
+            "resource_id": resource_id,
+            "page_number": int(canonical["page_number"]),
+        },
+    )
+    page_height = float(canonical_metadata.get("pageHeight") or 0.0)
+    minimum_frame_height = max(420.0, page_height * 0.65) if page_height else 420.0
+    nearby_margin = max(64.0, page_height * 0.1) if page_height else 64.0
+    canonical_height = abs(canonical_rect[3] - canonical_rect[1])
+
+    def vertical_gap(first: list[float], second: list[float]) -> float:
+        first_low, first_high = sorted((first[1], first[3]))
+        second_low, second_high = sorted((second[1], second[3]))
+        return max(0.0, max(first_low, second_low) - min(first_high, second_high))
+
+    related: list[tuple[RowMapping, dict[str, Any]]] = []
+    for candidate in candidates:
+        metadata: dict[str, Any] = _json_loads(candidate["selector_json"], {})
+        rect: list[float] = _json_loads(candidate["rect_json"], [])
+        if len(rect) != 4:
+            continue
+        candidate_members = {
+            str(item)
+            for item in metadata.get("inkMemberFingerprints", [])
+            if isinstance(item, str) and item
+        }
+        ink_matches = str(candidate["origin"]) == "drawboard_cloud_ink" and (
+            bool(canonical_members & candidate_members)
+            or (
+                canonical_height >= minimum_frame_height
+                and vertical_gap(canonical_rect, rect) <= nearby_margin
+            )
+        )
+        color_role = str(metadata.get("colorRoleRevision") or "")
+        merged_highlight_matches = (
+            str(candidate["origin"]) == "drawboard_cloud"
+            and color_role.endswith(":question:merged-with-ink")
+            and vertical_gap(canonical_rect, rect) == 0.0
+        )
+        if str(candidate["id"]) == str(canonical["id"]) or ink_matches or merged_highlight_matches:
+            related.append((candidate, metadata))
+    if not related:
+        return 0
+
+    existing_frame_ids = {
+        str(metadata.get("questionFrameId"))
+        for _, metadata in related
+        if isinstance(metadata.get("questionFrameId"), str)
+        and str(metadata.get("questionFrameId")).strip()
+    }
+    related_ink_ids = {
+        str(candidate["id"])
+        for candidate, _ in related
+        if str(candidate["origin"]) == "drawboard_cloud_ink"
+    }
+    retained_frame_ids = sorted(existing_frame_ids & related_ink_ids)
+    if retained_frame_ids:
+        frame_id = retained_frame_ids[0]
+    else:
+        frame_id = next(
+            str(candidate["id"])
+            for candidate, _ in related
+            if str(candidate["origin"]) == "drawboard_cloud_ink"
+        )
+    frame_label = next(
+        (
+            str(candidate["readable_label"])
+            for candidate, _ in related
+            if str(candidate["id"]) == frame_id
+        ),
+        "",
+    )
+    related_rects = [
+        rect
+        for candidate, _ in related
+        if len(rect := _json_loads(candidate["rect_json"], [])) == 4
+    ]
+    frame_rect = [
+        min(rect[0] for rect in related_rects),
+        min(rect[1] for rect in related_rects),
+        max(rect[2] for rect in related_rects),
+        max(rect[3] for rect in related_rects),
+    ]
+
+    now = _now()
+    updated = 0
+    for candidate, metadata in related:
+        candidate_id = str(candidate["id"])
+        next_metadata = dict(metadata)
+        next_metadata["questionFrameId"] = frame_id
+        if frame_label:
+            next_metadata["questionFrameLabel"] = frame_label
+        if candidate_id == str(canonical["id"]):
+            next_metadata.pop("supersededByAnnotationId", None)
+            if frame_rect != canonical_rect:
+                annotated_page_url = next_metadata.get("annotatedPageImageUrl")
+                if isinstance(annotated_page_url, str) and annotated_page_url:
+                    # Existing databases may not have the newly merged crop on
+                    # disk yet. The annotated full page is a safe temporary
+                    # attachment until the next collection renders the frame.
+                    next_metadata["contextImageUrl"] = annotated_page_url
+        else:
+            next_metadata["supersededByAnnotationId"] = str(canonical["id"])
+        next_rect = (
+            frame_rect
+            if candidate_id == str(canonical["id"])
+            else _json_loads(candidate["rect_json"], [])
+        )
+        current_rect = _json_loads(candidate["rect_json"], [])
+        if next_metadata == metadata and next_rect == current_rect:
+            continue
+        connection.execute(
+            text(
+                """
+                UPDATE annotation_anchors
+                SET selector_json = :selector_json,
+                    rect_json = :rect_json,
+                    updated_at = :now
+                WHERE annotation_id = :annotation_id
+                """
+            ),
+            {
+                "annotation_id": candidate_id,
+                "selector_json": _json_dumps(next_metadata),
+                "rect_json": _json_dumps(next_rect),
+                "now": now,
+            },
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE annotations
+                SET updated_at = :now, revision = revision + 1
+                WHERE id = :annotation_id
+                """
+            ),
+            {"annotation_id": candidate_id, "now": now},
+        )
+        updated += 1
+    return updated
+
+
 def soft_delete_stale_imported_annotations(
     connection: Connection,
     resource_id: str,

@@ -1,0 +1,77 @@
+{
+  "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+  "drawboardDocumentId": "9a15ffc69d824f14a52dff1b7ea35163",
+  "pageNumber": 282,
+  "pageHeight": 648.0,
+  "pageWidth": 504.0,
+  "capturedAt": "2026-09-07",
+  "annotations": [
+    {
+      "id": "23877e66-dddc-4c81-b0c4-5e453d5a3237",
+      "origin": "drawboard_cloud",
+      "sourceFingerprint": "drawboard-9a15ffc69d824f14a52dff1b7ea35163-7221fadd8c664ad1bebe09a99f6311a5",
+      "annotationKind": "TextHighlight",
+      "createdAt": "2026-09-04T15:59:55.393Z",
+      "rect": [43.31, 36.61, 424.65, 57.52],
+      "rgb": [1.0, 0.0, 0.08235294117647059],
+      "colorRole": "question:merged-with-ink",
+      "stableLabel": "Q-b-11-001"
+    },
+    {
+      "id": "f40f1ad1-ab62-407f-aab8-f72a315fb2ae",
+      "origin": "drawboard_cloud",
+      "sourceFingerprint": "drawboard-9a15ffc69d824f14a52dff1b7ea35163-ba1ef5c419394b539c55ec7c3d2ccd73",
+      "annotationKind": "TextHighlight",
+      "createdAt": "2026-09-04T15:59:55.398Z",
+      "rect": [43.46, 73.47, 424.73, 94.49],
+      "rgb": [0.5607843137254902, 0.7843137254901961, 0.996078431372549],
+      "colorRole": "regular"
+    },
+    {
+      "id": "b51962e7-eacd-4dc5-991e-e9b79a8ace65",
+      "origin": "drawboard_cloud",
+      "sourceFingerprint": "drawboard-9a15ffc69d824f14a52dff1b7ea35163-c68110cc8bb6481c9e12b28f94dc1733",
+      "annotationKind": "TextHighlight",
+      "createdAt": "2026-09-04T15:59:55.399Z",
+      "rect": [43.38, 97.29, 424.97, 130.81],
+      "rgb": [0.592156862745098, 1.0, 0.592156862745098],
+      "colorRole": "regular"
+    },
+    {
+      "id": "633bc949-5f8e-4ea4-8c35-2b958f197920",
+      "origin": "drawboard_cloud_ink",
+      "sourceFingerprint": "drawboard-9a15ffc69d824f14a52dff1b7ea35163-d1bd1a89bdc54fdb9daf9ce79ba1c8ef",
+      "annotationKind": "Ink",
+      "createdAt": "2026-09-04T15:59:55.446Z",
+      "rect": [31.78, 156.02, 498.87, 503.01],
+      "guideBounds": [156.02, 503.01],
+      "rgb": [0.6862745098039216, 0.0, 0.00392156862745098],
+      "memberCount": 108,
+      "stableLabel": "Q-b-11-007"
+    },
+    {
+      "id": "3883eb07-237a-43b7-8297-3809b5c2b8d5",
+      "origin": "drawboard_cloud_ink",
+      "sourceFingerprint": "drawboard-9a15ffc69d824f14a52dff1b7ea35163-fafa008a1e4f4e9d934457b81f379235",
+      "annotationKind": "Ink",
+      "createdAt": "2026-09-04T15:59:55.448Z",
+      "rect": [337.83, 549.06, 495.12, 590.9],
+      "guideBounds": [549.06, 590.9],
+      "rgb": [0.6862745098039216, 0.0, 0.00392156862745098],
+      "memberCount": 73,
+      "stableLabel": "Q-b-11-008"
+    },
+    {
+      "id": "8a0996d0-26c7-413a-bf56-934495f51c1c",
+      "origin": "drawboard_cloud_ink",
+      "sourceFingerprint": "drawboard-9a15ffc69d824f14a52dff1b7ea35163-a4761166017349cab2a50e9a8d1b4a2b",
+      "annotationKind": "Ink",
+      "createdAt": "2026-09-06T18:51:02.928Z",
+      "rect": [26.33, 1.07, 502.48, 490.06],
+      "guideBounds": [1.07, 490.06],
+      "rgb": [0.6862745098039216, 0.0, 0.00392156862745098],
+      "memberCount": 310,
+      "stableLabel": "Q-b-11-007"
+    }
+  ]
+}

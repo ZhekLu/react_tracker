@@ -26,6 +26,8 @@ INK_VERTICAL_GUIDE_MIN_HEIGHT = 36.0
 INK_VERTICAL_GUIDE_ASPECT_RATIO = 3.0
 INK_GROUP_CONTAINMENT_THRESHOLD = 0.9
 INK_GROUP_VERTICAL_DUPLICATE_THRESHOLD = 0.82
+INK_PAGE_FRAME_MIN_HEIGHT = 420.0
+INK_PAGE_FRAME_NEARBY_MARGIN = 64.0
 _STATE_LOCK = threading.Lock()
 
 
@@ -853,7 +855,33 @@ def _groups_are_near_duplicates(
         for first_guide in _member_vertical_guide_bounds(first)
         for second_guide in _member_vertical_guide_bounds(second)
     )
-    return area_containment or vertical_duplicate or deliberately_overlapping
+    vertical_gap = max(
+        0.0,
+        max(first_bounds[0], second_bounds[0])
+        - min(first_bounds[1], second_bounds[1]),
+    )
+    # A deliberately page-spanning margin line is also a frame. It may stop a
+    # few points before a note at the opposite page edge, especially after
+    # Drawboard splits one physical stroke into several annotations. Keep the
+    # allowance narrow and require an actual long vertical guide so ordinary
+    # neighbouring questions (including the four-point regression below) do
+    # not merge.
+    page_frame_absorbs_nearby = (
+        vertical_gap <= INK_PAGE_FRAME_NEARBY_MARGIN
+        and any(
+            high - low >= INK_PAGE_FRAME_MIN_HEIGHT
+            for low, high in (
+                *_member_vertical_guide_bounds(first),
+                *_member_vertical_guide_bounds(second),
+            )
+        )
+    )
+    return (
+        area_containment
+        or vertical_duplicate
+        or deliberately_overlapping
+        or page_frame_absorbs_nearby
+    )
 
 
 def _merge_contained_ink_groups(groups: list[DrawboardInk]) -> list[DrawboardInk]:

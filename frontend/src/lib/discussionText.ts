@@ -38,6 +38,24 @@ function normalizeHtmlSpaceEntities(value: string): string {
     .replace(/&(?:amp;)*(?:nbsp|#0*160|#x0*a0);/gi, " ");
 }
 
+function repairEditorRoundTripArtifacts(value: string): string {
+  return value
+    // Tiptap can serialize the first word of a paragraph as two paragraphs
+    // when a mark starts after its first character. Keep this deliberately
+    // narrow: it repairs the observed "Y / es" corruption without joining
+    // arbitrary short paragraphs.
+    .replace(/\bY[ \t]*\n[ \t]*\n[ \t]*es\b/g, "Yes")
+    // An unresolved reference link such as ([arXiv][1]) used to be parsed as
+    // three adjacent math nodes by the editor. New imports inline the URL, but
+    // normalize legacy round-trips into stable prose instead of preserving a
+    // screen-sized pair of display formulas.
+    .replace(
+      /\(\$\$\s*([^$\n]+?)\s*\$\$\$\$\s*(\d+)\s*\$\$\)/g,
+      (_match, label: string, reference: string) =>
+        `${label.trim()} (reference ${reference})`,
+    );
+}
+
 function repairOrphanInlineMath(value: string): string {
   return value.replace(
     /^([ \t]*)(?!\$)([^\n$]*\\{1,2}[A-Za-z]+[^\n$]*)\$(?!\$)[ \t]*$/gm,
@@ -65,7 +83,9 @@ export function normalizeDiscussionMarkdown(value: string): string {
   const normalized = normalizeMathMarkdown(
     repairOrphanInlineMath(
       repairInlineMathWordBoundaries(
-        normalizeHtmlSpaceEntities(protectedMarkdown.value),
+        repairEditorRoundTripArtifacts(
+          normalizeHtmlSpaceEntities(protectedMarkdown.value),
+        ),
       ),
     ),
   )

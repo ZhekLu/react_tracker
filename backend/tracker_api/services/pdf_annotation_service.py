@@ -951,6 +951,11 @@ def collect_resource_pdf_annotations(
                 command,
                 source_revision=sync_revision,
             )
+            workspace_repository.reconcile_imported_question_frame(
+                connection,
+                resource_id,
+                ink.fingerprint,
+            )
             counts[outcome] += 1
             if outcome in {"created", "updated"}:
                 changed_items.append(_collection_item(command, outcome, capture_day_id))

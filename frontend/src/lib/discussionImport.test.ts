@@ -63,6 +63,45 @@ describe("discussion paste importer", () => {
       "It costs US$5 today.",
     );
   });
+
+  it("repairs editor round-trip paragraph and reference-link corruption", () => {
+    expect(normalizeDiscussionMarkdown("Y\n\nes. Continue here.")).toBe(
+      "Yes. Continue here.",
+    );
+    expect(
+      normalizeDiscussionMarkdown("($$\narXiv\n$$$$\n1\n$$) So the result follows."),
+    ).toBe("arXiv (reference 1) So the result follows.");
+  });
+
+  it("inlines reference links before answer sections reach the editor", () => {
+    const imported = importPastedMarkdown([
+      "Recent surveys explain the distinction. ([arXiv][1])",
+      "",
+      '[1]: https://arxiv.org/abs/2302.09703 "Function approximation survey"',
+    ].join("\n"));
+
+    expect(imported).toContain("[arXiv](https://arxiv.org/abs/2302.09703");
+    expect(imported).not.toContain("[arXiv][1]");
+    expect(imported).not.toContain("[1]:");
+  });
+
+  it("preserves matrix row separators while normalizing display math", () => {
+    const imported = importPastedMarkdown(String.raw`
+[
+w=
+\begin{bmatrix}
+w_1\\
+w_2
+\end{bmatrix}.
+]
+`);
+    expect(imported).toContain(String.raw`w_1\\`);
+    const latex = imported.match(/\$\$([\s\S]*?)\$\$/)?.[1].trim();
+    expect(latex).toBeTruthy();
+    expect(() =>
+      renderToString(latex!, { displayMode: true, throwOnError: true }),
+    ).not.toThrow();
+  });
   it("canonicalizes the real ChatGPT tutor response without structural debris", () => {
     const imported = importPastedMarkdown(fixture);
 

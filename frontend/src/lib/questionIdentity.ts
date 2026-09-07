@@ -19,11 +19,34 @@ export function isTrackedQuestion(
 
 /** A logical key shared by every visual capture of the same question. */
 export function trackedQuestionKey(
-  annotation: Pick<Annotation, "id" | "stableLabel">,
+  annotation: Pick<Annotation, "anchor" | "id" | "stableLabel">,
 ): string {
+  const frameId = annotation.anchor?.metadata?.questionFrameId;
+  if (typeof frameId === "string" && frameId.trim()) {
+    return `frame:${frameId.trim()}`;
+  }
   return annotation.stableLabel
     ? `stable:${annotation.stableLabel}`
     : `annotation:${annotation.id}`;
+}
+
+/** Hide obsolete crops only when their replacement is present in this scope. */
+export function canonicalQuestionCaptures(
+  annotations: readonly Annotation[],
+): Annotation[] {
+  const unique = annotations.filter(
+    (annotation, index) =>
+      annotations.findIndex((candidate) => candidate.id === annotation.id) === index,
+  );
+  const availableIds = new Set(unique.map((annotation) => annotation.id));
+  return unique.filter((annotation) => {
+    const supersededBy = annotation.anchor?.metadata?.supersededByAnnotationId;
+    return !(
+      typeof supersededBy === "string" &&
+      supersededBy !== annotation.id &&
+      availableIds.has(supersededBy)
+    );
+  });
 }
 
 export type TrackedQuestionGroup = {
