@@ -61,6 +61,7 @@ import {
   centeredQaSourceScrollTop,
   inferredExerciseLabels,
   qaReviewItemVisible,
+  qaReviewScopeProgress,
   qaReviewStatus,
   qaReviewThreads,
   qaSectionFingerprint,
@@ -823,24 +824,15 @@ export function DiscussionQaReview({
       )
     : undefined;
   const reviewUnits = allItems;
+  const scopeProgress = useMemo(
+    () => qaReviewScopeProgress(allItems, questionIds),
+    [allItems, questionIds],
+  );
   const visitedUnits = reviewUnits.filter((item) =>
     !["new", "updated"].includes(
       qaReviewStatus(item, qaReviewRecords, visitedItemIds.has(item.id)),
     ),
   ).length;
-  const scopedQuestionIdSet = useMemo(
-    () => new Set(questionIds ?? []),
-    [questionIds],
-  );
-  const remainingOpenQuestions = questionIds?.length
-    ? course.annotations.filter(
-        (annotation) =>
-          scopedQuestionIdSet.has(annotation.id) &&
-          annotation.status === "open" &&
-          !annotation.postponed &&
-          !annotation.skipped,
-      ).length
-    : course.stats.openQuestionCount;
   const completionRatio = reviewUnits.length
     ? visitedUnits / reviewUnits.length
     : 0;
@@ -855,6 +847,13 @@ export function DiscussionQaReview({
     [qaReviewRecords, visitedItemIds],
   );
   const activeReviewStatus = statusForItem(activeItem);
+  const activeSectionLabel = activeRootQuestions
+    .map((question) => metadataText(question, "subchapterTitle") || question.anchor?.sectionTitle || "")
+    .find(Boolean) ?? "";
+  const maximumSectionOpen = Math.max(
+    1,
+    ...scopeProgress.sections.map((section) => section.open),
+  );
 
   useEffect(() => {
     if (!activeItem?.section || !activeItem.questions.length) return;
@@ -1069,26 +1068,55 @@ export function DiscussionQaReview({
             </span>
             <div>
               <p>{scopeLabel ?? discussion.title}</p>
-              <strong>
-                {visitedUnits} of {reviewUnits.length} groups reviewed in this response
+              <strong className={scopeProgress.open ? "" : "isClear"}>
+                {scopeProgress.open ? (
+                  <><b>{scopeProgress.open}</b> open question{scopeProgress.open === 1 ? "" : "s"} to understand</>
+                ) : (
+                  <>No open questions <b>✦</b></>
+                )}
               </strong>
               <small>
-                {remainingOpenQuestions} questions still open {questionIds?.length
-                  ? scopeKind === "resource"
-                    ? "in this resource scope"
-                    : "in this task"
-                  : "overall"}
+                {scopeProgress.understood} understood · {scopeProgress.total} total {scopeKind === "task" ? "in task" : "in scope"}
               </small>
             </div>
           </div>
           <div className="qaReviewProgressBlock">
+            {scopeProgress.sections.length > 0 ? (
+              <div className="qaReviewSectionMap">
+                <span>Sections</span>
+                <div>
+                  {scopeProgress.sections.map((section) => {
+                    const sectionNumber = section.label.match(/^\s*(\d+(?:\.\d+)?)/)?.[1]
+                      ?? `§${scopeProgress.sections.indexOf(section) + 1}`;
+                    const heatLevel = section.open === 0
+                      ? 0
+                      : Math.max(1, Math.ceil((section.open / maximumSectionOpen) * 4));
+                    return (
+                      <span
+                        aria-label={`${section.label}: ${section.open} open of ${section.total}`}
+                        className={`qaReviewSectionCell heat${heatLevel}${section.label === activeSectionLabel ? " current" : ""}`}
+                        key={section.label}
+                        title={`${section.label} · ${section.open} open of ${section.total}`}
+                      >
+                        <small>{sectionNumber}</small>
+                        <strong>{section.open}</strong>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
             <div className="qaReviewProgressLabels">
               <span>
                 {visibleItems.length
                   ? `Reviewing ${reviewFilter === "all" ? "" : `${reviewFilter} `}group ${boundedActiveIndex + 1} of ${visibleItems.length}`
-                  : "All clear"}
+                  : reviewFilter === "new"
+                    ? "New queue clear"
+                    : reviewFilter === "open"
+                      ? "Open queue clear"
+                      : "No review groups"}
               </span>
-              <strong>{Math.round(completionRatio * 100)}% reviewed</strong>
+              <strong>{visitedUnits}/{reviewUnits.length} reviewed</strong>
             </div>
             <div
               aria-label="Current response groups reviewed"

@@ -7,6 +7,7 @@ import {
   inferredExerciseLabels,
   qaReviewItemVisible,
   qaReviewItems,
+  qaReviewScopeProgress,
   qaReviewStatus,
   qaReviewThreads,
   qaSectionFingerprint,
@@ -35,6 +36,111 @@ function annotation(
 }
 
 describe("focused discussion QA review units", () => {
+  it("counts logical questions per section without double-counting frame captures", () => {
+    const firstFrameCapture = annotation("frame-highlight", {
+      anchor: {
+        anchorType: "pdf_rect",
+        metadata: {
+          questionFrameId: "frame-11-2",
+          subchapterTitle: "11.2 · Examples of Off-policy Divergence",
+        },
+      },
+      stableLabel: "Q-b-11-001",
+    });
+    const secondFrameCapture = annotation("frame-ink", {
+      anchor: {
+        anchorType: "pdf_rect",
+        metadata: {
+          questionFrameId: "frame-11-2",
+          subchapterTitle: "11.2 · Examples of Off-policy Divergence",
+        },
+      },
+      stableLabel: "Q-b-11-007",
+    });
+    const understood = annotation("understood", {
+      anchor: {
+        anchorType: "pdf_rect",
+        metadata: { subchapterTitle: "11.1 · Semi-gradient Methods" },
+      },
+      stableLabel: "Q-b-11-005",
+      status: "answered",
+    });
+
+    const progress = qaReviewScopeProgress([
+      {
+        id: "framed-thread",
+        questions: [firstFrameCapture, secondFrameCapture],
+        rootQuestions: [firstFrameCapture, secondFrameCapture],
+      },
+      {
+        id: "understood-thread",
+        questions: [understood],
+        rootQuestions: [understood],
+      },
+    ]);
+
+    expect(progress).toEqual({
+      open: 1,
+      sections: [
+        {
+          label: "11.1 · Semi-gradient Methods",
+          open: 0,
+          total: 1,
+          understood: 1,
+        },
+        {
+          label: "11.2 · Examples of Off-policy Divergence",
+          open: 1,
+          total: 1,
+          understood: 0,
+        },
+      ],
+      total: 2,
+      understood: 1,
+    });
+  });
+
+  it("keeps section progress inside an explicitly selected chapter scope", () => {
+    const chapterEight = annotation("chapter-eight", {
+      anchor: {
+        anchorType: "pdf_rect",
+        metadata: { subchapterTitle: "8.6 · Trajectory Sampling" },
+      },
+      stableLabel: "Q-b-08-006",
+      status: "answered",
+    });
+    const chapterEleven = annotation("chapter-eleven", {
+      anchor: {
+        anchorType: "pdf_rect",
+        metadata: {
+          subchapterTitle: "11.2 · Examples of Off-policy Divergence",
+        },
+      },
+      stableLabel: "Q-b-11-003",
+    });
+
+    const progress = qaReviewScopeProgress(
+      [{
+        id: "cross-chapter-answer-component",
+        questions: [chapterEight, chapterEleven],
+        rootQuestions: [chapterEight, chapterEleven],
+      }],
+      [chapterEleven.id],
+    );
+
+    expect(progress).toEqual({
+      open: 1,
+      sections: [{
+        label: "11.2 · Examples of Off-policy Divergence",
+        open: 1,
+        total: 1,
+        understood: 0,
+      }],
+      total: 1,
+      understood: 0,
+    });
+  });
+
   it("joins a historical answer to the current capture by stable identity", () => {
     const historical = annotation("historical-red-ink", {
       stableLabel: "Q-b-07-008",

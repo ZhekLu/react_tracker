@@ -1,5 +1,6 @@
 import {
   annotationDisplayText,
+  annotationSubchapter,
   metadataText,
 } from "../../components/annotations/annotationDisplay";
 import {
@@ -97,6 +98,140 @@ function activeQuestion(question: Annotation): boolean {
     !question.postponed &&
     !question.skipped
   );
+}
+
+export type QaScopeSectionProgress = {
+  label: string;
+  open: number;
+  total: number;
+  understood: number;
+};
+
+export type QaScopeProgress = {
+  open: number;
+  sections: QaScopeSectionProgress[];
+  total: number;
+  understood: number;
+};
+
+/** Count logical questions, not the visual captures that happen to represent them. */
+export function qaReviewScopeProgress(
+  items: readonly QaReviewItem[],
+  scopedQuestionIds?: readonly string[],
+): QaScopeProgress {
+  const annotationById = new Map(
+    items.flatMap((item) => item.questions).map((annotation) => [annotation.id, annotation]),
+  );
+  const scopedIds = scopedQuestionIds?.length
+    ? new Set(scopedQuestionIds)
+    : null;
+  const scopedKeys = scopedIds
+    ? new Set(
+        [...scopedIds]
+          .map((id) => annotationById.get(id))
+          .filter((annotation): annotation is Annotation => Boolean(annotation))
+          .map(trackedQuestionKey),
+      )
+    : null;
+  const logicalQuestions = new Map<
+    string,
+    { annotations: Annotation[]; sectionLabel: string }
+  >();
+
+  items.forEach((item) => {
+    const roots = item.rootQuestions ?? item.questions.filter(
+      (question) => question.origin !== "discussion_review_followup",
+    );
+    const rootsInScope = roots.filter(
+      (question) =>
+        !scopedIds ||
+        scopedIds.has(question.id) ||
+        scopedKeys?.has(trackedQuestionKey(question)),
+    );
+    if (scopedIds && rootsInScope.length === 0) return;
+    const fallbackSectionLabel = rootsInScope
+      .map(annotationSubchapter)
+      .find(Boolean) || "Other";
+    item.questions.filter((question) => {
+      if (!isTrackedQuestion(question)) return false;
+      if (!scopedIds) return true;
+      if (question.origin !== "discussion_review_followup") {
+        return (
+          scopedIds.has(question.id) ||
+          Boolean(scopedKeys?.has(trackedQuestionKey(question)))
+        );
+      }
+      const storedRoots = question.anchor?.metadata?.rootQuestionIds;
+      if (!Array.isArray(storedRoots)) return true;
+      return storedRoots.some((id) => {
+        if (typeof id !== "string") return false;
+        const root = annotationById.get(id);
+        return (
+          scopedIds.has(id) ||
+          Boolean(root && scopedKeys?.has(trackedQuestionKey(root)))
+        );
+      });
+    }).forEach((question) => {
+      const key = trackedQuestionKey(question);
+      const storedRoots = question.anchor?.metadata?.rootQuestionIds;
+      const inheritedSectionLabel = Array.isArray(storedRoots)
+        ? storedRoots
+            .map((id) =>
+              typeof id === "string"
+                ? annotationSubchapter(annotationById.get(id) ?? question)
+                : "",
+            )
+            .find(Boolean)
+        : "";
+      const sectionLabel =
+        annotationSubchapter(question) ||
+        inheritedSectionLabel ||
+        fallbackSectionLabel;
+      const current = logicalQuestions.get(key);
+      if (current) {
+        if (!current.annotations.some((candidate) => candidate.id === question.id)) {
+          current.annotations.push(question);
+        }
+        if (current.sectionLabel === "Other" && sectionLabel !== "Other") {
+          current.sectionLabel = sectionLabel;
+        }
+      } else {
+        logicalQuestions.set(key, { annotations: [question], sectionLabel });
+      }
+    });
+  });
+
+  const sections = new Map<string, QaScopeSectionProgress>();
+  let open = 0;
+  let understood = 0;
+  logicalQuestions.forEach(({ annotations, sectionLabel }) => {
+    const isOpen = annotations.some(activeQuestion);
+    const isUnderstood = !isOpen && annotations.some(
+      (annotation) => annotation.status === "answered",
+    );
+    if (isOpen) open += 1;
+    if (isUnderstood) understood += 1;
+    const section = sections.get(sectionLabel) ?? {
+      label: sectionLabel,
+      open: 0,
+      total: 0,
+      understood: 0,
+    };
+    section.total += 1;
+    if (isOpen) section.open += 1;
+    if (isUnderstood) section.understood += 1;
+    sections.set(sectionLabel, section);
+  });
+
+  const collator = new Intl.Collator(undefined, { numeric: true });
+  return {
+    open,
+    sections: [...sections.values()].sort((left, right) =>
+      collator.compare(left.label, right.label),
+    ),
+    total: logicalQuestions.size,
+    understood,
+  };
 }
 
 function reviewMatchesSection(

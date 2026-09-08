@@ -517,7 +517,8 @@
 }
 
 .qaReviewHeader {
-  min-height: 86px;
+  height: 86px;
+  box-sizing: border-box;
   padding: 12px 16px 11px;
   border-bottom: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.9);
@@ -583,12 +584,91 @@
   font-size: 14px;
 }
 
+.qaReviewTitle strong b {
+  color: #be3363;
+  font-size: 18px;
+  line-height: 0;
+}
+
+.qaReviewTitle strong.isClear,
+.qaReviewTitle strong.isClear b {
+  color: var(--green-deep);
+}
+
 .qaReviewProgressBlock {
   min-width: 0;
 }
 
+.qaReviewSectionMap {
+  min-width: 0;
+  height: 26px;
+  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.qaReviewSectionMap > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.qaReviewSectionMap > div {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qaReviewSectionMap > div::-webkit-scrollbar {
+  display: none;
+}
+
+.qaReviewSectionCell {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 24px;
+  padding: 2px 5px;
+  box-sizing: border-box;
+  border: 1px solid rgba(87, 119, 107, 0.15);
+  border-radius: 6px;
+  background: #dff4e9;
+  color: #237457;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+}
+
+.qaReviewSectionCell small {
+  font-size: 7.5px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.qaReviewSectionCell strong {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.qaReviewSectionCell.heat1 { background: #fff0c7; color: #8d6507; }
+.qaReviewSectionCell.heat2 { background: #ffd8b5; color: #934919; }
+.qaReviewSectionCell.heat3 { background: #ffb99d; color: #8d332d; }
+.qaReviewSectionCell.heat4 { background: #f58aa7; color: #7a183b; }
+
+.qaReviewSectionCell.current {
+  outline: 2px solid #7653c8;
+  outline-offset: 1px;
+}
+
 .qaReviewProgressLabels {
-  margin-bottom: 6px;
+  margin-bottom: 3px;
   justify-content: space-between;
   color: var(--muted);
   font-size: 10px;
@@ -601,7 +681,7 @@
 }
 
 .qaReviewProgressTrack {
-  height: 12px;
+  height: 8px;
   padding: 2px;
   overflow: hidden;
   border: 1px solid rgba(87, 119, 107, 0.17);
@@ -1540,6 +1620,7 @@
   }
 
   .qaReviewHeader {
+    height: auto;
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
