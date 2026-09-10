@@ -242,7 +242,9 @@ def test_contained_guide_groups_become_one_screenshot() -> None:
     inner_guide = _ink("guide-inner", [20.0, 20.0, 22.0, 80.0])
     inner_text = _ink("inner-text", [21.0, 20.0, 90.0, 80.0])
 
-    groups = group_red_ink_annotations([outer_guide, outer_text, inner_guide, inner_text])
+    groups = group_red_ink_annotations(
+        [outer_guide, outer_text, inner_guide, inner_text]
+    )
 
     assert len(groups) == 1
     assert set(groups[0].member_fingerprints) == {
@@ -276,7 +278,9 @@ def test_slightly_overlapping_guides_are_one_intentional_question() -> None:
     second_guide = _ink("guide-second", [5.0, 112.0, 8.0, 210.0])
     second_note = _ink("note-second", [12.0, 125.0, 190.0, 195.0])
 
-    groups = group_red_ink_annotations([first_guide, first_note, second_guide, second_note])
+    groups = group_red_ink_annotations(
+        [first_guide, first_note, second_guide, second_note]
+    )
 
     assert len(groups) == 1
     assert set(groups[0].member_fingerprints) == {
@@ -286,6 +290,26 @@ def test_slightly_overlapping_guides_are_one_intentional_question() -> None:
         "note-second",
     }
     assert groups[0].rect == [5.0, 20.0, 190.0, 210.0]
+
+
+def test_opposite_page_guides_with_brief_vertical_overlap_are_one_question() -> None:
+    left_guide = _ink("guide-left", [5.0, 20.0, 8.0, 120.0])
+    upper_note = _ink("upper-note", [12.0, 35.0, 190.0, 110.0])
+    right_guide = _ink("guide-right", [490.0, 119.0, 493.0, 220.0])
+    lower_note = _ink("lower-note", [300.0, 130.0, 485.0, 205.0])
+
+    groups = group_red_ink_annotations(
+        [left_guide, upper_note, right_guide, lower_note],
+        tolerance=2.0,
+    )
+
+    assert len(groups) == 1
+    assert set(groups[0].member_fingerprints) == {
+        "guide-left",
+        "upper-note",
+        "guide-right",
+        "lower-note",
+    }
 
 
 def test_nearby_non_overlapping_guides_remain_separate_questions() -> None:
@@ -306,11 +330,9 @@ def test_nearby_non_overlapping_guides_remain_separate_questions() -> None:
     ]
 
 
-def test_chapter_11_page_282_page_frame_is_one_question() -> None:
+def test_chapter_11_page_282_fixture_has_two_question_frames() -> None:
     fixture_path = (
-        Path(__file__).parent
-        / "fixtures"
-        / "chapter11_page282_question_frame.json"
+        Path(__file__).parent / "fixtures" / "chapter11_page282_question_frame.json"
     )
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     inks = []
@@ -322,41 +344,47 @@ def test_chapter_11_page_282_page_frame_is_one_question() -> None:
         # Preserve both the exact saved crop and the narrow framing stroke that
         # produced it. Drawboard extraction sees these as individual inks;
         # their first grouping pass then recreates the aggregate DB record.
-        inks.extend((
-            DrawboardInk(
-                fingerprint=item["sourceFingerprint"],
-                source_revision="fixture",
-                page=fixture["pageNumber"],
-                color="red",
-                rgb=item["rgb"],
-                created_at=item["createdAt"],
-                rect=[rect[0], guide[0], rect[0] + 0.5, guide[1]],
-                ink_vertex_sets=(
-                    [[rect[0], guide[0]], [rect[0] + 0.5, guide[1]]],
+        inks.extend(
+            (
+                DrawboardInk(
+                    fingerprint=item["sourceFingerprint"],
+                    source_revision="fixture",
+                    page=fixture["pageNumber"],
+                    color="red",
+                    rgb=item["rgb"],
+                    created_at=item["createdAt"],
+                    rect=[rect[0], guide[0], rect[0] + 0.5, guide[1]],
+                    ink_vertex_sets=([[rect[0], guide[0]], [rect[0] + 0.5, guide[1]]],),
+                    member_fingerprints=(item["sourceFingerprint"],),
                 ),
-                member_fingerprints=(item["sourceFingerprint"],),
-            ),
-            DrawboardInk(
-                fingerprint=f'{item["sourceFingerprint"]}-content',
-                source_revision="fixture",
-                page=fixture["pageNumber"],
-                color="red",
-                rgb=item["rgb"],
-                created_at=item["createdAt"],
-                rect=rect,
-                ink_vertex_sets=(
-                    [[rect[0], rect[1]], [rect[2], rect[3]]],
+                DrawboardInk(
+                    fingerprint=f"{item['sourceFingerprint']}-content",
+                    source_revision="fixture",
+                    page=fixture["pageNumber"],
+                    color="red",
+                    rgb=item["rgb"],
+                    created_at=item["createdAt"],
+                    rect=rect,
+                    ink_vertex_sets=([[rect[0], rect[1]], [rect[2], rect[3]]],),
+                    member_fingerprints=(f"{item['sourceFingerprint']}-content",),
                 ),
-                member_fingerprints=(f'{item["sourceFingerprint"]}-content',),
-            ),
-        ))
+            )
+        )
 
     groups = group_red_ink_annotations(inks)
 
     assert len(fixture["annotations"]) == 6
-    assert len(groups) == 1
-    assert groups[0].rect == [26.33, 1.07, 502.48, 590.9]
+    assert len(groups) == 2
+    assert [group.rect for group in groups] == [
+        [26.33, 1.07, 502.48, 503.01],
+        [337.83, 549.06, 495.12, 590.9],
+    ]
     assert groups[0].fingerprint.endswith("a4761166017349cab2a50e9a8d1b4a2b")
+    assert groups[1].fingerprint.endswith("fafa008a1e4f4e9d934457b81f379235")
+    assert [group["label"] for group in fixture["expectedQuestionGroups"]] == [
+        "Q-b-11-007",
+        "Q-b-11-008",
+    ]
 
 
 def test_handwriting_image_contains_nearby_ink_and_highlights(

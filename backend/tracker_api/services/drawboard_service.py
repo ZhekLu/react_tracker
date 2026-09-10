@@ -26,8 +26,6 @@ INK_VERTICAL_GUIDE_MIN_HEIGHT = 36.0
 INK_VERTICAL_GUIDE_ASPECT_RATIO = 3.0
 INK_GROUP_CONTAINMENT_THRESHOLD = 0.9
 INK_GROUP_VERTICAL_DUPLICATE_THRESHOLD = 0.82
-INK_PAGE_FRAME_MIN_HEIGHT = 420.0
-INK_PAGE_FRAME_NEARBY_MARGIN = 64.0
 _STATE_LOCK = threading.Lock()
 
 
@@ -319,10 +317,7 @@ def _annotation_batches(
     document_id: str,
     access_token: str,
 ) -> list[dict[str, Any]]:
-    url = (
-        f"{DRAWBOARD_API_BASE}/documents/{document_id}"
-        "/data/annotations/fetch-batch"
-    )
+    url = f"{DRAWBOARD_API_BASE}/documents/{document_id}/data/annotations/fetch-batch"
     annotations: list[dict[str, Any]] = []
     resume_on_page_id: str | None = None
     seen_resume_ids: set[str] = set()
@@ -341,9 +336,7 @@ def _annotation_batches(
         batch = result.get("annotations")
         if isinstance(batch, list):
             annotations.extend(
-                cast(dict[str, Any], item)
-                for item in batch
-                if isinstance(item, dict)
+                cast(dict[str, Any], item) for item in batch if isinstance(item, dict)
             )
         raw_resume = result.get("resumeOnPageId")
         next_resume = str(raw_resume) if raw_resume else None
@@ -402,11 +395,11 @@ def _annotation_rects(
 def _annotation_appearance(
     annotation: dict[str, Any],
 ) -> tuple[str, list[float], float, str]:
-    raw = str(
-        annotation.get("fillColor")
-        or annotation.get("strokeColor")
-        or ""
-    ).strip().lstrip("#")
+    raw = (
+        str(annotation.get("fillColor") or annotation.get("strokeColor") or "")
+        .strip()
+        .lstrip("#")
+    )
     opacity = 1.0
     if len(raw) == 8 and re.fullmatch(r"[a-fA-F0-9]{8}", raw):
         opacity = int(raw[:2], 16) / 255
@@ -421,11 +414,7 @@ def _annotation_appearance(
     # those palette changes; an absolute red >= .75 threshold is not. Keep the
     # separation deliberately wide enough that grey and blue handwriting can
     # never become questions merely because their red channel is non-zero.
-    if (
-        red >= 0.45
-        and red - green >= 0.25
-        and red - blue >= 0.20
-    ):
+    if red >= 0.45 and red - green >= 0.25 and red - blue >= 0.20:
         color = "red"
     elif red >= 0.85 and green >= 0.75 and blue <= 0.55:
         color = "yellow"
@@ -464,11 +453,7 @@ def _capture(
     content = re.sub(r"\s+", " ", str(annotation.get("content") or "")).strip()
     if annotation_kind not in TEXT_ANNOTATION_TYPES or not content:
         return None
-    annotation_id = str(
-        annotation.get("annotationId")
-        or item.get("id")
-        or ""
-    )
+    annotation_id = str(annotation.get("annotationId") or item.get("id") or "")
     if not annotation_id:
         return None
     page_id = str(annotation.get("pageId") or item.get("pageId") or "")
@@ -478,14 +463,8 @@ def _capture(
     )
     color, rgb, opacity, blend_mode = _annotation_appearance(annotation)
     is_markup = annotation_kind in TEXT_MARKUP_TYPES
-    is_question = (
-        color == "red"
-        or "??" in content
-        or "todo!" in content.casefold()
-    )
-    source_revision = str(
-        item.get("revision") or annotation.get("revision") or ""
-    )
+    is_question = color == "red" or "??" in content or "todo!" in content.casefold()
+    source_revision = str(item.get("revision") or annotation.get("revision") or "")
     if not source_revision:
         source_revision = hashlib.sha1(
             json.dumps(
@@ -547,9 +526,7 @@ def _ink_capture(
             max(vertices[0::2]),
             max(vertices[1::2]),
         ]
-    source_revision = str(
-        item.get("revision") or annotation.get("revision") or ""
-    )
+    source_revision = str(item.get("revision") or annotation.get("revision") or "")
     if not source_revision:
         source_revision = hashlib.sha1(
             json.dumps(
@@ -621,16 +598,19 @@ def _member_vertical_guide_bounds(ink: DrawboardInk) -> list[tuple[float, float]
     return bounds
 
 
+def ink_vertical_guide_bounds(ink: DrawboardInk) -> tuple[tuple[float, float], ...]:
+    """Expose the deliberate PDF y-axis guide bands for downstream grouping."""
+
+    return tuple(_member_vertical_guide_bounds(ink))
+
+
 def _vertical_ranges_overlap(
     first: tuple[float, float],
     second: tuple[float, float],
     *,
     tolerance: float,
 ) -> bool:
-    return (
-        first[0] <= second[1] + tolerance
-        and second[0] <= first[1] + tolerance
-    )
+    return first[0] <= second[1] + tolerance and second[0] <= first[1] + tolerance
 
 
 def _vertical_overlap_amount(
@@ -771,15 +751,11 @@ def _merge_red_ink_group(members: list[DrawboardInk]) -> DrawboardInk:
         else []
     )
     vertex_sets = tuple(
-        vertex_set
-        for ink in ordered
-        for vertex_set in ink.ink_vertex_sets
+        vertex_set for ink in ordered for vertex_set in ink.ink_vertex_sets
     )
     member_fingerprints = tuple(
         sorted(
-            fingerprint
-            for ink in ordered
-            for fingerprint in ink.member_fingerprints
+            fingerprint for ink in ordered for fingerprint in ink.member_fingerprints
         )
     )
     return DrawboardInk(
@@ -845,51 +821,30 @@ def _groups_are_near_duplicates(
         and _vertical_overlap_amount(first_bounds, second_bounds) / shorter_height
         >= INK_GROUP_VERTICAL_DUPLICATE_THRESHOLD
     )
-    # Deliberately overlapping red guide strokes are the user's explicit way
-    # of saying that two handwritten fragments belong to one question.  The
-    # older ratio threshold missed small-but-real overlaps and produced two
-    # almost identical screenshots.  Merely adjacent guides still remain
-    # separate because their geometric overlap is zero.
-    deliberately_overlapping = any(
-        _vertical_overlap_amount(first_guide, second_guide) > 0
-        for first_guide in _member_vertical_guide_bounds(first)
-        for second_guide in _member_vertical_guide_bounds(second)
-    )
-    vertical_gap = max(
-        0.0,
-        max(first_bounds[0], second_bounds[0])
-        - min(first_bounds[1], second_bounds[1]),
-    )
-    # A deliberately page-spanning margin line is also a frame. It may stop a
-    # few points before a note at the opposite page edge, especially after
-    # Drawboard splits one physical stroke into several annotations. Keep the
-    # allowance narrow and require an actual long vertical guide so ordinary
-    # neighbouring questions (including the four-point regression below) do
-    # not merge.
-    page_frame_absorbs_nearby = (
-        vertical_gap <= INK_PAGE_FRAME_NEARBY_MARGIN
-        and any(
-            high - low >= INK_PAGE_FRAME_MIN_HEIGHT
-            for low, high in (
-                *_member_vertical_guide_bounds(first),
-                *_member_vertical_guide_bounds(second),
-            )
+    first_guides = _member_vertical_guide_bounds(first)
+    second_guides = _member_vertical_guide_bounds(second)
+    # If both groups have deliberate guide strokes, those strokes are the
+    # question boundary. Their horizontal position is irrelevant: any real
+    # overlap on the PDF y axis joins them, while even a small positive gap
+    # keeps them as separate questions. Aggregate crop rectangles must not
+    # override that decision merely because surrounding handwriting is wide.
+    if first_guides and second_guides:
+        return any(
+            _vertical_overlap_amount(first_guide, second_guide) > 0
+            for first_guide in first_guides
+            for second_guide in second_guides
         )
-    )
-    return (
-        area_containment
-        or vertical_duplicate
-        or deliberately_overlapping
-        or page_frame_absorbs_nearby
-    )
+
+    # For unframed handwriting, retain the geometric fallback so nearby or
+    # contained fragments can still form one question automatically.
+    return area_containment or vertical_duplicate
 
 
 def _merge_contained_ink_groups(groups: list[DrawboardInk]) -> list[DrawboardInk]:
     """Merge guide groups that describe the same screenshot region.
 
-    A broad margin guide and a second arrow or bracket inside it can otherwise
-    become two questions with nearly identical screenshots. Strong geometric
-    containment is narrow enough to retain neighbouring independent notes.
+    Deliberate guide bands merge only when their PDF y-ranges truly overlap.
+    Geometric containment remains a fallback for fragments without guides.
     """
 
     remaining = list(groups)
@@ -972,8 +927,7 @@ def group_red_ink_annotations(
             guide_members[guide.fingerprint].append(candidate)
 
         page_groups = [
-            _merge_red_ink_group(guide_members[guide.fingerprint])
-            for guide in guides
+            _merge_red_ink_group(guide_members[guide.fingerprint]) for guide in guides
         ]
         page_groups.extend(
             _merge_red_ink_group(members)

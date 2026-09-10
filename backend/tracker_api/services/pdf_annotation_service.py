@@ -28,6 +28,7 @@ from .drawboard_service import (
     DrawboardInk,
     extract_drawboard_annotations,
     group_red_ink_annotations,
+    ink_vertical_guide_bounds,
     is_drawboard_cloud_url,
     merge_ink_annotation_groups,
 )
@@ -60,11 +61,21 @@ def _merge_ink_groups_by_paragraph(
     ungrouped: list[DrawboardInk] = []
     for ink in inks:
         context = contexts.get(ink.fingerprint)
-        if context is None or not context.paragraph_id:
+        # A deliberate vertical guide is authoritative. Two framed questions
+        # must not be joined merely because PDF text extraction maps them to
+        # one broad paragraph. Paragraph fallback is only for handwriting
+        # that has no guide line.
+        if (
+            context is None
+            or not context.paragraph_id
+            or ink_vertical_guide_bounds(ink)
+        ):
             ungrouped.append(ink)
             continue
         buckets.setdefault((ink.page, context.paragraph_id), []).append(ink)
-    merged = [merge_ink_annotation_groups(bucket) for _key, bucket in sorted(buckets.items())]
+    merged = [
+        merge_ink_annotation_groups(bucket) for _key, bucket in sorted(buckets.items())
+    ]
     return sorted(
         [*merged, *ungrouped],
         key=lambda ink: (
@@ -164,7 +175,10 @@ def _collection_item(
 ) -> PdfCollectionItem:
     anchor = command.anchor
     text_value = (
-        (anchor.quote if anchor else None) or command.plain_text or command.markdown or "Screenshot"
+        (anchor.quote if anchor else None)
+        or command.plain_text
+        or command.markdown
+        or "Screenshot"
     )
     return PdfCollectionItem(
         outcome=outcome,
@@ -186,17 +200,17 @@ def drawboard_color_key(rgb: Iterable[float]) -> str:
 
 def _drawboard_role_preference_key(connection: Connection, resource_id: str) -> str:
     course_id = connection.execute(
-        text(
-            """
+        text("""
             SELECT course_id
             FROM resources
             WHERE id = :resource_id AND deleted_at IS NULL
-            """
-        ),
+            """),
         {"resource_id": resource_id},
     ).scalar_one_or_none()
     if course_id is None:
-        raise workspace_repository.EntityNotFoundError(f"Resource does not exist: {resource_id}")
+        raise workspace_repository.EntityNotFoundError(
+            f"Resource does not exist: {resource_id}"
+        )
     return f"{DRAWBOARD_COLOR_ROLE_PREFIX}:{course_id}"
 
 
@@ -220,7 +234,8 @@ def drawboard_color_roles(
     return {
         str(color).upper(): str(role)
         for color, role in payload.items()
-        if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(color)) and role in {"question", "regular"}
+        if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(color))
+        and role in {"question", "regular"}
     }
 
 
@@ -240,15 +255,13 @@ def save_drawboard_color_roles(
         current[color] = role
     now = _utc_now_iso()
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO app_preferences (key, value_json, updated_at)
             VALUES (:key, :value_json, :updated_at)
             ON CONFLICT(key) DO UPDATE SET
               value_json = excluded.value_json,
               updated_at = excluded.updated_at
-            """
-        ),
+            """),
         {
             "key": preference_key,
             "value_json": json.dumps(current, sort_keys=True),
@@ -303,7 +316,11 @@ def _classify_drawboard_extraction(
     roles: dict[str, str],
 ) -> DrawboardExtraction:
     question_ink = group_red_ink_annotations(
-        [ink for ink in extraction.all_ink if roles.get(drawboard_color_key(ink.rgb)) == "question"]
+        [
+            ink
+            for ink in extraction.all_ink
+            if roles.get(drawboard_color_key(ink.rgb)) == "question"
+        ]
     )
     captures = []
     for capture in extraction.captures:
@@ -338,8 +355,7 @@ def _chapter_study_days(
     """Map a book chapter to its first explicit study-plan day."""
 
     rows = connection.execute(
-        text(
-            """
+        text("""
             SELECT d.id AS day_id, d.number AS day_number, t.title
             FROM study_days d
             JOIN tasks t ON t.day_id = d.id
@@ -350,8 +366,7 @@ def _chapter_study_days(
               AND d.deleted_at IS NULL
               AND t.deleted_at IS NULL
             ORDER BY d.number, t.order_index
-            """
-        ),
+            """),
         {"resource_id": resource_id},
     ).mappings()
     study_days: dict[int, str] = {}
@@ -483,7 +498,9 @@ def _capture_from_annotation(
         rgb=rgb,
         quote=content if is_markup else "",
         comment="" if is_markup else content,
-        is_question=(color == "red" or "??" in content or "todo!" in content.casefold()),
+        is_question=(
+            color == "red" or "??" in content or "todo!" in content.casefold()
+        ),
         created_at=_parse_pdf_date(str(info.get("creationDate") or modified)),
         rect=rect,
     )
@@ -499,9 +516,7 @@ def extract_pdf_annotations(path: Path) -> PdfExtraction:
     captures: list[PdfCapture] = []
     ignored: dict[str, int] = {}
     try:
-        document: Any = pymupdf.open(  # type: ignore[no-untyped-call]
-            pdf_path
-        )
+        document: Any = pymupdf.open(pdf_path)  # type: ignore[no-untyped-call]
     except Exception as error:
         raise PdfAnnotationError(f"Could not open PDF: {pdf_path}") from error
     try:
@@ -702,9 +717,11 @@ def _drawboard_ink_command(
     label = (
         nearby_tag.group(0)
         if nearby_tag
-        else context.subchapter_title
-        if context and context.subchapter_title
-        else "handwriting"
+        else (
+            context.subchapter_title
+            if context and context.subchapter_title
+            else "handwriting"
+        )
     )
     markdown = f"Screenshot · {label}"
     metadata: dict[str, Any] = {
@@ -844,9 +861,9 @@ def collect_resource_pdf_annotations(
                     )
                     image_urls = {}
             try:
-                source_annotation_pages = {item.page for item in cloud_extraction.captures} | {
-                    item.page for item in cloud_extraction.all_ink
-                }
+                source_annotation_pages = {
+                    item.page for item in cloud_extraction.captures
+                } | {item.page for item in cloud_extraction.all_ink}
                 question_pages = {
                     item.page for item in cloud_extraction.captures if item.is_question
                 } | {item.page for item in cloud_extraction.red_ink}
@@ -885,12 +902,11 @@ def collect_resource_pdf_annotations(
             classification = (
                 "standalone-question"
                 if cloud_capture.is_question
-                else "merged-with-ink"
-                if color_role == "question"
-                else "regular"
+                else "merged-with-ink" if color_role == "question" else "regular"
             )
             color_role_revision = (
-                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:{color_role}:{classification}"
+                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:"
+                f"{color_role}:{classification}"
             )
             sync_revision = (
                 f"{cloud_capture.source_revision}:"
@@ -926,7 +942,9 @@ def collect_resource_pdf_annotations(
                 source_day_id,
             )
             color_key = drawboard_color_key(ink.rgb)
-            color_role_revision = f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:question:ink-group"
+            color_role_revision = (
+                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:question:ink-group"
+            )
             sync_revision = (
                 f"{ink.source_revision}:"
                 f"{'ink-paragraph-context-v4' if context else 'ink-plain-v4'}:"
@@ -971,7 +989,9 @@ def collect_resource_pdf_annotations(
             PdfCollection(
                 resource_id=resource_id,
                 path=cloud_extraction.source_url,
-                extracted_count=(len(cloud_extraction.captures) + len(cloud_extraction.red_ink)),
+                extracted_count=(
+                    len(cloud_extraction.captures) + len(cloud_extraction.red_ink)
+                ),
                 created_count=counts["created"],
                 updated_count=counts["updated"],
                 existing_count=counts["existing"],

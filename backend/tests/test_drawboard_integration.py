@@ -31,8 +31,7 @@ from tracker_api.services.resource_open_service import open_resource
 from tracker_api.services.study_plan_service import sync_study_plan
 
 SHARE_URL = (
-    "https://pdf.drawboard.com/documents/links/"
-    "8759d0a6458b42499fc13babc9e3f81d/consume"
+    "https://pdf.drawboard.com/documents/links/8759d0a6458b42499fc13babc9e3f81d/consume"
 )
 DOCUMENT_ID = "9a15ffc69d824f14a52dff1b7ea35163"
 
@@ -232,10 +231,7 @@ def test_cloud_extraction_pages_batches_and_reuses_credentials(
     assert [capture.page for capture in first.captures] == [11, 12, 12]
     assert first.captures[0].comment == "Why?"
     assert first.captures[0].is_question is True
-    colors = {
-        capture.annotation_kind: capture.color
-        for capture in first.captures
-    }
+    colors = {capture.annotation_kind: capture.color for capture in first.captures}
     assert colors["TextHighlight"] == "yellow"
     assert colors["TextUnderline"] == "cyan"
     highlight = next(
@@ -284,16 +280,12 @@ Stop when: the chapter is read. {{#day01-stop}}
     )
     sync_study_plan(plan_path)
     with transaction() as connection:
-        resource_id = connection.execute(
-            text(
-                """
+        resource_id = connection.execute(text("""
                 SELECT entity_id
                 FROM source_bindings
                 WHERE entity_type = 'resource'
                   AND source_key = 'drawboard_collection:book'
-                """
-            )
-        ).scalar_one()
+                """)).scalar_one()
     return str(resource_id)
 
 
@@ -345,18 +337,20 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
         )
     with transaction() as connection:
         first = collect_resource_pdf_annotations(connection, resource_id)
-        first_identity = connection.execute(
-            text(
-                """
+        first_identity = (
+            connection.execute(
+                text("""
                 SELECT a.id, qi.readable_label
                 FROM annotations a
                 JOIN annotation_question_identities aqi ON aqi.annotation_id = a.id
                 JOIN question_identities qi ON qi.id = aqi.question_identity_id
                 WHERE a.resource_id = :resource_id
-                """
-            ),
-            {"resource_id": resource_id},
-        ).mappings().one()
+                """),
+                {"resource_id": resource_id},
+            )
+            .mappings()
+            .one()
+        )
     with transaction() as connection:
         second = collect_resource_pdf_annotations(connection, resource_id)
 
@@ -365,9 +359,9 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
     current = _cloud_extraction("Why exactly?", "2", page=12)
     with transaction() as connection:
         third = collect_resource_pdf_annotations(connection, resource_id)
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text("""
                 SELECT a.id, a.kind, a.status, d.plain_text, aa.page_number,
                        aa.selector_json, qi.readable_label
                 FROM annotations a
@@ -376,10 +370,12 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
                 JOIN annotation_question_identities aqi ON aqi.annotation_id = a.id
                 JOIN question_identities qi ON qi.id = aqi.question_identity_id
                 WHERE a.resource_id = :resource_id
-                """
-            ),
-            {"resource_id": resource_id},
-        ).mappings().one()
+                """),
+                {"resource_id": resource_id},
+            )
+            .mappings()
+            .one()
+        )
     current = DrawboardExtraction(
         source_url=SHARE_URL,
         document_id=DOCUMENT_ID,
@@ -390,26 +386,22 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
     with transaction() as connection:
         removed = collect_resource_pdf_annotations(connection, resource_id)
         active_after_removal = connection.execute(
-            text(
-                """
+            text("""
                 SELECT COUNT(*)
                 FROM annotations
                 WHERE resource_id = :resource_id AND deleted_at IS NULL
-                """
-            ),
+                """),
             {"resource_id": resource_id},
         ).scalar_one()
     current = _cloud_extraction("Why exactly?", "2", page=12)
     with transaction() as connection:
         revived = collect_resource_pdf_annotations(connection, resource_id)
         active_count = connection.execute(
-            text(
-                """
+            text("""
                 SELECT COUNT(*)
                 FROM annotations
                 WHERE resource_id = :resource_id AND deleted_at IS NULL
-                """
-            ),
+                """),
             {"resource_id": resource_id},
         ).scalar_one()
 
@@ -491,13 +483,11 @@ def test_missing_regular_drawboard_highlight_is_still_soft_deleted(
     with transaction() as connection:
         removed = collect_resource_pdf_annotations(connection, resource_id)
         active_count = connection.execute(
-            text(
-                """
+            text("""
                 SELECT COUNT(*)
                 FROM annotations
                 WHERE resource_id = :resource_id AND deleted_at IS NULL
-                """
-            ),
+                """),
             {"resource_id": resource_id},
         ).scalar_one()
 
@@ -557,17 +547,13 @@ def test_cloud_collection_keeps_question_kind_after_color_role_changes(
             {"#33CC4C": "question"},
         )
         created = collect_resource_pdf_annotations(connection, resource_id)
-        first = connection.execute(
-            text(
-                """
+        first = connection.execute(text("""
                 SELECT a.kind, a.status, qi.readable_label
                 FROM annotations a
                 JOIN annotation_question_identities aqi
                   ON aqi.annotation_id = a.id
                 JOIN question_identities qi ON qi.id = aqi.question_identity_id
-                """
-            )
-        ).mappings().one()
+                """)).mappings().one()
 
     with transaction() as connection:
         pdf_annotation_service.save_drawboard_color_roles(
@@ -576,17 +562,13 @@ def test_cloud_collection_keeps_question_kind_after_color_role_changes(
             {"#33CC4C": "regular"},
         )
         updated = collect_resource_pdf_annotations(connection, resource_id)
-        final = connection.execute(
-            text(
-                """
+        final = connection.execute(text("""
                 SELECT a.kind, a.status, qi.readable_label
                 FROM annotations a
                 JOIN annotation_question_identities aqi
                   ON aqi.annotation_id = a.id
                 JOIN question_identities qi ON qi.id = aqi.question_identity_id
-                """
-            )
-        ).mappings().one()
+                """)).mappings().one()
 
     assert created.created_count == 1
     assert first["kind"] == "question"
@@ -614,20 +596,17 @@ def test_question_kind_repair_restores_brown_successor_and_group_identity(
             ).scalar_one()
         )
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE resources
                 SET metadata_json = json_set(
                   COALESCE(metadata_json, '{}'), '$.plan_resource_id', 'rl-book'
                 )
                 WHERE id = :id
-                """
-            ),
+                """),
             {"id": resource_id},
         )
         connection.execute(
-            text(
-                """
+            text("""
                 INSERT INTO annotations (
                   id, resource_id, kind, status, priority, origin,
                   created_at, updated_at, deleted_at, revision
@@ -636,8 +615,7 @@ def test_question_kind_repair_restores_brown_successor_and_group_identity(
                    'drawboard_cloud', :now, :now, :now, 1),
                   (:successor, :resource, 'highlight', 'answered', 'normal',
                    'drawboard_cloud', :now, :now, NULL, 1)
-                """
-            ),
+                """),
             {
                 "predecessor": predecessor_id,
                 "successor": successor_id,
@@ -653,16 +631,14 @@ def test_question_kind_repair_restores_brown_successor_and_group_identity(
         )
         for annotation_id in (predecessor_id, successor_id):
             connection.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO annotation_anchors (
                       annotation_id, anchor_type, page_number, selector_json,
                       created_at, updated_at
                     ) VALUES (
                       :annotation_id, 'pdf_text', 172, :selector_json, :now, :now
                     )
-                    """
-                ),
+                    """),
                 {
                     "annotation_id": annotation_id,
                     "selector_json": selector,
@@ -670,8 +646,7 @@ def test_question_kind_repair_restores_brown_successor_and_group_identity(
                 },
             )
         connection.execute(
-            text(
-                """
+            text("""
                 INSERT INTO question_identities (
                   id, course_id, resource_id, resource_code, scope_code,
                   ordinal, readable_label, created_at
@@ -679,8 +654,7 @@ def test_question_kind_repair_restores_brown_successor_and_group_identity(
                   :id, :course_id, :resource_id, 'b', '07', 99,
                   'Q-b-07-099', :now
                 )
-                """
-            ),
+                """),
             {
                 "id": identity_id,
                 "course_id": course_id,
@@ -689,13 +663,11 @@ def test_question_kind_repair_restores_brown_successor_and_group_identity(
             },
         )
         connection.execute(
-            text(
-                """
+            text("""
                 INSERT INTO annotation_question_identities (
                   annotation_id, question_identity_id, created_at
                 ) VALUES (:annotation_id, :identity_id, :now)
-                """
-            ),
+                """),
             {
                 "annotation_id": predecessor_id,
                 "identity_id": identity_id,
@@ -715,19 +687,21 @@ def test_question_kind_repair_restores_brown_successor_and_group_identity(
         raw_connection.close()
 
     with transaction() as connection:
-        repaired = connection.execute(
-            text(
-                """
+        repaired = (
+            connection.execute(
+                text("""
                 SELECT a.kind, a.status, qi.readable_label
                 FROM annotations a
                 JOIN annotation_question_identities aqi
                   ON aqi.annotation_id = a.id
                 JOIN question_identities qi ON qi.id = aqi.question_identity_id
                 WHERE a.id = :id
-                """
-            ),
-            {"id": successor_id},
-        ).mappings().one()
+                """),
+                {"id": successor_id},
+            )
+            .mappings()
+            .one()
+        )
 
     assert repaired["kind"] == "question"
     assert repaired["status"] == "answered"
@@ -774,13 +748,11 @@ def test_recoloring_an_answered_question_preserves_question_history(
         )
         collect_resource_pdf_annotations(connection, resource_id)
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE annotations
                 SET status = 'answered', answered_at = '2026-08-28T10:00:00+00:00'
                 WHERE resource_id = :resource_id
-                """
-            ),
+                """),
             {"resource_id": resource_id},
         )
 
@@ -791,16 +763,18 @@ def test_recoloring_an_answered_question_preserves_question_history(
             {"#99331A": "regular"},
         )
         collect_resource_pdf_annotations(connection, resource_id)
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text("""
                 SELECT kind, status
                 FROM annotations
                 WHERE resource_id = :resource_id
-                """
-            ),
-            {"resource_id": resource_id},
-        ).mappings().one()
+                """),
+                {"resource_id": resource_id},
+            )
+            .mappings()
+            .one()
+        )
 
     assert row["kind"] == "question"
     assert row["status"] == "answered"
@@ -856,18 +830,20 @@ def test_red_highlight_inside_handwriting_group_is_not_a_second_question(
             {"#FF0000": "question"},
         )
         collected = collect_resource_pdf_annotations(connection, resource_id)
-        rows = connection.execute(
-            text(
-                """
+        rows = (
+            connection.execute(
+                text("""
                 SELECT a.kind, a.origin
                 FROM annotations a
                 WHERE a.resource_id = :resource_id
                   AND a.deleted_at IS NULL
                 ORDER BY a.kind
-                """
-            ),
-            {"resource_id": resource_id},
-        ).mappings().all()
+                """),
+                {"resource_id": resource_id},
+            )
+            .mappings()
+            .all()
+        )
 
     assert collected.kind_counts == {"highlight": 1, "question": 1}
     assert rows == [
@@ -920,6 +896,48 @@ def test_ink_groups_in_the_same_pdf_paragraph_become_one_capture() -> None:
     assert set(merged[0].member_fingerprints) == {"ink-one", "ink-two"}
 
 
+def test_framed_ink_groups_in_one_pdf_paragraph_remain_separate() -> None:
+    first = DrawboardInk(
+        fingerprint="frame-one",
+        source_revision="rev-one",
+        page=282,
+        color="red",
+        rgb=[1.0, 0.0, 0.0],
+        created_at="2026-09-04T10:00:00Z",
+        rect=[5.0, 20.0, 300.0, 120.0],
+        ink_vertex_sets=([[5.0, 20.0], [7.0, 120.0]],),
+        member_fingerprints=("frame-one",),
+    )
+    second = DrawboardInk(
+        fingerprint="frame-two",
+        source_revision="rev-two",
+        page=282,
+        color="red",
+        rgb=[1.0, 0.0, 0.0],
+        created_at="2026-09-04T10:01:00Z",
+        rect=[320.0, 124.0, 500.0, 210.0],
+        ink_vertex_sets=([[498.0, 124.0], [500.0, 210.0]],),
+        member_fingerprints=("frame-two",),
+    )
+    context = PdfAnnotationContext(
+        chapter_number=11,
+        chapter_title="Off-policy Methods",
+        context_after="",
+        context_before="",
+        context_sentence="One broad extracted paragraph.",
+        match_method="paragraph",
+        subchapter_title="Examples of Off-policy Divergence",
+        paragraph_id="paragraph-282-a",
+    )
+
+    merged = _merge_ink_groups_by_paragraph(
+        [first, second],
+        {first.fingerprint: context, second.fingerprint: context},
+    )
+
+    assert [item.fingerprint for item in merged] == ["frame-one", "frame-two"]
+
+
 def test_book_chapters_map_to_their_explicit_study_days(tmp_path: Path) -> None:
     pdf_path = tmp_path / "book.pdf"
     pdf_path.write_bytes(b"%PDF-1.4")
@@ -961,29 +979,21 @@ Stop when: chapter three is read. {{#day02-stop}}
     result = sync_study_plan(plan_path)
 
     with transaction() as connection:
-        resource_id = str(
-            connection.execute(
-                text(
-                    """
+        resource_id = str(connection.execute(text("""
                     SELECT entity_id
                     FROM source_bindings
                     WHERE entity_type = 'resource'
                       AND source_key = 'chapter_study_days:book'
-                    """
-                )
-            ).scalar_one()
-        )
+                    """)).scalar_one())
         days = {
             int(row["number"]): str(row["id"])
             for row in connection.execute(
-                text(
-                    """
+                text("""
                     SELECT id, number
                     FROM study_days
                     WHERE course_id = :course_id
                     ORDER BY number
-                    """
-                ),
+                    """),
                 {"course_id": result.course_id},
             ).mappings()
         }

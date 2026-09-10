@@ -147,17 +147,13 @@ Stop when: the paper is read. {#day01-stop}
     )
     result = sync_study_plan(plan_path)
     with transaction() as connection:
-        resource_id = connection.execute(
-            text(
-                """
+        resource_id = connection.execute(text("""
                 SELECT entity_id
                 FROM source_bindings
                 WHERE entity_type = 'resource'
                   AND source_key = 'mutation_course:paper'
                 LIMIT 1
-                """
-            )
-        ).scalar_one()
+                """)).scalar_one()
     return result.course_id, str(resource_id)
 
 
@@ -166,13 +162,11 @@ def test_day_prompt_discussion_links_every_day_resource(tmp_path: Path) -> None:
     with transaction() as connection:
         day_id = str(
             connection.execute(
-                text(
-                    """
+                text("""
                     SELECT id
                     FROM study_days
                     WHERE course_id = :course_id
-                    """
-                ),
+                    """),
                 {"course_id": course_id},
             ).scalar_one()
         )
@@ -255,19 +249,21 @@ def test_resource_question_discussion_exposes_explicit_scope(tmp_path: Path) -> 
 def test_toggl_task_binding_tracks_time_by_stable_task_id(tmp_path: Path) -> None:
     course_id, _resource_id = _seed_course(tmp_path)
     with transaction() as connection:
-        task = connection.execute(
-            text(
-                """
+        task = (
+            connection.execute(
+                text("""
                 SELECT t.id AS task_id, t.day_id
                 FROM tasks t
                 JOIN study_days d ON d.id = t.day_id
                 WHERE d.course_id = :course_id AND t.deleted_at IS NULL
                 ORDER BY t.order_index
                 LIMIT 1
-                """
-            ),
-            {"course_id": course_id},
-        ).mappings().one()
+                """),
+                {"course_id": course_id},
+            )
+            .mappings()
+            .one()
+        )
         task_id = str(task["task_id"])
         day_id = str(task["day_id"])
         record_toggl_start(
@@ -279,15 +275,11 @@ def test_toggl_task_binding_tracks_time_by_stable_task_id(tmp_path: Path) -> Non
             description="[Mutation] Day 1. Read paper",
             started_at="2026-07-01T10:00:00Z",
         )
-        connection.execute(
-            text(
-                """
+        connection.execute(text("""
                 UPDATE time_entries
                 SET stopped_at = '2026-07-01T10:30:00Z'
                 WHERE provider = 'toggl' AND external_id = 'toggl-42'
-                """
-            )
-        )
+                """))
 
         assert toggl_task_id(connection, "toggl-42") == task_id
         assert toggl_task_totals(connection)[task_id] == 1800
@@ -298,18 +290,20 @@ def test_toggl_reconciliation_applies_remote_edits_and_deletions(
 ) -> None:
     course_id, _resource_id = _seed_course(tmp_path)
     with transaction() as connection:
-        task = connection.execute(
-            text(
-                """
+        task = (
+            connection.execute(
+                text("""
                 SELECT t.id AS task_id, t.day_id
                 FROM tasks t
                 JOIN study_days d ON d.id = t.day_id
                 WHERE d.course_id = :course_id AND t.deleted_at IS NULL
                 LIMIT 1
-                """
-            ),
-            {"course_id": course_id},
-        ).mappings().one()
+                """),
+                {"course_id": course_id},
+            )
+            .mappings()
+            .one()
+        )
         task_id = str(task["task_id"])
         day_id = str(task["day_id"])
         for external_id, started_at, stopped_at in (
@@ -326,13 +320,11 @@ def test_toggl_reconciliation_applies_remote_edits_and_deletions(
                 started_at=started_at,
             )
             connection.execute(
-                text(
-                    """
+                text("""
                     UPDATE time_entries
                     SET stopped_at = :stopped_at
                     WHERE provider = 'toggl' AND external_id = :external_id
-                    """
-                ),
+                    """),
                 {"external_id": external_id, "stopped_at": stopped_at},
             )
 
@@ -353,31 +345,23 @@ def test_toggl_reconciliation_applies_remote_edits_and_deletions(
         )
 
         assert toggl_task_totals(connection)[task_id] == 600
-        remaining = connection.execute(
-            text(
-                """
+        remaining = connection.execute(text("""
                 SELECT external_id, description, started_at, stopped_at,
                        duration_override_seconds
                 FROM time_entries
                 WHERE provider = 'toggl'
-                """
-            )
-        ).mappings().all()
+                """)).mappings().all()
         assert [row["external_id"] for row in remaining] == ["toggl-edited"]
         assert remaining[0]["description"].endswith("edited paper")
         assert remaining[0]["started_at"] == "2026-07-01T10:05:00Z"
         assert remaining[0]["stopped_at"] == "2026-07-01T10:15:00Z"
         assert remaining[0]["duration_override_seconds"] == 600
-        assert connection.execute(
-            text(
-                """
+        assert connection.execute(text("""
                 SELECT COUNT(*)
                 FROM integration_sync_states
                 WHERE integration = 'toggl'
                   AND last_successful_sync_at IS NOT NULL
-                """
-            )
-        ).scalar_one() == 1
+                """)).scalar_one() == 1
 
 
 def test_configured_pdf_application_is_used_without_system_fallback(
@@ -388,11 +372,7 @@ def test_configured_pdf_application_is_used_without_system_fallback(
     pdf_path.write_bytes(b"%PDF-1.4")
     config_path = get_settings().helper_config_path
     config_path.write_text(
-        (
-            '{"open_allowed_roots": ["'
-            f'{tmp_path}"], "pdf_app": "Drawboard PDF"'
-            "}"
-        ),
+        (f'{{"open_allowed_roots": ["{tmp_path}"], "pdf_app": "Drawboard PDF"}}'),
         encoding="utf-8",
     )
     calls: list[list[str]] = []
@@ -450,26 +430,26 @@ def test_pdf_annotation_import_is_idempotent_and_prompt_snapshot_is_saved(
     assert second.id == first.id
     with transaction() as connection:
         annotation_count = connection.execute(
-            text(
-                """
+            text("""
                 SELECT COUNT(*)
                 FROM annotations
                 WHERE resource_id = :resource_id
                   AND source_fingerprint = 'pdf-fingerprint'
-                """
-            ),
+                """),
             {"resource_id": resource_id},
         ).scalar_one()
-        prompt_item = connection.execute(
-            text(
-                """
+        prompt_item = (
+            connection.execute(
+                text("""
                 SELECT question_label, quote_snapshot, question_snapshot_markdown
                 FROM prompt_batch_items
                 WHERE prompt_batch_id = :prompt_batch_id
-                """
-            ),
-            {"prompt_batch_id": prompt.id},
-        ).mappings().one()
+                """),
+                {"prompt_batch_id": prompt.id},
+            )
+            .mappings()
+            .one()
+        )
     assert annotation_count == 1
     assert prompt_item["question_label"] == "Q-001"
     assert prompt_item["quote_snapshot"] == "Coverage assumption"
@@ -533,17 +513,19 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
                 },
             ),
         )
-        prompt_labels = connection.execute(
-            text(
-                """
+        prompt_labels = (
+            connection.execute(
+                text("""
                 SELECT annotation_id, question_label
                 FROM prompt_batch_items
                 WHERE prompt_batch_id = :batch_id
                 ORDER BY order_index
-                """
-            ),
-            {"batch_id": batch.id},
-        ).mappings().all()
+                """),
+                {"batch_id": batch.id},
+            )
+            .mappings()
+            .all()
+        )
 
     assert by_id[first.id].stable_label == by_id[second.id].stable_label
     assert by_id[first.id].stable_label != by_id[third.id].stable_label
@@ -558,13 +540,11 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
     with pytest.raises(IntegrityError, match="question identity is immutable"):
         with transaction() as connection:
             connection.execute(
-                text(
-                    """
+                text("""
                     UPDATE question_identities
                     SET readable_label = 'Q-illegal-00-999'
                     WHERE readable_label = :readable_label
-                    """
-                ),
+                    """),
                 {"readable_label": by_id[first.id].stable_label},
             )
 
@@ -574,8 +554,7 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
     ):
         with transaction() as connection:
             connection.execute(
-                text(
-                    """
+                text("""
                     UPDATE annotation_question_identities
                     SET question_identity_id = (
                       SELECT question_identity_id
@@ -583,8 +562,7 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
                       WHERE annotation_id = :replacement_annotation_id
                     )
                     WHERE annotation_id = :annotation_id
-                    """
-                ),
+                    """),
                 {
                     "annotation_id": first.id,
                     "replacement_annotation_id": third.id,
@@ -592,7 +570,7 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
             )
 
 
-def test_expanding_drawboard_frame_preserves_one_logical_question(
+def test_overlapping_drawboard_frame_preserves_one_logical_question(
     tmp_path: Path,
 ) -> None:
     course_id, resource_id = _seed_course(tmp_path)
@@ -654,24 +632,38 @@ def test_expanding_drawboard_frame_preserves_one_logical_question(
             ),
         )
 
-        assert reconcile_imported_question_frame(
-            connection,
-            resource_id,
-            "current-ink",
-        ) == 4
+        assert (
+            reconcile_imported_question_frame(
+                connection,
+                resource_id,
+                "current-ink",
+            )
+            == 3
+        )
+        assert (
+            reconcile_imported_question_frame(
+                connection,
+                resource_id,
+                "edge-ink",
+            )
+            == 1
+        )
         workspace = get_workspace(connection, course_id)
 
     by_id = {item.id: item for item in workspace.annotations}
-    for annotation_id in (highlight.id, old.id, edge.id, current.id):
+    for annotation_id in (highlight.id, old.id, current.id):
         assert by_id[annotation_id].anchor is not None
         assert by_id[annotation_id].anchor.metadata["questionFrameId"] == old.id
+    assert by_id[edge.id].anchor is not None
+    assert by_id[edge.id].anchor.metadata["questionFrameId"] == edge.id
     assert "supersededByAnnotationId" not in by_id[current.id].anchor.metadata
-    assert by_id[current.id].anchor.rect == [26.33, 1.07, 502.48, 590.9]
-    for annotation_id in (highlight.id, old.id, edge.id):
+    assert by_id[current.id].anchor.rect == [26.33, 1.07, 502.48, 503.01]
+    for annotation_id in (highlight.id, old.id):
         assert (
             by_id[annotation_id].anchor.metadata["supersededByAnnotationId"]
             == current.id
         )
+    assert "supersededByAnnotationId" not in by_id[edge.id].anchor.metadata
 
 
 def test_reader_content_and_progress_are_persisted(tmp_path: Path) -> None:
@@ -699,16 +691,18 @@ def test_reader_content_and_progress_are_persisted(tmp_path: Path) -> None:
     assert first.id == second.id
     assert second.revision == 2
     with transaction() as connection:
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text("""
                 SELECT progress_percent, position_json
                 FROM resource_reading_progress
                 WHERE id = :id
-                """
-            ),
-            {"id": second.id},
-        ).mappings().one()
+                """),
+                {"id": second.id},
+            )
+            .mappings()
+            .one()
+        )
     assert row["progress_percent"] == 72
     assert '"scrollTop":300' in row["position_json"]
 
@@ -861,21 +855,23 @@ def test_discussion_accepts_continuation_prompt_batches_with_stable_labels(
             ),
         )
         workspace = get_workspace(connection, course_id)
-        rows = connection.execute(
-            text(
-                """
+        rows = (
+            connection.execute(
+                text("""
                 SELECT id, parent_discussion_thread_id
                 FROM prompt_batches
                 WHERE id IN (:initial_id, :continuation_id, :repeated_id)
                 ORDER BY id
-                """
-            ),
-            {
-                "initial_id": initial.id,
-                "continuation_id": continuation.id,
-                "repeated_id": repeated.id,
-            },
-        ).mappings().all()
+                """),
+                {
+                    "initial_id": initial.id,
+                    "continuation_id": continuation.id,
+                    "repeated_id": repeated.id,
+                },
+            )
+            .mappings()
+            .all()
+        )
 
     thread = workspace.discussions[0]
     assert thread.question_ids == [questions[0].id, questions[1].id]
@@ -884,9 +880,7 @@ def test_discussion_accepts_continuation_prompt_batches_with_stable_labels(
         [questions[0].id],
         [questions[1].id],
     ]
-    assert {str(row["parent_discussion_thread_id"]) for row in rows} == {
-        discussion.id
-    }
+    assert {str(row["parent_discussion_thread_id"]) for row in rows} == {discussion.id}
 
 
 def test_continuation_rejects_a_label_owned_by_another_question(
@@ -1204,13 +1198,11 @@ def test_prompt_discussion_skips_annotations_deleted_after_prompt_creation(
             ),
         )
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE annotations
                 SET deleted_at = '2026-07-24T00:00:00Z'
                 WHERE id = :annotation_id
-                """
-            ),
+                """),
             {"annotation_id": deleted_question.id},
         )
 
@@ -1226,9 +1218,7 @@ def test_prompt_discussion_skips_annotations_deleted_after_prompt_creation(
         workspace = get_workspace(connection, course_id)
 
     stored_message = next(
-        item
-        for item in workspace.discussions[0].messages
-        if item.id == message.id
+        item for item in workspace.discussions[0].messages if item.id == message.id
     )
     assert [link.annotation_id for link in stored_message.annotation_links] == [
         current_question.id
@@ -1316,19 +1306,21 @@ def test_reviewing_message_saves_selection_followups_and_math_highlights(
     )
     question = questions[0]
     highlight = next(
-        annotation for annotation in review_annotations if annotation.kind == "highlight"
+        annotation
+        for annotation in review_annotations
+        if annotation.kind == "highlight"
     )
     assert question.anchor and question.anchor.discussion_message_id == message.id
     assert [item.anchor.metadata["promptLabel"] for item in questions] == [
         "Q-001-F1",
         "Q-001-F2",
     ]
-    assert question.anchor.metadata["sectionLabel"] == (
-        "Q-001 — bootstrap update"
-    )
+    assert question.anchor.metadata["sectionLabel"] == ("Q-001 — bootstrap update")
     assert question.anchor.metadata["rootQuestionIds"] == ["root-question-id"]
     assert highlight.anchor and highlight.anchor.color == "secondary"
-    assert after.discussions[0].messages[0].annotation_links[0].relation == "followup_to"
+    assert (
+        after.discussions[0].messages[0].annotation_links[0].relation == "followup_to"
+    )
     assert question.id in after.discussions[0].question_ids
     assert highlight.id not in after.discussions[0].question_ids
 
@@ -1361,9 +1353,9 @@ def test_deleting_discussion_soft_deletes_thread_resource_and_messages(
             DiscussionDeleteCommand(revision=before.discussions[0].revision),
         )
         after = get_workspace(connection, course_id)
-        rows = connection.execute(
-            text(
-                """
+        rows = (
+            connection.execute(
+                text("""
                 SELECT
                   dt.deleted_at AS thread_deleted_at,
                   r.deleted_at AS resource_deleted_at,
@@ -1372,10 +1364,12 @@ def test_deleting_discussion_soft_deletes_thread_resource_and_messages(
                 JOIN resources r ON r.id = dt.resource_id
                 JOIN discussion_messages dm ON dm.thread_id = dt.id
                 WHERE dt.id = :discussion_id
-                """
-            ),
-            {"discussion_id": discussion.id},
-        ).mappings().one()
+                """),
+                {"discussion_id": discussion.id},
+            )
+            .mappings()
+            .one()
+        )
 
     assert deleted.revision == before.discussions[0].revision + 1
     assert after.discussions == []
@@ -1418,17 +1412,19 @@ def test_discussion_message_body_can_be_edited_with_document_history(
             ),
         )
         after = get_workspace(connection, course_id)
-        revisions = connection.execute(
-            text(
-                """
+        revisions = (
+            connection.execute(
+                text("""
                 SELECT revision_number, change_reason
                 FROM document_revisions
                 WHERE document_id = :document_id
                 ORDER BY revision_number
-                """
-            ),
-            {"document_id": message.body.id},
-        ).mappings().all()
+                """),
+                {"document_id": message.body.id},
+            )
+            .mappings()
+            .all()
+        )
 
     edited = after.discussions[0].messages[-1]
     assert updated.revision == message.revision + 1
@@ -1621,11 +1617,7 @@ def test_saving_discussion_message_exports_configured_instruction_tag(
     export_root = tmp_path / "instructions"
     config_path = tmp_path / "course_files.json"
     config_path.write_text(
-        (
-            '{"discussion_export_roots": {'
-            f'"{short_code}": "{export_root}"'
-            "}}"
-        ),
+        (f'{{"discussion_export_roots": {{"{short_code}": "{export_root}"}}}}'),
         encoding="utf-8",
     )
     monkeypatch.setenv("TRACKER_COURSE_FILES_CONFIG_PATH", str(config_path))
@@ -1677,9 +1669,7 @@ def test_annotation_can_have_a_separate_linked_note(tmp_path: Path) -> None:
                 entity_id=created.id,
                 markdown="<p>My interpretation of this passage.</p>",
                 plain_text="My interpretation of this passage.",
-                related_links=[
-                    {"entity_type": "resource", "entity_id": resource_id}
-                ],
+                related_links=[{"entity_type": "resource", "entity_id": resource_id}],
             ),
         )
         workspace = get_workspace(connection, course_id)
@@ -1688,11 +1678,12 @@ def test_annotation_can_have_a_separate_linked_note(tmp_path: Path) -> None:
     assert annotation.body is not None
     assert annotation.body.plain_text == "Imported source text stays intact."
     assert [item.id for item in annotation.notes] == [note.id]
-    assert annotation.notes[0].document.plain_text == "My interpretation of this passage."
+    assert (
+        annotation.notes[0].document.plain_text == "My interpretation of this passage."
+    )
     saved_note = next(item for item in workspace.notes if item.id == note.id)
     assert {
-        (link.entity_type, link.entity_id, link.relation)
-        for link in saved_note.links
+        (link.entity_type, link.entity_id, link.relation) for link in saved_note.links
     } == {
         ("annotation", created.id, "primary"),
         ("resource", resource_id, "related"),
@@ -1734,7 +1725,6 @@ def test_question_body_can_be_edited_with_document_revision(tmp_path: Path) -> N
     assert updated.body.markdown == r"Updated question with $\rho(s, a)$"
 
 
-
 def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_question(
     tmp_path: Path,
 ) -> None:
@@ -1767,8 +1757,7 @@ def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_questi
                     annotation_kind="Ink",
                     metadata={
                         "contextImageUrl": (
-                            f"/api/resources/{resource_id}/annotation-images/"
-                            f"{fingerprint}?v=test"
+                            f"/api/resources/{resource_id}/annotation-images/{fingerprint}?v=test"
                         )
                     },
                 ),
@@ -1781,44 +1770,38 @@ def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_questi
                 title="Question with handwriting",
                 source_scope="resource_questions",
                 source_resource_id=resource_id,
-                markdown=(
-                    "# Questions\n\n"
-                    "### Q-001\n\nWhy is this assumption needed?"
-                ),
+                markdown=("# Questions\n\n### Q-001\n\nWhy is this assumption needed?"),
                 annotation_ids=[question.id],
             ),
         )
 
         saved_markdown = connection.execute(
-            text(
-                """
+            text("""
                 SELECT d.markdown
                 FROM prompt_batches pb
                 JOIN documents d ON d.id = pb.prompt_document_id
                 WHERE pb.id = :prompt_batch_id
-                """
-            ),
+                """),
             {"prompt_batch_id": result.id},
         ).scalar_one()
 
     non_manifest = [
-        attachment for attachment in result.attachments
-        if attachment.kind != "manifest"
+        attachment for attachment in result.attachments if attachment.kind != "manifest"
     ]
     resource_attachment = next(
-        attachment for attachment in non_manifest
-        if attachment.kind == "resource"
+        attachment for attachment in non_manifest if attachment.kind == "resource"
     )
     image_attachment = next(
-        attachment for attachment in non_manifest
-        if attachment.kind == "question_image"
+        attachment for attachment in non_manifest if attachment.kind == "question_image"
     )
 
     assert stale_file.exists() is False
     assert attachment_dir.stat().st_ino == attachment_dir_inode
-    assert (attachment_dir / resource_attachment.name).read_text(
-        encoding="utf-8"
-    ).startswith("Coverage assumption")
+    assert (
+        (attachment_dir / resource_attachment.name)
+        .read_text(encoding="utf-8")
+        .startswith("Coverage assumption")
+    )
     assert image_attachment.name.startswith("Q-001__Paper__p-7__handwriting")
     assert (attachment_dir / image_attachment.name).read_bytes().startswith(b"\x89PNG")
     assert resource_attachment.name in result.markdown
@@ -1842,8 +1825,7 @@ def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_questi
 
     assert sentinel.exists() is False
     assert not any(
-        attachment.kind == "question_image"
-        for attachment in second.attachments
+        attachment.kind == "question_image" for attachment in second.attachments
     )
 
 
@@ -1868,16 +1850,14 @@ def test_lecture_note_picture_becomes_scoped_question_and_prompt_attachment(
         )
         task_id = str(
             connection.execute(
-                text(
-                    """
+                text("""
                     SELECT id
                     FROM tasks
                     WHERE day_id = :day_id
                       AND deleted_at IS NULL
                     ORDER BY order_index
                     LIMIT 1
-                    """
-                ),
+                    """),
                 {"day_id": day_id},
             ).scalar_one()
         )
@@ -2034,16 +2014,14 @@ def test_reader_screen_marker_adds_slide_png_to_prompt_bundle(
 
     with transaction() as connection:
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE resource_versions
                 SET local_path = :local_path,
                     file_name = :file_name
                 WHERE id = (
                   SELECT current_version_id FROM resources WHERE id = :resource_id
                 )
-                """
-            ),
+                """),
             {
                 "file_name": pdf_path.name,
                 "local_path": str(pdf_path),
@@ -2093,27 +2071,23 @@ def test_book_chapter_progress_combines_plan_scope_and_persistent_state(
     course_id, resource_id = _seed_course(tmp_path)
     with transaction() as connection:
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE resources
                 SET kind = 'book',
                     title = 'Reinforcement Learning: An Introduction, second edition',
                     metadata_json = '{"plan_resource_id":"rl-book"}'
                 WHERE id = :resource_id
-                """
-            ),
+                """),
             {"resource_id": resource_id},
         )
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE tasks
                 SET title = 'Read Sections 3.1-3.6'
                 WHERE day_id IN (
                   SELECT id FROM study_days WHERE course_id = :course_id
                 )
-                """
-            ),
+                """),
             {"course_id": course_id},
         )
         before = get_workspace(connection, course_id)
@@ -2135,21 +2109,29 @@ def test_book_chapter_progress_combines_plan_scope_and_persistent_state(
         )
         completed = get_workspace(connection, course_id)
 
-    before_book = next(resource for resource in before.resources if resource.id == resource_id)
+    before_book = next(
+        resource for resource in before.resources if resource.id == resource_id
+    )
     assert len(before_book.chapters) == 17
-    assert next(chapter for chapter in before_book.chapters if chapter.number == 3).planned
+    assert next(
+        chapter for chapter in before_book.chapters if chapter.number == 3
+    ).planned
     partial_book = next(
         resource for resource in partial.resources if resource.id == resource_id
     )
-    assert next(
-        chapter for chapter in partial_book.chapters if chapter.number == 3
-    ).status == "read_partially"
+    assert (
+        next(chapter for chapter in partial_book.chapters if chapter.number == 3).status
+        == "read_partially"
+    )
     completed_book = next(
         resource for resource in completed.resources if resource.id == resource_id
     )
-    assert next(
-        chapter for chapter in completed_book.chapters if chapter.number == 3
-    ).status == "read_fully"
+    assert (
+        next(
+            chapter for chapter in completed_book.chapters if chapter.number == 3
+        ).status
+        == "read_fully"
+    )
 
 
 def test_note_markers_become_stable_counted_resource_captures(
@@ -2167,8 +2149,7 @@ def test_note_markers_become_stable_counted_resource_captures(
                 entity_type="task",
                 entity_id=task.id,
                 markdown=(
-                    "!!Why is this estimator unbiased??!!\n\n"
-                    "%%todo! rerun all seeds%%"
+                    "!!Why is this estimator unbiased??!!\n\n%%todo! rerun all seeds%%"
                 ),
             ),
         )
@@ -2267,18 +2248,12 @@ Stop when: both chapter scopes are reviewed. {#day01-stop}
     )
     result = sync_study_plan(plan_path)
     with transaction() as connection:
-        resource_id = str(
-            connection.execute(
-                text(
-                    """
+        resource_id = str(connection.execute(text("""
                     SELECT entity_id
                     FROM source_bindings
                     WHERE entity_type = 'resource'
                       AND source_key = 'book_scope_course:book'
-                    """
-                )
-            ).scalar_one()
-        )
+                    """)).scalar_one())
         for chapter in (4, 5):
             create_annotation(
                 connection,
@@ -2312,7 +2287,9 @@ Stop when: both chapter scopes are reviewed. {#day01-stop}
     assert chapter_five.chapter_numbers == [5]
     assert chapter_five.open_question_count == 1
     assert workspace.days[0].open_question_count == 2
-    book = next(resource for resource in workspace.resources if resource.id == resource_id)
+    book = next(
+        resource for resource in workspace.resources if resource.id == resource_id
+    )
     assert len(book.annotations) == 2
 
 
@@ -2406,13 +2383,11 @@ def test_question_identity_prevents_source_refresh_from_hiding_history(
             match="question visibility is immutable after identity assignment",
         ):
             connection.execute(
-                text(
-                    """
+                text("""
                     UPDATE annotations
                     SET deleted_at = '2026-08-29T12:00:00Z'
                     WHERE id = :annotation_id
-                    """
-                ),
+                    """),
                 {"annotation_id": question.id},
             )
         workspace = get_workspace(connection, course_id)
@@ -2467,7 +2442,9 @@ def test_skipped_question_leaves_active_counts_without_archiving_history(
         reopened = get_workspace(connection, course_id)
 
     reopened_question = next(
-        annotation for annotation in reopened.annotations if annotation.id == question.id
+        annotation
+        for annotation in reopened.annotations
+        if annotation.id == question.id
     )
     assert reopened_response.revision == skipped_response.revision + 1
     assert reopened_question.status == "open"
@@ -2561,7 +2538,6 @@ Stop when: the later reading is reviewed. {#day03-stop}
     assert len(workspace.resources[0].annotations) == 2
 
 
-
 def test_local_pdf_annotations_share_paragraph_context_outside_book_resources(
     tmp_path: Path,
 ) -> None:
@@ -2610,25 +2586,21 @@ Stop when: the paper is annotated. {#day01-stop}
     )
     result = sync_study_plan(plan_path)
     with transaction() as connection:
-        resource_id = str(
-            connection.execute(
-                text(
-                    """
+        resource_id = str(connection.execute(text("""
                     SELECT entity_id
                     FROM source_bindings
                     WHERE entity_type = 'resource'
                       AND source_key = 'paper_context_course:paper'
-                    """
-                )
-            ).scalar_one()
-        )
+                    """)).scalar_one())
         first_import = collect_resource_pdf_annotations(connection, resource_id)
         second_import = collect_resource_pdf_annotations(connection, resource_id)
         workspace = get_workspace(connection, result.course_id)
 
     assert first_import.created_count == 2
     assert second_import.existing_count == 2
-    paper = next(resource for resource in workspace.resources if resource.id == resource_id)
+    paper = next(
+        resource for resource in workspace.resources if resource.id == resource_id
+    )
     assert len(paper.annotations) == 2
     group_ids = {
         annotation.anchor.metadata.get("contextGroupId")

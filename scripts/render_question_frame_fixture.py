@@ -57,10 +57,16 @@ def dashed_rectangle(
     left, top, right, bottom = rect
     for start in range(left, right, dash + gap):
         draw.line((start, top, min(start + dash, right), top), fill=fill, width=width)
-        draw.line((start, bottom, min(start + dash, right), bottom), fill=fill, width=width)
+        draw.line(
+            (start, bottom, min(start + dash, right), bottom), fill=fill, width=width
+        )
     for start in range(top, bottom, dash + gap):
-        draw.line((left, start, left, min(start + dash, bottom)), fill=fill, width=width)
-        draw.line((right, start, right, min(start + dash, bottom)), fill=fill, width=width)
+        draw.line(
+            (left, start, left, min(start + dash, bottom)), fill=fill, width=width
+        )
+        draw.line(
+            (right, start, right, min(start + dash, bottom)), fill=fill, width=width
+        )
 
 
 def render(fixture_path: Path, page_path: Path, output_path: Path) -> None:
@@ -111,29 +117,19 @@ def render(fixture_path: Path, page_path: Path, output_path: Path) -> None:
         font=subtitle_font,
     )
 
-    question_members = [item for item in annotations if item.get("stableLabel")]
-    ink_members = [item for item in question_members if item["annotationKind"] == "Ink"]
-    canonical = max(
-        ink_members,
-        key=lambda item: (item["rect"][2] - item["rect"][0]) * (item["rect"][3] - item["rect"][1]),
-    )
-    frame_label = canonical["stableLabel"]
-    question_member_numbers = [
-        str(index)
-        for index, annotation in enumerate(annotations, start=1)
-        if annotation in question_members
-    ]
-    context_member_numbers = [
-        str(index)
-        for index, annotation in enumerate(annotations, start=1)
-        if annotation not in question_members
-    ]
-    union_rect = [
-        min(item["rect"][0] for item in question_members),
-        min(item["rect"][1] for item in question_members),
-        max(item["rect"][2] for item in question_members),
-        max(item["rect"][3] for item in question_members),
-    ]
+    expected_groups: list[dict[str, Any]] = fixture["expectedQuestionGroups"]
+    annotations_by_id = {item["id"]: item for item in annotations}
+    annotation_numbers = {
+        item["id"]: str(index) for index, item in enumerate(annotations, start=1)
+    }
+    annotation_groups = {
+        annotation_id: group
+        for group in expected_groups
+        for annotation_id in (
+            group["guideAnnotationIds"] + group["contextAnnotationIds"]
+        )
+    }
+    group_colors = ["#672fb8", "#db762f", "#087f6a"]
 
     overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     overlay_draw = ImageDraw.Draw(overlay, "RGBA")
@@ -168,18 +164,41 @@ def render(fixture_path: Path, page_path: Path, output_path: Path) -> None:
         )
     canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay)
     draw = ImageDraw.Draw(canvas, "RGBA")
-    dashed_rectangle(
-        draw,
-        pdf_rect_to_pixels(
+    for group_index, group in enumerate(expected_groups):
+        members = [
+            annotations_by_id[annotation_id]
+            for annotation_id in (
+                group["guideAnnotationIds"] + group["contextAnnotationIds"]
+            )
+        ]
+        union_rect = [
+            min(item["rect"][0] for item in members),
+            min(item["rect"][1] for item in members),
+            max(item["rect"][2] for item in members),
+            max(item["rect"][3] for item in members),
+        ]
+        pixel_union = pdf_rect_to_pixels(
             union_rect,
             page_height=page_height,
             page_left=page_left,
             page_top=page_top,
             scale=scale,
-        ),
-        fill="#672fb8",
-        width=7,
-    )
+        )
+        group_color = group_colors[group_index % len(group_colors)]
+        dashed_rectangle(draw, pixel_union, fill=group_color, width=7)
+        tag_left = max(page_left + 8, pixel_union[0] + 8)
+        tag_top = max(page_top + 8, pixel_union[1] + 8)
+        draw.rounded_rectangle(
+            (tag_left, tag_top, tag_left + 176, tag_top + 36),
+            radius=9,
+            fill=group_color,
+        )
+        draw.text(
+            (tag_left + 12, tag_top + 7),
+            group["label"],
+            fill="#ffffff",
+            font=small_font,
+        )
 
     legend_left = 1120
     draw.rounded_rectangle(
@@ -189,7 +208,9 @@ def render(fixture_path: Path, page_path: Path, output_path: Path) -> None:
         outline="#d5e1dc",
         width=3,
     )
-    draw.text((legend_left, 58), "What the fixture contains", fill="#15251f", font=title_font)
+    draw.text(
+        (legend_left, 58), "What the fixture contains", fill="#15251f", font=title_font
+    )
     draw.text(
         (legend_left, 105),
         "Numbers match the rectangles on the page.",
@@ -208,24 +229,29 @@ def render(fixture_path: Path, page_path: Path, output_path: Path) -> None:
             outline="#dbe6e1",
             width=2,
         )
-        draw.ellipse((legend_left + 16, top + 15, legend_left + 56, top + 55), fill=color)
-        draw.text((legend_left + 29, top + 22), str(index), fill="#ffffff", font=label_font)
+        draw.ellipse(
+            (legend_left + 16, top + 15, legend_left + 56, top + 55), fill=color
+        )
+        draw.text(
+            (legend_left + 29, top + 22), str(index), fill="#ffffff", font=label_font
+        )
         kind = annotation["annotationKind"]
         label = annotation.get("stableLabel")
+        group = annotation_groups.get(annotation["id"])
         draw.text(
             (legend_left + 72, top + 12),
             f"{kind}{f' · {label}' if label else ' · regular'}",
             fill="#15251f",
             font=label_font,
         )
-        if not label:
-            role = "Regular highlight — context only, not a question"
-        elif annotation["id"] == canonical["id"]:
-            role = f"Canonical visible capture for {frame_label}"
-        elif annotation["id"] == ink_members[0]["id"]:
-            role = f"Retained logical frame identity: {frame_label}"
+        if group is None:
+            role = "Not assigned to a question frame"
+        elif annotation["id"] in group["contextAnnotationIds"]:
+            role = f"Context inside {group['label']} (not a separate question)"
+        elif annotation["id"] == group["canonicalAnnotationId"]:
+            role = f"Canonical frame capture for {group['label']}"
         else:
-            role = f"Question member — joined into {frame_label}"
+            role = f"Overlapping guide joined into {group['label']}"
         draw.text((legend_left + 72, top + 49), role, fill="#475a52", font=body_font)
         rect = ", ".join(f"{value:.2f}" for value in annotation["rect"])
         draw.text(
@@ -251,37 +277,48 @@ def render(fixture_path: Path, page_path: Path, output_path: Path) -> None:
     )
     draw.text(
         (legend_left + 24, summary_top + 82),
-        f"ONE logical question thread: {frame_label}",
+        "TWO logical question threads",
         fill="#15251f",
         font=font(25, bold=True),
     )
+    summary_y = summary_top + 132
+    for group_index, group in enumerate(expected_groups):
+        guide_numbers = [
+            annotation_numbers[annotation_id]
+            for annotation_id in group["guideAnnotationIds"]
+        ]
+        context_numbers = [
+            annotation_numbers[annotation_id]
+            for annotation_id in group["contextAnnotationIds"]
+        ]
+        group_color = group_colors[group_index % len(group_colors)]
+        draw.ellipse(
+            (legend_left + 24, summary_y + 2, legend_left + 46, summary_y + 24),
+            fill=group_color,
+        )
+        draw.text(
+            (legend_left + 58, summary_y - 3),
+            f"{group['label']}: guide {' + '.join(guide_numbers)}",
+            fill="#263b33",
+            font=font(21, bold=True),
+        )
+        context = " + ".join(context_numbers) if context_numbers else "none"
+        draw.text(
+            (legend_left + 58, summary_y + 34),
+            f"Context highlights: {context}",
+            fill="#475a52",
+            font=body_font,
+        )
+        summary_y += 90
     draw.text(
-        (legend_left + 24, summary_top + 132),
-        f"Question members: {' + '.join(question_member_numbers)}",
-        fill="#263b33",
-        font=font(23, bold=True),
-    )
-    draw.text(
-        (legend_left + 24, summary_top + 180),
-        "Visible source: 6 · union shown as purple dashed frame",
-        fill="#475a52",
-        font=body_font,
-    )
-    draw.text(
-        (legend_left + 24, summary_top + 220),
-        f"Regular context only: {' + '.join(context_member_numbers)}",
-        fill="#475a52",
-        font=body_font,
-    )
-    draw.text(
-        (legend_left + 24, summary_top + 285),
-        "This is the behavior now covered by the regression test.",
+        (legend_left + 24, summary_top + 325),
+        "Rule: real y-overlap joins guide frames; a gap separates them.",
         fill="#4f2a91",
         font=font(18, bold=True),
     )
     draw.text(
-        (legend_left + 24, summary_top + 330),
-        "If any numbered record should be separate, tell me its number.",
+        (legend_left + 24, summary_top + 365),
+        "Highlights inside the joined frame stay context, not new questions.",
         fill="#62726c",
         font=body_font,
     )

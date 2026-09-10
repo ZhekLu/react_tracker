@@ -5,6 +5,31 @@
   "pageHeight": 648.0,
   "pageWidth": 504.0,
   "capturedAt": "2026-09-07",
+  "expectedQuestionGroups": [
+    {
+      "label": "Q-b-11-007",
+      "guideAnnotationIds": [
+        "633bc949-5f8e-4ea4-8c35-2b958f197920",
+        "8a0996d0-26c7-413a-bf56-934495f51c1c"
+      ],
+      "contextAnnotationIds": [
+        "23877e66-dddc-4c81-b0c4-5e453d5a3237",
+        "f40f1ad1-ab62-407f-aab8-f72a315fb2ae",
+        "b51962e7-eacd-4dc5-991e-e9b79a8ace65"
+      ],
+      "canonicalAnnotationId": "8a0996d0-26c7-413a-bf56-934495f51c1c",
+      "reason": "The two long guide bands overlap in PDF y coordinates; the three text highlights lie inside their combined frame."
+    },
+    {
+      "label": "Q-b-11-008",
+      "guideAnnotationIds": [
+        "3883eb07-237a-43b7-8297-3809b5c2b8d5"
+      ],
+      "contextAnnotationIds": [],
+      "canonicalAnnotationId": "3883eb07-237a-43b7-8297-3809b5c2b8d5",
+      "reason": "Its guide band has no vertical overlap with the larger frame, so it remains a separate question."
+    }
+  ],
   "annotations": [
     {
       "id": "23877e66-dddc-4c81-b0c4-5e453d5a3237",

@@ -1,5 +1,7 @@
 import { renderToString } from "katex";
+import { MarkdownManager } from "@tiptap/markdown";
 import { describe, expect, it } from "vitest";
+import { discussionEditorExtensions } from "../components/editor/discussionEditorExtensions";
 import {
   canonicalizePastedMarkdown,
   importPastedMarkdown,
@@ -61,6 +63,29 @@ describe("discussion paste importer", () => {
     ).toBe("The last $n$ actions are strengthened and the target $Q$ changes.");
     expect(normalizeDiscussionMarkdown("It costs US$5 today.")).toBe(
       "It costs US$5 today.",
+    );
+  });
+
+  it("preserves spaces when a highlight crosses inline math atoms", () => {
+    const manager = new MarkdownManager({
+      extensions: discussionEditorExtensions(),
+    });
+    const highlighted = String.raw`We established: ordinary backward $TD(\lambda)$ ==is only approximately equivalent to the intuitive online forward ==$\lambda$==-return algorithm because ==$w$== changes during the episode.== True online Sarsa fixes it.`;
+    const roundTrip = manager.serialize(manager.parse(highlighted));
+
+    expect(roundTrip.replaceAll("==", "")).toBe(
+      highlighted.replaceAll("==", ""),
+    );
+    expect(roundTrip).toMatch(/forward==\s+\$\\lambda\$/);
+    expect(roundTrip).toMatch(/because==\s+\$w\$\s+==changes/);
+    expect(manager.serialize(manager.parse(roundTrip))).toBe(roundTrip);
+  });
+
+  it("repairs inline-math spacing lost inside an existing highlight", () => {
+    const damaged = String.raw`==The online forward==$\lambda$==-return differs because==$w$==changes.==`;
+
+    expect(normalizeDiscussionMarkdown(damaged)).toBe(
+      String.raw`==The online forward== $\lambda$==-return differs because== $w$ ==changes.==`,
     );
   });
 

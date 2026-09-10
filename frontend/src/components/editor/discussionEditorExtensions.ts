@@ -73,8 +73,14 @@ const DiscussionHighlight = Highlight.extend({
       if (!delimiter) return undefined;
       const end = source.indexOf(delimiter, delimiter.length);
       if (end <= delimiter.length) return undefined;
-      const text = source.slice(delimiter.length, end).trim();
-      if (!text) return undefined;
+      // Whitespace at a highlighted span's edges is semantic when an inline
+      // math atom splits one visual selection into several marked text runs.
+      // Trimming here glued prose to the formula after the next editor
+      // round-trip (for example `forward $\\lambda$` became
+      // `forward$\\lambda$`, and `because $w$ changes` became
+      // `because$w$changes`). Validate with trim, but parse the exact text.
+      const text = source.slice(delimiter.length, end);
+      if (!text.trim()) return undefined;
       const raw = source.slice(0, end + delimiter.length);
       return {
         color:

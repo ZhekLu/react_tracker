@@ -248,7 +248,9 @@ def _notes_by_entity(
     return notes, by_entity
 
 
-def _resource_versions(connection: Connection, course_id: str) -> dict[str, ResourceVersion]:
+def _resource_versions(
+    connection: Connection, course_id: str
+) -> dict[str, ResourceVersion]:
     versions: dict[str, ResourceVersion] = {}
     for row in _rows(
         connection,
@@ -297,9 +299,7 @@ def _resource_progress(connection: Connection, course_id: str) -> dict[str, floa
     }
 
 
-def _task_resources(
-    connection: Connection, course_id: str
-) -> tuple[
+def _task_resources(connection: Connection, course_id: str) -> tuple[
     dict[str, list[str]],
     dict[str, list[str]],
     dict[str, list[str]],
@@ -432,7 +432,11 @@ def _annotations(
             priority=cast(Any, row["priority"]),
             origin=str(row["origin"]),
             revision=int(row["revision"]),
-            body=documents.get(str(row["body_document_id"])) if row["body_document_id"] else None,
+            body=(
+                documents.get(str(row["body_document_id"]))
+                if row["body_document_id"]
+                else None
+            ),
             anchor=anchor,
             notes=notes_by_entity.get(("annotation", str(row["id"])), []),
             created_at=str(row["created_at"]),
@@ -701,7 +705,9 @@ def list_courses(connection: Connection) -> CourseListResponse:
             """,
         )
     }
-    return CourseListResponse(courses=_summaries_from_rows(course_rows, stats_by_course))
+    return CourseListResponse(
+        courses=_summaries_from_rows(course_rows, stats_by_course)
+    )
 
 
 def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
@@ -760,7 +766,9 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
     }
     day_time = {
         str(row["day_id"]): int(row["tracked_seconds"] or 0)
-        for row in _rows(connection, "SELECT day_id, tracked_seconds FROM day_time_summary")
+        for row in _rows(
+            connection, "SELECT day_id, tracked_seconds FROM day_time_summary"
+        )
     }
 
     sections_by_day: dict[str, list[DaySection]] = defaultdict(list)
@@ -795,7 +803,9 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
             chapter_numbers,
             str(row["day_id"]),
         )
-        task_annotation_ids[task_id] = {annotation.id for annotation in linked_annotations}
+        task_annotation_ids[task_id] = {
+            annotation.id for annotation in linked_annotations
+        }
         task = Task(
             id=task_id,
             day_id=str(row["day_id"]),
@@ -812,9 +822,11 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
             exam_question_ids=linked_questions,
             skill_ids=[],
             chapter_numbers=chapter_numbers,
-            rationale=documents.get(str(row["rationale_document_id"]))
-            if row["rationale_document_id"]
-            else None,
+            rationale=(
+                documents.get(str(row["rationale_document_id"]))
+                if row["rationale_document_id"]
+                else None
+            ),
             notes=notes_by_entity.get(("task", task_id), []),
             open_question_count=_open_question_count(linked_annotations),
         )
@@ -896,9 +908,7 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
                 notes=notes_by_entity.get(("day", day_id), []),
                 skill_ids=day_to_skills.get(day_id, []),
                 open_question_count=_open_question_count(linked_annotations),
-                postponed_question_count=_postponed_question_count(
-                    linked_annotations
-                ),
+                postponed_question_count=_postponed_question_count(linked_annotations),
                 tracked_seconds=day_time.get(day_id, 0),
                 progress=day_progress.get(day_id, _empty_day_progress()),
             )
@@ -979,7 +989,10 @@ def _resources(
     ):
         chapter_progress[str(progress_row["resource_id"])][
             int(progress_row["chapter_number"])
-        ] = (str(progress_row["status"]), int(progress_row["revision"]))
+        ] = (
+            str(progress_row["status"]),
+            int(progress_row["revision"]),
+        )
     for row in _rows(
         connection,
         """
@@ -1011,8 +1024,10 @@ def _resources(
             ).strip()
             if chapter_title:
                 annotation_chapter_titles.setdefault(chapter_number, chapter_title)
-        known_chapter_numbers = set(planned_chapters) | set(stored_chapters) | set(
-            annotation_chapter_titles
+        known_chapter_numbers = (
+            set(planned_chapters)
+            | set(stored_chapters)
+            | set(annotation_chapter_titles)
         )
         if configured_chapter_titles:
             known_chapter_numbers.update(range(1, len(configured_chapter_titles) + 1))
@@ -1125,9 +1140,11 @@ def _exams(
                 points=cast(float | None, row["points"]),
                 order_index=int(row["order_index"]),
                 solve_status=cast(Any, row["solve_status"]),
-                prompt=documents.get(str(row["prompt_document_id"]))
-                if row["prompt_document_id"]
-                else None,
+                prompt=(
+                    documents.get(str(row["prompt_document_id"]))
+                    if row["prompt_document_id"]
+                    else None
+                ),
                 notes=notes_by_entity.get(("exam_question", question_id), []),
                 annotations=resource_annotations,
                 open_question_count=_open_question_count(resource_annotations),
@@ -1201,9 +1218,11 @@ def _skills(
                 id=skill_id,
                 name=str(row["name"]),
                 category=cast(str | None, row["category"]),
-                description=documents.get(str(row["description_document_id"]))
-                if row["description_document_id"]
-                else None,
+                description=(
+                    documents.get(str(row["description_document_id"]))
+                    if row["description_document_id"]
+                    else None
+                ),
                 confidence=cast(float | None, row["confidence"]),
                 day_ids=day_ids,
                 completed_day_count=completed_day_count,
@@ -1330,9 +1349,7 @@ def _discussions(
                 message_id=str(row["message_id"]),
                 message_revision=int(row["message_revision"]),
                 section_id=(
-                    str(row["section_id"])
-                    if row["section_id"] is not None
-                    else None
+                    str(row["section_id"]) if row["section_id"] is not None else None
                 ),
                 section_fingerprint=(
                     str(row["section_fingerprint"])
@@ -1411,10 +1428,10 @@ def _discussions(
             ),
             scope_type=(
                 "resource"
-                if str(row["initial_source_scope"] or "").startswith("resource_questions")
-                else "day"
-                if row["source_day_id"] is not None
-                else "general"
+                if str(row["initial_source_scope"] or "").startswith(
+                    "resource_questions"
+                )
+                else "day" if row["source_day_id"] is not None else "general"
             ),
             source_day_id=cast(str | None, row["source_day_id"]),
             source_task_id=cast(str | None, row["source_task_id"]),
@@ -1498,7 +1515,9 @@ def _workspace_stats(
         do_later_count=sum(1 for task in tasks if task.status == "later"),
         skill_count=len(skills),
         tracked_seconds=sum(day.tracked_seconds for day in days),
-        progress_ratio=sum(day.progress.ratio for day in days) / len(days) if days else 0,
+        progress_ratio=(
+            sum(day.progress.ratio for day in days) / len(days) if days else 0
+        ),
     )
 
 
@@ -1561,7 +1580,11 @@ def update_task_status(
             deferred_at = CASE WHEN :status = 'later' THEN :now ELSE deferred_at END,
             skipped_at = CASE WHEN :status = 'skipped' THEN :now ELSE skipped_at END
         """,
-        params={"status": command.status, "defer_until": command.defer_until, "now": now},
+        params={
+            "status": command.status,
+            "defer_until": command.defer_until,
+            "now": now,
+        },
     )
 
 
@@ -1604,8 +1627,7 @@ def update_resource_status(
     )
     percent = 100 if command.status in {"read", "review"} else 0
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO resource_reading_progress (
               id, resource_id, resource_version_id, progress_percent, position_type,
               started_at, last_read_at, completed_at, created_at, updated_at, revision
@@ -1620,8 +1642,7 @@ def update_resource_status(
               completed_at = excluded.completed_at,
               updated_at = excluded.updated_at,
               revision = resource_reading_progress.revision + 1
-            """
-        ),
+            """),
         {
             "id": _new_id(),
             "resource_id": resource_id,
@@ -1702,13 +1723,10 @@ def update_resource_progress(
     next_status = (
         "read"
         if command.progress_percent >= 100
-        else "reading"
-        if command.progress_percent > 0
-        else "unread"
+        else "reading" if command.progress_percent > 0 else "unread"
     )
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE resources
             SET status = CASE
                   WHEN status IN ('read', 'review') AND :next_status != 'read'
@@ -1722,8 +1740,7 @@ def update_resource_progress(
                 updated_at = :now,
                 revision = revision + 1
             WHERE id = :id
-            """
-        ),
+            """),
         {"id": resource_id, "next_status": next_status, "now": now},
     )
     if row is None:
@@ -1839,8 +1856,7 @@ def update_exam_question_status(
             raise EntityNotFoundError(f"Exam question does not exist: {question_id}")
         raise RevisionConflictError(f"Stale revision for exam question: {question_id}")
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE exam_question_details
             SET solve_status = :status,
                 attempted_at = CASE
@@ -1850,8 +1866,7 @@ def update_exam_question_status(
                 solved_at = CASE WHEN :status IN ('solved', 'review') THEN :now ELSE solved_at END,
                 updated_at = :now
             WHERE resource_id = :id
-            """
-        ),
+            """),
         {"id": question_id, "status": command.status, "now": now},
     )
     return _mutation_result(row)
@@ -1882,20 +1897,17 @@ def _sync_question_identity_state(
     ):
         return
     identity_id = connection.execute(
-        text(
-            """
+        text("""
             SELECT question_identity_id
             FROM annotation_question_identities
             WHERE annotation_id = :annotation_id
-            """
-        ),
+            """),
         {"annotation_id": annotation_id},
     ).scalar_one_or_none()
     if identity_id is None:
         return
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE annotations
             SET status = COALESCE(:status, status),
                 priority = COALESCE(:priority, priority),
@@ -1929,8 +1941,7 @@ def _sync_question_identity_state(
                 FROM annotation_question_identities sibling
                 WHERE sibling.question_identity_id = :question_identity_id
               )
-            """
-        ),
+            """),
         {
             "annotation_id": annotation_id,
             "question_identity_id": str(identity_id),
@@ -1962,19 +1973,15 @@ def update_annotation(
     effective_kind = command.kind or str(annotation["kind"])
     effective_status = command.status or str(annotation["status"])
     if command.postponed and (
-        effective_kind not in {"question", "todo"}
-        or effective_status != "open"
+        effective_kind not in {"question", "todo"} or effective_status != "open"
     ):
         raise WorkspaceRepositoryError(
             "Only open questions and todos can be postponed."
         )
     if command.skipped and (
-        effective_kind not in {"question", "todo"}
-        or effective_status != "open"
+        effective_kind not in {"question", "todo"} or effective_status != "open"
     ):
-        raise WorkspaceRepositoryError(
-            "Only open questions and todos can be skipped."
-        )
+        raise WorkspaceRepositoryError("Only open questions and todos can be skipped.")
     assignments = [
         "kind = COALESCE(:kind, kind)",
         "status = COALESCE(:status, status)",
@@ -2036,13 +2043,11 @@ def update_annotation(
             timestamp=now,
         )
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE annotations
                 SET body_document_id = :document_id
                 WHERE id = :annotation_id
-                """
-            ),
+                """),
             {"annotation_id": annotation_id, "document_id": document_id},
         )
         return response
@@ -2104,8 +2109,7 @@ def _insert_annotation_anchor(
     timestamp: str,
 ) -> None:
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO annotation_anchors (
               annotation_id, resource_version_id, anchor_type, quote,
               section_id, section_title, source_line_start, source_line_end,
@@ -2120,8 +2124,7 @@ def _insert_annotation_anchor(
               NULL, NULL, NULL, NULL, :color,
               :rgb_json, :annotation_kind, :selector_json, :now, :now
             )
-            """
-        ),
+            """),
         {
             "annotation_id": annotation_id,
             "resource_version_id": resource_version_id,
@@ -2151,7 +2154,9 @@ def _question_resource_code(
         return "b"
     if re.fullmatch(r"unipd-lc\d+", plan_resource_id):
         return "us"
-    prefix = "p" if resource_kind == "paper" else "s" if resource_kind == "slides" else "r"
+    prefix = (
+        "p" if resource_kind == "paper" else "s" if resource_kind == "slides" else "r"
+    )
     return prefix + resource_id.replace("-", "")[:6].lower()
 
 
@@ -2234,13 +2239,11 @@ def _ensure_question_identity(
         )
         if grouped is not None:
             connection.execute(
-                text(
-                    """
+                text("""
                     INSERT INTO annotation_question_identities (
                       annotation_id, question_identity_id, created_at
                     ) VALUES (:annotation_id, :question_identity_id, :created_at)
-                    """
-                ),
+                    """),
                 {
                     "annotation_id": annotation_id,
                     "question_identity_id": str(grouped["question_identity_id"]),
@@ -2281,21 +2284,18 @@ def _ensure_question_identity(
         resource_code += resource_id.replace("-", "")[:4].lower()
     next_ordinal = int(
         connection.execute(
-            text(
-                """
+            text("""
                 SELECT COALESCE(MAX(ordinal), 0) + 1
                 FROM question_identities
                 WHERE resource_id = :resource_id AND scope_code = :scope_code
-                """
-            ),
+                """),
             {"resource_id": resource_id, "scope_code": scope_code},
         ).scalar_one()
     )
     identity_id = _new_id()
     readable_label = f"Q-{resource_code}-{scope_code}-{next_ordinal:03d}"
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO question_identities (
               id, course_id, resource_id, resource_code, scope_code, ordinal,
               readable_label, created_at
@@ -2303,8 +2303,7 @@ def _ensure_question_identity(
               :id, :course_id, :resource_id, :resource_code, :scope_code,
               :ordinal, :readable_label, :created_at
             )
-            """
-        ),
+            """),
         {
             "id": identity_id,
             "course_id": str(annotation["course_id"]),
@@ -2317,13 +2316,11 @@ def _ensure_question_identity(
         },
     )
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO annotation_question_identities (
               annotation_id, question_identity_id, created_at
             ) VALUES (:annotation_id, :question_identity_id, :created_at)
-            """
-        ),
+            """),
         {
             "annotation_id": annotation_id,
             "question_identity_id": identity_id,
@@ -2443,13 +2440,11 @@ def _refresh_imported_anchor(
         metadata["createdDayId"] = previous_created_day_id
     if existing["anchor_annotation_id"] is None:
         resource_version_id = connection.execute(
-            text(
-                """
+            text("""
                 SELECT current_version_id
                 FROM resources
                 WHERE id = :resource_id AND deleted_at IS NULL
-                """
-            ),
+                """),
             {"resource_id": command.resource_id},
         ).scalar_one_or_none()
         _insert_annotation_anchor(
@@ -2461,8 +2456,7 @@ def _refresh_imported_anchor(
         )
         return
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE annotation_anchors
             SET anchor_type = :anchor_type,
                 quote = :quote,
@@ -2475,8 +2469,7 @@ def _refresh_imported_anchor(
                 selector_json = :selector_json,
                 updated_at = :now
             WHERE annotation_id = :annotation_id
-            """
-        ),
+            """),
         {
             "anchor_type": anchor.anchor_type,
             "quote": anchor.quote,
@@ -2535,9 +2528,7 @@ def _refresh_imported_document(
         },
     )
     if document_row is None:
-        raise EntityNotFoundError(
-            f"Annotation document does not exist: {document_id}"
-        )
+        raise EntityNotFoundError(f"Annotation document does not exist: {document_id}")
     _insert_document_revision(
         connection,
         document_id=document_id,
@@ -2590,13 +2581,11 @@ def _refresh_imported_body(
         timestamp=timestamp,
     )
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE annotations
             SET body_document_id = :body_document_id
             WHERE id = :annotation_id
-            """
-        ),
+            """),
         {
             "annotation_id": str(existing["id"]),
             "body_document_id": body_document_id,
@@ -2645,25 +2634,16 @@ def upsert_imported_annotation(
         or ""
     )
     next_metadata = command.anchor.metadata if command.anchor else {}
-    next_color_role_revision = str(
-        next_metadata.get("colorRoleRevision") or ""
-    )
+    next_color_role_revision = str(next_metadata.get("colorRoleRevision") or "")
     reclassify = bool(
         next_color_role_revision
-        and previous_metadata.get("colorRoleRevision")
-        != next_color_role_revision
+        and previous_metadata.get("colorRoleRevision") != next_color_role_revision
     )
-    preserve_question_kind = bool(
-        str(existing["kind"]) in {"question", "todo"}
-    )
+    preserve_question_kind = bool(str(existing["kind"]) in {"question", "todo"})
     preserve_question_status = bool(
-        str(existing["kind"]) in {"question", "todo"}
-        and existing["deleted_at"] is None
+        str(existing["kind"]) in {"question", "todo"} and existing["deleted_at"] is None
     )
-    if (
-        existing["deleted_at"] is None
-        and previous_sync_revision == source_revision
-    ):
+    if existing["deleted_at"] is None and previous_sync_revision == source_revision:
         return "existing"
 
     now = _now()
@@ -2682,8 +2662,7 @@ def upsert_imported_annotation(
     )
 
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE annotations
             SET external_id = :external_id,
                 kind = CASE
@@ -2704,8 +2683,7 @@ def upsert_imported_annotation(
                 updated_at = :now,
                 revision = revision + 1
             WHERE id = :annotation_id
-            """
-        ),
+            """),
         {
             "annotation_id": str(existing["id"]),
             "external_id": command.external_id,
@@ -2794,10 +2772,6 @@ def reconcile_imported_question_frame(
             "page_number": int(canonical["page_number"]),
         },
     )
-    page_height = float(canonical_metadata.get("pageHeight") or 0.0)
-    minimum_frame_height = max(420.0, page_height * 0.65) if page_height else 420.0
-    nearby_margin = max(64.0, page_height * 0.1) if page_height else 64.0
-    canonical_height = abs(canonical_rect[3] - canonical_rect[1])
 
     def vertical_gap(first: list[float], second: list[float]) -> float:
         first_low, first_high = sorted((first[1], first[3]))
@@ -2815,12 +2789,11 @@ def reconcile_imported_question_frame(
             for item in metadata.get("inkMemberFingerprints", [])
             if isinstance(item, str) and item
         }
-        ink_matches = str(candidate["origin"]) == "drawboard_cloud_ink" and (
-            bool(canonical_members & candidate_members)
-            or (
-                canonical_height >= minimum_frame_height
-                and vertical_gap(canonical_rect, rect) <= nearby_margin
-            )
+        # Ink identities are related only through the source strokes that the
+        # Drawboard y-overlap grouping already joined. A long frame must not
+        # absorb a nearby framed question across a real vertical gap.
+        ink_matches = str(candidate["origin"]) == "drawboard_cloud_ink" and bool(
+            canonical_members & candidate_members
         )
         color_role = str(metadata.get("colorRoleRevision") or "")
         merged_highlight_matches = (
@@ -2828,7 +2801,11 @@ def reconcile_imported_question_frame(
             and color_role.endswith(":question:merged-with-ink")
             and vertical_gap(canonical_rect, rect) == 0.0
         )
-        if str(candidate["id"]) == str(canonical["id"]) or ink_matches or merged_highlight_matches:
+        if (
+            str(candidate["id"]) == str(canonical["id"])
+            or ink_matches
+            or merged_highlight_matches
+        ):
             related.append((candidate, metadata))
     if not related:
         return 0
@@ -2897,19 +2874,17 @@ def reconcile_imported_question_frame(
             if candidate_id == str(canonical["id"])
             else _json_loads(candidate["rect_json"], [])
         )
-        current_rect = _json_loads(candidate["rect_json"], [])
+        current_rect: list[float] = _json_loads(candidate["rect_json"], [])
         if next_metadata == metadata and next_rect == current_rect:
             continue
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE annotation_anchors
                 SET selector_json = :selector_json,
                     rect_json = :rect_json,
                     updated_at = :now
                 WHERE annotation_id = :annotation_id
-                """
-            ),
+                """),
             {
                 "annotation_id": candidate_id,
                 "selector_json": _json_dumps(next_metadata),
@@ -2918,13 +2893,11 @@ def reconcile_imported_question_frame(
             },
         )
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE annotations
                 SET updated_at = :now, revision = revision + 1
                 WHERE id = :annotation_id
-                """
-            ),
+                """),
             {"annotation_id": candidate_id, "now": now},
         )
         updated += 1
@@ -2963,8 +2936,7 @@ def soft_delete_stale_imported_annotations(
             and not bool(row["has_question_identity"])
             and (
                 str(row["origin"]) == "pdf_import"
-                or str(row["source_fingerprint"] or "")
-                not in active_cloud_fingerprints
+                or str(row["source_fingerprint"] or "") not in active_cloud_fingerprints
             )
         )
     ]
@@ -2973,15 +2945,13 @@ def soft_delete_stale_imported_annotations(
     now = _now()
     for annotation_id in stale_ids:
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE annotations
                 SET deleted_at = :now,
                     updated_at = :now,
                     revision = revision + 1
                 WHERE id = :id AND deleted_at IS NULL
-                """
-            ),
+                """),
             {"id": annotation_id, "now": now},
         )
     return len(stale_ids)
@@ -3117,8 +3087,7 @@ def create_prompt_batch(
         )
         if parent_discussion is None:
             raise EntityNotFoundError(
-                "Parent discussion does not exist in course: "
-                f"{command.parent_discussion_thread_id}"
+                f"Parent discussion does not exist in course: {command.parent_discussion_thread_id}"
             )
     now = _now()
     document_id = _create_document(
@@ -3188,15 +3157,16 @@ def create_prompt_batch(
             },
         )
         if annotation is None:
-            raise EntityNotFoundError(f"Annotation does not exist in course: {annotation_id}")
+            raise EntityNotFoundError(
+                f"Annotation does not exist in course: {annotation_id}"
+            )
         snapshot = str(
             annotation["body_markdown"]
             or annotation["quote"]
             or f"{annotation['kind']} on {annotation['resource_title']}"
         )
         connection.execute(
-            text(
-                """
+            text("""
                 INSERT INTO prompt_batch_items (
                   prompt_batch_id, annotation_id, question_label, order_index,
                   quote_snapshot, question_snapshot_markdown,
@@ -3207,8 +3177,7 @@ def create_prompt_batch(
                   :quote_snapshot, :question_snapshot_markdown,
                   :source_metadata_snapshot_json, :created_at
                 )
-                """
-            ),
+                """),
             {
                 "prompt_batch_id": prompt_batch_id,
                 "annotation_id": annotation_id,
@@ -3248,8 +3217,7 @@ def _insert_document_revision(
     timestamp: str,
 ) -> None:
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO document_revisions (
               id, document_id, revision_number, markdown, editor_json, plain_text,
               content_hash, change_reason, created_at
@@ -3258,8 +3226,7 @@ def _insert_document_revision(
               :id, :document_id, :revision_number, :markdown, :editor_json,
               :plain_text, :content_hash, :change_reason, :created_at
             )
-            """
-        ),
+            """),
         {
             "id": _new_id(),
             "document_id": document_id,
@@ -3286,15 +3253,18 @@ def _create_document(
     document_id = _new_id()
     content_hash = hashlib.sha256(
         json.dumps(
-            {"markdown": markdown, "editor_json": editor_json, "plain_text": plain_text},
+            {
+                "markdown": markdown,
+                "editor_json": editor_json,
+                "plain_text": plain_text,
+            },
             ensure_ascii=False,
             sort_keys=True,
         ).encode("utf-8")
     ).hexdigest()
     canonical_format = "tiptap_json" if editor_json is not None else "markdown"
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO documents (
               id, canonical_format, markdown, editor_json, plain_text, editor_name,
               editor_schema_version, markdown_converter_version, content_hash,
@@ -3305,8 +3275,7 @@ def _create_document(
               'tiptap', '1', 'react-editor-v1', :content_hash,
               :now, :now, NULL, 1
             )
-            """
-        ),
+            """),
         {
             "id": document_id,
             "canonical_format": canonical_format,
@@ -3337,22 +3306,19 @@ def _note_marker_resource_id(
 ) -> str | None:
     if command.entity_type == "resource":
         value = connection.execute(
-            text(
-                """
+            text("""
                 SELECT id
                 FROM resources
                 WHERE id = :entity_id
                   AND course_id = :course_id
                   AND deleted_at IS NULL
-                """
-            ),
+                """),
             {"course_id": command.course_id, "entity_id": command.entity_id},
         ).scalar_one_or_none()
         return str(value) if value else None
     if command.entity_type == "task":
         value = connection.execute(
-            text(
-                """
+            text("""
                 SELECT tr.resource_id
                 FROM tasks t
                 JOIN study_days d ON d.id = t.day_id
@@ -3364,8 +3330,7 @@ def _note_marker_resource_id(
                   AND r.deleted_at IS NULL
                 ORDER BY tr.order_index
                 LIMIT 1
-                """
-            ),
+                """),
             {"course_id": command.course_id, "entity_id": command.entity_id},
         ).scalar_one_or_none()
         return str(value) if value else None
@@ -3379,16 +3344,14 @@ def _note_marker_source_day_id(
     if command.entity_type != "task":
         return None
     value = connection.execute(
-        text(
-            """
+        text("""
             SELECT t.day_id
             FROM tasks t
             JOIN study_days d ON d.id = t.day_id
             WHERE t.id = :entity_id
               AND d.course_id = :course_id
               AND t.deleted_at IS NULL
-            """
-        ),
+            """),
         {"course_id": command.course_id, "entity_id": command.entity_id},
     ).scalar_one_or_none()
     return str(value) if value else None
@@ -3413,8 +3376,10 @@ def _sync_note_marker_annotations(
     ]
     markers: list[tuple[str, str, str]] = []
     for paragraph in paragraphs:
-        kind = "todo" if re.search(r"\btodo!", paragraph, flags=re.I) else (
-            "question" if "??" in paragraph else ""
+        kind = (
+            "todo"
+            if re.search(r"\btodo!", paragraph, flags=re.I)
+            else ("question" if "??" in paragraph else "")
         )
         if not kind:
             continue
@@ -3441,30 +3406,30 @@ def _sync_note_marker_annotations(
     for fingerprint, annotation_id in existing.items():
         if fingerprint not in active_fingerprints:
             connection.execute(
-                text(
-                    """
+                text("""
                     UPDATE annotations
                     SET deleted_at = :deleted_at,
                         updated_at = :deleted_at,
                         revision = revision + 1
                     WHERE id = :id
-                    """
-                ),
+                    """),
                 {"deleted_at": timestamp, "id": annotation_id},
             )
     for kind, marker_text, fingerprint in markers:
         if fingerprint in existing:
             if source_day_id is not None:
-                anchor_row = connection.execute(
-                    text(
-                        """
+                anchor_row = (
+                    connection.execute(
+                        text("""
                         SELECT selector_json
                         FROM annotation_anchors
                         WHERE annotation_id = :annotation_id
-                        """
-                    ),
-                    {"annotation_id": existing[fingerprint]},
-                ).mappings().one_or_none()
+                        """),
+                        {"annotation_id": existing[fingerprint]},
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
                 if anchor_row is not None:
                     metadata: dict[str, Any] = _json_loads(
                         anchor_row["selector_json"],
@@ -3473,14 +3438,12 @@ def _sync_note_marker_annotations(
                     if metadata.get("createdDayId") != source_day_id:
                         metadata["createdDayId"] = source_day_id
                         connection.execute(
-                            text(
-                                """
+                            text("""
                                 UPDATE annotation_anchors
                                 SET selector_json = :selector_json,
                                     updated_at = :updated_at
                                 WHERE annotation_id = :annotation_id
-                                """
-                            ),
+                                """),
                             {
                                 "annotation_id": existing[fingerprint],
                                 "selector_json": _json_dumps(metadata),
@@ -3500,9 +3463,7 @@ def _sync_note_marker_annotations(
                 anchor=AnnotationAnchorCreate(
                     anchor_type="resource",
                     color=(
-                        "rgb(147, 178, 80)"
-                        if kind == "todo"
-                        else "rgb(226, 82, 117)"
+                        "rgb(147, 178, 80)" if kind == "todo" else "rgb(226, 82, 117)"
                     ),
                     annotation_kind=kind,
                     metadata={
@@ -3525,7 +3486,11 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
     plain_text = command.plain_text or markdown
     content_hash = hashlib.sha256(
         json.dumps(
-            {"markdown": markdown, "editor_json": command.editor_json, "plain_text": plain_text},
+            {
+                "markdown": markdown,
+                "editor_json": command.editor_json,
+                "plain_text": plain_text,
+            },
             ensure_ascii=False,
             sort_keys=True,
         ).encode("utf-8")
@@ -3543,8 +3508,7 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
             timestamp=now,
         )
         connection.execute(
-            text(
-                """
+            text("""
                 INSERT INTO notes (
                   id, course_id, document_id, kind, attention, status,
                   created_at, updated_at, deleted_at, revision
@@ -3553,8 +3517,7 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
                   :id, :course_id, :document_id, :kind, :attention,
                   'active', :now, :now, NULL, 1
                 )
-                """
-            ),
+                """),
             {
                 "id": note_id,
                 "course_id": command.course_id,
@@ -3565,12 +3528,10 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
             },
         )
         connection.execute(
-            text(
-                """
+            text("""
                 INSERT INTO note_links (note_id, entity_type, entity_id, relation, created_at)
                 VALUES (:note_id, :entity_type, :entity_id, 'primary', :created_at)
-                """
-            ),
+                """),
             {
                 "note_id": note_id,
                 "entity_type": command.entity_type,
@@ -3580,16 +3541,14 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
         )
         for link in command.related_links:
             connection.execute(
-                text(
-                    """
+                text("""
                     INSERT OR IGNORE INTO note_links (
                       note_id, entity_type, entity_id, relation, created_at
                     )
                     VALUES (
                       :note_id, :entity_type, :entity_id, 'related', :created_at
                     )
-                    """
-                ),
+                    """),
                 {
                     "note_id": note_id,
                     "entity_type": link.entity_type,
@@ -3618,7 +3577,11 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
         FROM notes
         WHERE id = :id AND course_id = :course_id AND revision = :revision AND deleted_at IS NULL
         """,
-        {"id": command.note_id, "course_id": command.course_id, "revision": command.note_revision},
+        {
+            "id": command.note_id,
+            "course_id": command.course_id,
+            "revision": command.note_revision,
+        },
     )
     if note_row is None:
         exists = _one_or_none(
@@ -3731,8 +3694,7 @@ def delete_note(
             raise EntityNotFoundError(f"Note does not exist: {note_id}")
         raise RevisionConflictError(f"Stale revision for note: {note_id}")
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE annotations
             SET deleted_at = :now,
                 updated_at = :now,
@@ -3744,8 +3706,7 @@ def delete_note(
                 FROM annotation_anchors
                 WHERE json_extract(selector_json, '$.sourceNoteId') = :note_id
               )
-            """
-        ),
+            """),
         {"note_id": note_id, "now": now},
     )
     return _mutation_result(row)
@@ -3772,13 +3733,11 @@ def resource_open_target(
 
 def resource_kind(connection: Connection, resource_id: str) -> str:
     value = connection.execute(
-        text(
-            """
+        text("""
             SELECT kind
             FROM resources
             WHERE id = :resource_id AND deleted_at IS NULL
-            """
-        ),
+            """),
         {"resource_id": resource_id},
     ).scalar_one_or_none()
     if value is None:
@@ -3848,9 +3807,7 @@ def validate_toggl_scope(
 ) -> None:
     if course_id is None:
         if day_id is not None or task_id is not None:
-            raise WorkspaceRepositoryError(
-                "A Toggl day or task requires a course."
-            )
+            raise WorkspaceRepositoryError("A Toggl day or task requires a course.")
         return
     course = _one_or_none(
         connection,
@@ -3902,18 +3859,15 @@ def record_toggl_start(
     if course_id is None:
         return
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE time_entries
             SET stopped_at = :started_at, updated_at = :started_at
             WHERE provider = 'toggl' AND stopped_at IS NULL
-            """
-        ),
+            """),
         {"started_at": started_at},
     )
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO time_entries (
               id, course_id, day_id, task_id, resource_id,
               discussion_thread_id, provider, external_id, description,
@@ -3938,8 +3892,7 @@ def record_toggl_start(
               duration_override_seconds = NULL,
               last_synced_at = excluded.last_synced_at,
               updated_at = excluded.updated_at
-            """
-        ),
+            """),
         {
             "id": _new_id(),
             "course_id": course_id,
@@ -3955,13 +3908,11 @@ def record_toggl_start(
 def record_toggl_stop(connection: Connection) -> None:
     now = _now()
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE time_entries
             SET stopped_at = :now, last_synced_at = :now, updated_at = :now
             WHERE provider = 'toggl' AND stopped_at IS NULL
-            """
-        ),
+            """),
         {"now": now},
     )
 
@@ -3970,14 +3921,12 @@ def toggl_task_id(connection: Connection, external_id: str) -> str | None:
     return cast(
         str | None,
         connection.execute(
-            text(
-                """
+            text("""
                 SELECT task_id
                 FROM time_entries
                 WHERE provider = 'toggl' AND external_id = :external_id
                 LIMIT 1
-                """
-            ),
+                """),
             {"external_id": external_id},
         ).scalar_one_or_none(),
     )
@@ -4058,8 +4007,7 @@ def reconcile_toggl_entries(
             else None
         )
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE time_entries
                 SET description = :description,
                     started_at = :started_at,
@@ -4069,8 +4017,7 @@ def reconcile_toggl_entries(
                     sync_payload_json = :sync_payload_json,
                     updated_at = :now
                 WHERE id = :id
-                """
-            ),
+                """),
             {
                 "description": str(remote.get("description") or ""),
                 "duration_seconds": duration_seconds,
@@ -4082,8 +4029,7 @@ def reconcile_toggl_entries(
             },
         )
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO integration_sync_states (
               id, integration, cursor, last_successful_sync_at, last_error,
               backoff_until, settings_json, created_at, updated_at
@@ -4097,8 +4043,7 @@ def reconcile_toggl_entries(
               last_error = NULL,
               settings_json = excluded.settings_json,
               updated_at = excluded.updated_at
-            """
-        ),
+            """),
         {
             "id": _new_id(),
             "now": now,
@@ -4148,8 +4093,7 @@ def create_discussion(
         )
     )
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO resources (
               id, course_id, parent_resource_id, current_version_id,
               content_document_id, title, kind, format, source_type,
@@ -4164,8 +4108,7 @@ def create_discussion(
               'unread', NULL, NULL, NULL,
               :metadata_json, :now, :now, NULL, 1
             )
-            """
-        ),
+            """),
         {
             "id": resource_id,
             "course_id": command.course_id,
@@ -4184,14 +4127,12 @@ def create_discussion(
     )
     for source_resource_id in source_resource_ids:
         connection.execute(
-            text(
-                """
+            text("""
                 INSERT INTO resource_relations (
                   source_resource_id, target_resource_id, relation, created_at
                 )
                 VALUES (:source_id, :target_id, 'generated_from', :created_at)
-                """
-            ),
+                """),
             {
                 "source_id": resource_id,
                 "target_id": source_resource_id,
@@ -4224,14 +4165,12 @@ def create_discussion(
         raise WorkspaceRepositoryError("Could not create discussion.")
     if prompt_batch is not None:
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE prompt_batches
                 SET parent_discussion_thread_id = :discussion_id,
                     updated_at = :updated_at
                 WHERE id = :prompt_batch_id
-                """
-            ),
+                """),
             {
                 "discussion_id": discussion_id,
                 "prompt_batch_id": prompt_batch["id"],
@@ -4440,13 +4379,11 @@ def create_discussion_message(
     )
     sequence_number = int(
         connection.execute(
-            text(
-                """
+            text("""
                 SELECT COALESCE(MAX(sequence_number), 0) + 1
                 FROM discussion_messages
                 WHERE thread_id = :thread_id
-                """
-            ),
+                """),
             {"thread_id": discussion_id},
         ).scalar_one()
     )
@@ -4486,8 +4423,7 @@ def create_discussion_message(
                 relation="references",
             )
             for annotation_id in connection.execute(
-                text(
-                    """
+                text("""
                     SELECT pbi.annotation_id
                     FROM prompt_batches pb
                     JOIN prompt_batch_items pbi ON pbi.prompt_batch_id = pb.id
@@ -4499,8 +4435,7 @@ def create_discussion_message(
                       AND r.deleted_at IS NULL
                       AND r.course_id = :course_id
                     ORDER BY pbi.order_index
-                    """
-                ),
+                    """),
                 {
                     "discussion_id": discussion_id,
                     "course_id": thread["course_id"],
@@ -4519,29 +4454,25 @@ def create_discussion_message(
             update_question_status=link.relation in {"answers", "partially_answers"},
         )
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE discussion_threads
             SET updated_at = :now, revision = revision + 1
             WHERE id = :id
-            """
-        ),
+            """),
         {"id": discussion_id, "now": now},
     )
     if row is None:
         raise WorkspaceRepositoryError("Could not create discussion message.")
     if command.role == "assistant" and thread["initial_prompt_batch_id"]:
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE prompt_batches
                 SET status = 'answered',
                     answered_at = COALESCE(answered_at, :now),
                     updated_at = :now
                 WHERE parent_discussion_thread_id = :discussion_id
                   AND deleted_at IS NULL
-                """
-            ),
+                """),
             {"discussion_id": discussion_id, "now": now},
         )
     try:
@@ -4625,8 +4556,12 @@ def update_discussion_message(
             {"id": message_id},
         )
         if exists is None:
-            raise EntityNotFoundError(f"Discussion message does not exist: {message_id}")
-        raise RevisionConflictError(f"Stale revision for discussion message: {message_id}")
+            raise EntityNotFoundError(
+                f"Discussion message does not exist: {message_id}"
+            )
+        raise RevisionConflictError(
+            f"Stale revision for discussion message: {message_id}"
+        )
 
     now = _now()
     markdown = command.markdown
@@ -4701,16 +4636,16 @@ def update_discussion_message(
         },
     )
     if row is None:
-        raise RevisionConflictError(f"Stale revision for discussion message: {message_id}")
+        raise RevisionConflictError(
+            f"Stale revision for discussion message: {message_id}"
+        )
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE discussion_threads
             SET updated_at = :updated_at,
                 revision = revision + 1
             WHERE id = :thread_id AND deleted_at IS NULL
-            """
-        ),
+            """),
         {"thread_id": str(message["thread_id"]), "updated_at": now},
     )
     try:
@@ -4760,9 +4695,7 @@ def _followup_prompt_label(
         if match:
             captured = match.group(1)
             root_label = (
-                f"Q-{int(captured):03d}"
-                if captured.isdigit()
-                else f"Q-{captured}"
+                f"Q-{int(captured):03d}" if captured.isdigit() else f"Q-{captured}"
             )
     root_label = root_label or "Q-000"
 
@@ -4890,21 +4823,17 @@ def delete_discussion_answer(
         {"message_id": message_id},
     )
     if scope is None:
-        raise EntityNotFoundError(
-            f"Discussion message does not exist: {message_id}"
-        )
+        raise EntityNotFoundError(f"Discussion message does not exist: {message_id}")
 
     result = update_discussion_message(connection, message_id, command)
     now = _now()
     for annotation_id in dict.fromkeys(command.question_ids):
         removed = connection.execute(
-            text(
-                """
+            text("""
                 DELETE FROM discussion_message_annotations
                 WHERE message_id = :message_id
                   AND annotation_id = :annotation_id
-                """
-            ),
+                """),
             {
                 "message_id": message_id,
                 "annotation_id": annotation_id,
@@ -4913,8 +4842,7 @@ def delete_discussion_answer(
         if not removed.rowcount and not command.archive_questions:
             continue
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE annotations
                 SET status = :status,
                     answered_at = NULL,
@@ -4928,8 +4856,7 @@ def delete_discussion_answer(
                     FROM resources
                     WHERE course_id = :course_id
                   )
-                """
-            ),
+                """),
             {
                 "annotation_id": annotation_id,
                 "course_id": str(scope["course_id"]),
@@ -4977,35 +4904,30 @@ def delete_discussion_message(
     linked_question_ids = [
         str(row["annotation_id"])
         for row in connection.execute(
-            text(
-                """
+            text("""
                 SELECT dma.annotation_id
                 FROM discussion_message_annotations dma
                 JOIN annotations a ON a.id = dma.annotation_id
                 WHERE dma.message_id = :message_id
                   AND dma.relation IN ('answers', 'partially_answers')
                   AND a.deleted_at IS NULL
-                """
-            ),
+                """),
             {"message_id": message_id},
         ).mappings()
     ]
     now = _now()
     if linked_question_ids:
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE annotations
                 SET status = 'open', answered_at = NULL,
                     updated_at = :now, revision = revision + 1
                 WHERE id IN :question_ids AND deleted_at IS NULL
-                """
-            ).bindparams(bindparam("question_ids", expanding=True)),
+                """).bindparams(bindparam("question_ids", expanding=True)),
             {"question_ids": linked_question_ids, "now": now},
         )
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE annotations
             SET deleted_at = :now, updated_at = :now, revision = revision + 1
             WHERE deleted_at IS NULL
@@ -5018,8 +4940,7 @@ def delete_discussion_message(
                 'discussion_review_followup',
                 'discussion_review_highlight'
               )
-            """
-        ),
+            """),
         {"message_id": message_id, "now": now},
     )
     connection.execute(
@@ -5074,23 +4995,19 @@ def _set_discussion_message_annotation(
             f"Annotation does not exist in discussion course: {annotation_id}"
         )
     connection.execute(
-        text(
-            """
+        text("""
             DELETE FROM discussion_message_annotations
             WHERE message_id = :message_id AND annotation_id = :annotation_id
-            """
-        ),
+            """),
         {"message_id": message_id, "annotation_id": annotation_id},
     )
     connection.execute(
-        text(
-            """
+        text("""
             INSERT INTO discussion_message_annotations (
               message_id, annotation_id, relation, created_at
             )
             VALUES (:message_id, :annotation_id, :relation, :created_at)
-            """
-        ),
+            """),
         {
             "message_id": message_id,
             "annotation_id": annotation_id,
@@ -5159,13 +5076,11 @@ def link_discussion_question(
         update_question_status=command.relation in {"answers", "partially_answers"},
     )
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE discussion_threads
             SET updated_at = :updated_at, revision = revision + 1
             WHERE id = :thread_id
-            """
-        ),
+            """),
         {"thread_id": message["thread_id"], "updated_at": now},
     )
     return response
@@ -5208,8 +5123,7 @@ def review_discussion_qa(
                 f"Question annotation does not exist: {annotation_id}"
             )
         connection.execute(
-            text(
-                """
+            text("""
                 INSERT INTO discussion_qa_reviews (
                   discussion_id, annotation_id, message_id, message_revision,
                   section_id, section_fingerprint, viewed_at, updated_at
@@ -5224,8 +5138,7 @@ def review_discussion_qa(
                   section_fingerprint = excluded.section_fingerprint,
                   viewed_at = excluded.viewed_at,
                   updated_at = excluded.updated_at
-                """
-            ),
+                """),
             {
                 "discussion_id": discussion_id,
                 "annotation_id": annotation_id,
@@ -5295,24 +5208,18 @@ def delete_discussion(
             {"id": discussion_id},
         )
         if existing is None:
-            raise EntityNotFoundError(
-                f"Discussion does not exist: {discussion_id}"
-            )
-        raise RevisionConflictError(
-            f"Stale revision for discussion: {discussion_id}"
-        )
+            raise EntityNotFoundError(f"Discussion does not exist: {discussion_id}")
+        raise RevisionConflictError(f"Stale revision for discussion: {discussion_id}")
 
     now = _now()
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE discussion_messages
             SET deleted_at = :deleted_at,
                 updated_at = :updated_at,
                 revision = revision + 1
             WHERE thread_id = :thread_id AND deleted_at IS NULL
-            """
-        ),
+            """),
         {
             "thread_id": discussion_id,
             "deleted_at": now,
@@ -5338,20 +5245,16 @@ def delete_discussion(
         },
     )
     if row is None:
-        raise RevisionConflictError(
-            f"Stale revision for discussion: {discussion_id}"
-        )
+        raise RevisionConflictError(f"Stale revision for discussion: {discussion_id}")
     connection.execute(
-        text(
-            """
+        text("""
             UPDATE resources
             SET status = 'archived',
                 deleted_at = :deleted_at,
                 updated_at = :updated_at,
                 revision = revision + 1
             WHERE id = :resource_id AND deleted_at IS NULL
-            """
-        ),
+            """),
         {
             "resource_id": thread["resource_id"],
             "deleted_at": now,
@@ -5360,15 +5263,13 @@ def delete_discussion(
     )
     if thread["initial_prompt_batch_id"]:
         connection.execute(
-            text(
-                """
+            text("""
                 UPDATE prompt_batches
                 SET parent_discussion_thread_id = NULL,
                     updated_at = :updated_at
                 WHERE id = :prompt_batch_id
                   AND parent_discussion_thread_id = :thread_id
-                """
-            ),
+                """),
             {
                 "prompt_batch_id": thread["initial_prompt_batch_id"],
                 "thread_id": discussion_id,
