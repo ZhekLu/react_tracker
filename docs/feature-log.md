@@ -1,5 +1,11 @@
 # Tracker feature and maintenance log
 
+## 2026-09-17 — commit completed changes promptly
+
+- Repository instructions now require a focused commit for each completed change,
+  including relevant tests and a feature-log entry, after its checks pass. Keep
+  local data and build artifacts out of commits. Validation: documentation diff.
+
 Keep a concise record of behavior, special handling, known gaps, and validation.
 Repository rule: [AGENTS.md](../AGENTS.md).
 
