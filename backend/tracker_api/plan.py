@@ -33,6 +33,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     sync.add_argument("path", type=Path)
     sync.add_argument("--json", action="store_true", dest="as_json")
+    sync.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate through the real transaction, then roll back every change.",
+    )
 
     patch = subcommands.add_parser(
         "patch",
@@ -40,6 +45,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     patch.add_argument("path", type=Path)
     patch.add_argument("--json", action="store_true", dest="as_json")
+    patch.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate through the real transaction, then roll back every change.",
+    )
 
     inspect = subcommands.add_parser(
         "inspect",
@@ -80,9 +90,7 @@ def _validate(path: Path, *, as_json: bool) -> int:
             print(diagnostic.render())
         if result.plan is not None and not result.errors:
             task_count = sum(
-                len(section.tasks)
-                for day in result.plan.days
-                for section in day.sections
+                len(section.tasks) for day in result.plan.days for section in day.sections
             )
             print(
                 f"OK {result.plan.plan_id}: "
@@ -93,9 +101,9 @@ def _validate(path: Path, *, as_json: bool) -> int:
     return 1 if result.errors else 0
 
 
-def _sync(path: Path, *, force_patch: bool, as_json: bool) -> int:
+def _sync(path: Path, *, force_patch: bool, as_json: bool, dry_run: bool = False) -> int:
     try:
-        result = sync_study_plan(path, force_patch=force_patch)
+        result = sync_study_plan(path, force_patch=force_patch, dry_run=dry_run, backup=not dry_run)
     except StudyPlanSyncError as error:
         print(str(error))
         return 1
@@ -104,9 +112,12 @@ def _sync(path: Path, *, force_patch: bool, as_json: bool) -> int:
     else:
         for diagnostic in result.diagnostics:
             print(diagnostic.render())
+        if result.backup_path:
+            print(f"Backup: {result.backup_path}")
         print(
-            f"OK {result.plan_id} ({result.mode}) -> {result.course_id}\n"
-            f"Import run: {result.import_run_id}\n"
+            f"{'PREVIEW (rolled back)' if result.dry_run else 'OK'} "
+            f"{result.plan_id} ({result.mode}) -> {result.course_id}\n"
+            f"{'Preview run' if result.dry_run else 'Import run'}: {result.import_run_id}\n"
             f"Changes: {json.dumps(result.counts, sort_keys=True)}"
         )
     return 0
@@ -118,9 +129,13 @@ def main() -> None:
     if args.command == "validate":
         raise SystemExit(_validate(args.path, as_json=args.as_json))
     if args.command == "sync":
-        raise SystemExit(_sync(args.path, force_patch=False, as_json=args.as_json))
+        raise SystemExit(
+            _sync(args.path, force_patch=False, as_json=args.as_json, dry_run=args.dry_run)
+        )
     if args.command == "patch":
-        raise SystemExit(_sync(args.path, force_patch=True, as_json=args.as_json))
+        raise SystemExit(
+            _sync(args.path, force_patch=True, as_json=args.as_json, dry_run=args.dry_run)
+        )
     if args.command == "inspect":
         try:
             print(inspect_plan_structure(args.course), end="")

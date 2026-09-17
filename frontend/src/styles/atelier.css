@@ -4013,6 +4013,11 @@ button.taskMetaBadge:disabled {
     flex-wrap: wrap;
   }
 
+  .examCard .sectionTitle > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .examCardProgress {
     width: 120px;
   }
@@ -4495,16 +4500,13 @@ button.taskMetaBadge:disabled {
 }
 
 .readerPinnedProgress {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .readerPinnedProgress .progressBar {
-  height: 4px;
-  border: 0;
-  border-radius: 0;
+  height: 10px;
+  border-radius: 8px;
 }
 
 .selectionCapture {

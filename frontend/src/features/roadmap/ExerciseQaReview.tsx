@@ -16,7 +16,7 @@ import {
 } from "../../api/trackerApi";
 import { DiscussionMarkdownSurface } from "../../components/editor/DiscussionMarkdownSurface";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
-import { importPastedMarkdown } from "../../lib/discussionImport";
+import { importWithDebug } from "../../lib/insertDebug";
 import { parseExerciseProgress } from "../../lib/exerciseProgress";
 import {
   exerciseAnswerSections,
@@ -174,7 +174,7 @@ export function ExerciseQaReview({
     const content = labels.length
       ? markdown
       : `# Exercise ${exercise}\n\n${markdown}`;
-    onNoteSave({
+    return onNoteSave({
       entityId: task.id,
       entityType: "task",
       html: content,
@@ -184,7 +184,7 @@ export function ExerciseQaReview({
   }
 
   function importSolutions(markdownInput: string, kind: SolutionKind) {
-    const imported = importPastedMarkdown(markdownInput);
+    const imported = importWithDebug(markdownInput);
     const mapped = exerciseAnswerSections(imported).map((section) => ({
       numbers: section.exercises,
       markdown: section.markdown,

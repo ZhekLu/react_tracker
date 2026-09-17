@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Annotation, Discussion, Note } from "../../types/tracker";
+import type { Annotation, Discussion, Note, Resource } from "../../types/tracker";
 import type { DiscussionQaSection } from "../../lib/discussionQa";
 import {
   centeredQaSourceScrollTop,
@@ -8,6 +8,7 @@ import {
   qaReviewItemVisible,
   qaReviewItems,
   qaReviewScopeProgress,
+  qaGroupNavigationTarget,
   qaReviewStatus,
   qaReviewThreads,
   qaSectionFingerprint,
@@ -36,6 +37,51 @@ function annotation(
 }
 
 describe("focused discussion QA review units", () => {
+  it("groups mixed lectures by resource, inherits follow-up sources, and keeps book sections", () => {
+    const resources = [
+      { id: "book", title: "Textbook", kind: "book" },
+      { id: "lecture-a", title: "Policy gradients", kind: "slides" },
+      { id: "lecture-b", title: "Actor–critic", kind: "slides" },
+    ] as Resource[];
+    const book = annotation("b", { anchor: { anchorType: "pdf_rect", metadata: { subchapterTitle: "13.5 · Actor–critic" } } });
+    const first = annotation("a", { resourceId: "lecture-a", anchor: { anchorType: "pdf_rect", pageNumber: 4, sectionTitle: "A misleading question title", metadata: {} } });
+    const second = annotation("c", { resourceId: "lecture-b" });
+    const followup = annotation("f", { resourceId: "discussion", origin: "discussion_review_followup", anchor: { anchorType: "text", metadata: { rootQuestionIds: [first.id] } } });
+    const items = [
+      { id: "book-thread", questions: [book] },
+      { id: "first-thread", questions: [first, followup], rootQuestions: [first] },
+      { id: "second-thread", questions: [second] },
+    ];
+    const progress = qaReviewScopeProgress(items, undefined, resources);
+    expect(progress.sections.map((group) => group.label)).toEqual(["13.5", "Actor–critic", "Policy gradients"]);
+    expect(progress.sections.find((group) => group.label === "Policy gradients")).toMatchObject({ open: 2, total: 2, itemIds: ["first-thread"] });
+    expect(progress.total).toBe(4);
+  });
+
+  it("uses page navigation within one lecture and can reach a completed group under an open filter", () => {
+    const makePage = (page: number, status: Annotation["status"]) => annotation(`page-${page}`, {
+      resourceId: "lecture", status,
+      anchor: { anchorType: "pdf_rect", pageNumber: page, metadata: {} },
+    });
+    const items = [
+      { id: "p12", questions: [makePage(12, "answered")] },
+      { id: "p3", questions: [makePage(3, "open")] },
+    ];
+    const progress = qaReviewScopeProgress(items, undefined, [{ id: "lecture", title: "Policy gradients", kind: "slides" }] as Resource[]);
+    expect(progress.sections.map((group) => group.label)).toEqual(["p. 3", "p. 12"]);
+    expect(qaGroupNavigationTarget(progress.sections[0], [items[1]], items)).toEqual({ index: 0, showAll: false });
+    expect(qaGroupNavigationTarget(progress.sections[1], [items[1]], items)).toEqual({ index: 0, showAll: true });
+    expect(qaGroupNavigationTarget({ itemIds: ["deleted"] }, [], items)).toBeUndefined();
+  });
+
+  it("keeps identically numbered sections in different books separate", () => {
+    const items = ["one", "two"].map((resourceId) => ({ id: resourceId, questions: [annotation(resourceId, {
+      resourceId, anchor: { anchorType: "pdf_rect", metadata: { subchapterTitle: "1.1 · Introduction" } },
+    })] }));
+    const progress = qaReviewScopeProgress(items);
+    expect(progress.sections).toHaveLength(2);
+    expect(new Set(progress.sections.map((group) => group.id)).size).toBe(2);
+  });
   it("counts logical questions per section without double-counting frame captures", () => {
     const firstFrameCapture = annotation("frame-highlight", {
       anchor: {
@@ -79,17 +125,17 @@ describe("focused discussion QA review units", () => {
       },
     ]);
 
-    expect(progress).toEqual({
+    expect(progress).toMatchObject({
       open: 1,
       sections: [
         {
-          label: "11.1 · Semi-gradient Methods",
+          label: "11.1",
           open: 0,
           total: 1,
           understood: 1,
         },
         {
-          label: "11.2 · Examples of Off-policy Divergence",
+          label: "11.2",
           open: 1,
           total: 1,
           understood: 0,
@@ -128,10 +174,10 @@ describe("focused discussion QA review units", () => {
       [chapterEleven.id],
     );
 
-    expect(progress).toEqual({
+    expect(progress).toMatchObject({
       open: 1,
       sections: [{
-        label: "11.2 · Examples of Off-policy Divergence",
+        label: "11.2",
         open: 1,
         total: 1,
         understood: 0,

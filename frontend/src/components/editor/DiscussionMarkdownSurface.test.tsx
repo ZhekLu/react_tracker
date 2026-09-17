@@ -1,0 +1,109 @@
+// @vitest-environment jsdom
+import { act, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import type { Editor } from '@tiptap/core';
+import type * as TiptapReact from '@tiptap/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DiscussionMarkdownSurfaceImpl } from './DiscussionMarkdownSurfaceImpl';
+import { NoteWorkspace } from '../notes/NoteWorkspace';
+
+const state = vi.hoisted(() => ({editor: null as Editor | null}));
+vi.mock('@tiptap/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof TiptapReact>();
+  return {...actual, useEditor: (...args: Parameters<typeof actual.useEditor>) => {
+    const editor = actual.useEditor(...args);
+    state.editor = editor;
+    return editor;
+  }};
+});
+
+let host: HTMLDivElement;
+let root: ReturnType<typeof createRoot>;
+beforeEach(() => {
+  Object.assign(globalThis, {IS_REACT_ACT_ENVIRONMENT: true});
+  document.elementFromPoint = () => null;
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+  host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
+});
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+
+function Controlled() {
+  const [markdown, setMarkdown] = useState('Before $Q_\\theta$ changes.');
+  return <DiscussionMarkdownSurfaceImpl editable markdown={markdown} onChange={setMarkdown} />;
+}
+
+describe('controlled editor lifecycle', () => {
+  it('pastes plain-text formulas directly into a note and reopens each formula once', async () => {
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown="" />));
+    const paste = new Event('paste', {bubbles: true, cancelable: true});
+    Object.defineProperty(paste, 'clipboardData', {value: {getData: (type: string) => type === 'text/plain' ? 'Compare $G_1$.\n\n$$\n\\gamma=0.9\n$$' : ''}});
+    await act(async () => host.querySelector('.ProseMirror')!.dispatchEvent(paste));
+    const saved = state.editor!.getMarkdown();
+    expect(host.querySelectorAll('[data-type="inline-math"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[data-type="block-math"]')).toHaveLength(1);
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl key="reopened" markdown={saved} />));
+    expect(host.querySelectorAll('[data-type="inline-math"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[data-type="block-math"]')).toHaveLength(1);
+  });
+
+  it('keeps drafts and undo when resizing the note workspace', async () => {
+    await act(async () => root.render(<NoteWorkspace editing onEdit={() => {}}><Controlled /></NoteWorkspace>));
+    const editor = state.editor!;
+    const original = editor.getMarkdown();
+    await act(async () => editor.commands.insertContent('Draft '));
+    const draft = editor.getMarkdown();
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="Larger note text"]')!.click();
+      [...host.querySelectorAll('button')].find(button => button.textContent?.includes('More space'))!.click();
+    });
+    expect(state.editor).toBe(editor);
+    expect(editor.getMarkdown()).toBe(draft);
+    expect(host.querySelector('.noteWorkspace.expanded')).not.toBeNull();
+    await act(async () => editor.commands.undo());
+    expect(editor.getMarkdown()).toBe(original);
+  });
+
+  it('keeps cursor, formula nodes and undo history across parent echoes', async () => {
+    await act(async () => root.render(<Controlled />));
+    const editor = state.editor!;
+    const initial = editor.state.doc.toJSON();
+    await act(async () => {
+      editor.commands.setTextSelection(7);
+      editor.commands.insertContent(' stable');
+    });
+    expect(state.editor).toBe(editor);
+    expect(editor.state.selection.from).toBe(14);
+    await act(async () => editor.commands.undo());
+    expect(editor.state.doc.toJSON()).toEqual(initial);
+    await act(async () => {
+      editor.commands.setTextSelection({from:1,to:editor.state.doc.content.size - 1});
+      editor.commands.toggleHighlight({color:'#fff0a8'});
+    });
+    expect(editor.state.doc.toJSON().content[0].content.find((n: {type: string}) => n.type === 'inlineMath').marks[0].type).toBe('highlight');
+    await act(async () => editor.commands.undo());
+    expect(editor.state.doc.toJSON()).toEqual(initial);
+  });
+
+  it('retains the exact original on a no-op save and keeps failed drafts visible', async () => {
+    const original = 'Original  spacing.\n\n$$\nx*{y}\n$$';
+    const save = vi.fn().mockResolvedValue(false);
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown={original} onSave={save} />));
+    const button = [...host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Save')!;
+    await act(async () => button.click());
+    expect(save).toHaveBeenCalledWith(original, []);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Your draft is still here');
+    expect(host.querySelector('.ProseMirror')).not.toBeNull();
+  });
+
+  it('uses the same asynchronous save path for the keyboard shortcut', async () => {
+    const save = vi.fn().mockRejectedValue(new Error('Connection interrupted'));
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown="Day note" onSave={save} />));
+    await act(async () => host.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 's', metaKey: true, bubbles: true, cancelable: true,
+    })));
+    expect(save).toHaveBeenCalledWith('Day note', []);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Connection interrupted');
+    expect(host.querySelector('.ProseMirror')?.textContent).toBe('Day note');
+  });
+});

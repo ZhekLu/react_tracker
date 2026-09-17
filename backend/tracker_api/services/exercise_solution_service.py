@@ -283,8 +283,12 @@ def render_exercise_statement(
         )
         if bottom <= top + 48.0:
             bottom = min(float(page.rect.height), top + 260.0)
-        clip = pymupdf.Rect(0.0, top, float(page.rect.width), bottom)
-        pixmap = page.get_pixmap(matrix=pymupdf.Matrix(3.0, 3.0), clip=clip, alpha=False)
+        clip = pymupdf.Rect(0.0, top, float(page.rect.width), bottom)  # type: ignore[no-untyped-call]
+        pixmap = page.get_pixmap(
+            matrix=pymupdf.Matrix(3.0, 3.0),  # type: ignore[no-untyped-call]
+            clip=clip,
+            alpha=False,
+        )
         return ExerciseStatementImage(
             content=pixmap.tobytes("png"),
             exercise=exercise,
@@ -383,7 +387,7 @@ def render_exercise_source(
                     image_id=image_match.group(1),
                     ink_count=int(selector.get("inkGroupSize") or 0),
                     page_height=float(selector.get("pageHeight") or 0),
-                    rect=tuple(float(value) for value in rect),
+                    rect=(float(rect[0]), float(rect[1]), float(rect[2]), float(rect[3])),
                 )
             )
         selected = _stored_exercise_image(candidates, location)

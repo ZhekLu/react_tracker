@@ -62,7 +62,7 @@ type NotesViewProps = {
     discussion: Course["discussions"][number],
     attention: Course["discussions"][number]["attention"],
   ) => void;
-  onOpenDiscussion: (resourceId: string) => void;
+  onOpenDiscussion: (resourceId: string, questionId?: string) => void;
   onOpenDay: (dayId: string) => void;
   onOpenResource: (resourceId: string) => void;
 };
@@ -260,10 +260,10 @@ function AnnotationSummaryCard({
           <BookOpen size={13} /> Open
         </button>
         <button
-          onClick={() => onOpenDiscussion(annotation.resourceId)}
+          data-track="question.open_answer" onClick={() => onOpenDiscussion(annotation.resourceId, annotation.id)}
           type="button"
         >
-          <MessageSquareText size={13} /> Discuss
+          <MessageSquareText size={13} /> {(annotation.discussionResponseCount ?? 0) > 0 ? "Open Q&A" : "Open discussion"}
         </button>
         <button onClick={() => onCopyAnnotation(annotation)} type="button">
           <ClipboardCopy size={13} /> Copy context

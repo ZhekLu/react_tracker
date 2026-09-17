@@ -23,7 +23,7 @@ import {
   type PdfReaderMetadata,
   type ResourceContentResult,
 } from "../../api/trackerApi";
-import { ProgressBar } from "../../components/ProgressBar";
+import { StudyPassProgress } from "../../components/StudyPassProgress";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { CompletionBurst } from "../../components/rewards/CompletionBurst";
 import { useCompletionReward } from "../../hooks/useCompletionReward";
@@ -85,6 +85,10 @@ export function ResourceReader({
   const [progressPercent, setProgressPercent] = useState(
     Math.round(resource.progress * 100),
   );
+  const [passNumber, setPassNumber] = useState(1);
+  const [passPages, setPassPages] = useState<Set<number>>(() => new Set());
+  const [passPercent, setPassPercent] = useState(0);
+  const [loadedPage, setLoadedPage] = useState(0);
   const [pageNumber, setPageNumber] = useState(Math.max(1, initialPage));
   const [quickDraft, setQuickDraft] = useState<string | null>(null);
   const [quickKind, setQuickKind] = useState<"note" | "question" | "todo">(
@@ -153,11 +157,28 @@ export function ResourceReader({
   }
 
   function updateProgress() {
+    if (pdf) return;
     const element = scrollRef.current;
     if (!element) return;
     const available = element.scrollHeight - element.clientHeight;
     const ratio = available <= 0 ? 1 : element.scrollTop / available;
-    setProgressPercent(Math.max(progressPercent, Math.min(99, Math.round(ratio * 100))));
+    const percent = Math.round(ratio * 100);
+    setPassPercent(current => Math.max(current, percent));
+    setProgressPercent(current => Math.max(current, Math.min(99, percent)));
+  }
+
+  useEffect(() => {
+    if (!pdf || loadedPage !== pageNumber) return;
+    const timer = window.setTimeout(() => setPassPages(current => new Set([...current, pageNumber])), 700);
+    return () => window.clearTimeout(timer);
+  }, [pdf, loadedPage, pageNumber, passNumber]);
+
+  function restartPass() {
+    setPassNumber(number => number + 1);
+    setPassPages(new Set());
+    setPassPercent(0);
+    if (pdf) goToPage(1);
+    else scrollRef.current?.scrollTo({top: 0});
   }
 
   function close() {
@@ -256,6 +277,7 @@ export function ResourceReader({
       const available =
         frameDocument.documentElement.scrollHeight - frameWindow.innerHeight;
       const ratio = available <= 0 ? 1 : frameWindow.scrollY / available;
+      setPassPercent(current => Math.max(current, Math.round(ratio * 100)));
       setProgressPercent((current) =>
         Math.max(current, Math.min(99, Math.round(ratio * 100))),
       );
@@ -297,17 +319,21 @@ export function ResourceReader({
             <button onClick={onOpenExternal} title="Open with the system application" type="button">
               <BookOpen size={16} />
             </button>
-            <button onClick={close} title="Close reader" type="button">
+            <button aria-label="Close reader" onClick={close} title="Close reader" type="button">
               <X size={17} />
             </button>
           </div>
           <div className="readerPinnedProgress">
-            <ProgressBar
-              accent={accent}
-              label="Reading progress"
-              showValue
-              value={progressPercent / 100}
+            <StudyPassProgress
+              label={`Reading pass ${passNumber}`}
+              done={pdf ? passPages.size : passPercent}
+              total={pdf ? pdf.pageCount : 100}
+              onRestart={restartPass} restartDisabled={quickDraft !== null}
+              detail={pdf
+                ? passPages.size === pdf.pageCount ? "Every slide revisited. Pass complete." : `${pdf.pageCount - passPages.size} slides left · each visited slide counts once`
+                : passPercent >= 100 ? "Reading pass complete." : "Fresh progress for this reading pass"}
             />
+            <div className="readerPassHistory">Saved reading progress: {progressPercent}%</div>
           </div>
         </header>
 
@@ -348,6 +374,7 @@ export function ResourceReader({
                 alt={`Slide ${pageNumber}: ${
                   pdf.pages[pageNumber - 1]?.title ?? resource.title
                 }`}
+                onLoad={() => setLoadedPage(pageNumber)}
                 src={pdfReaderPageUrl(resource.id, pageNumber)}
               />
               <button
@@ -455,12 +482,14 @@ export function ResourceReader({
             onClick={() => {
               reward.celebrate(900);
               setProgressPercent(100);
+              setPassPercent(100);
+              if (pdf) setPassPages(new Set(pdf.pages.map((_, index) => index + 1)));
               window.setTimeout(() => onClose(100), 520);
             }}
             type="button"
           >
             <CheckCircle2 size={15} />
-            <span>Finish resource</span>
+            <span>{resource.progress >= 1 ? "Finish pass" : "Finish resource"}</span>
           </button>
         </footer>
       </section>

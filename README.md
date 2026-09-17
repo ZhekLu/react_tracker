@@ -175,17 +175,22 @@ The safe workflow is:
 
    This validates again, creates a consistent backup under
    `data/backups/`, and runs the full sync in one database
-   transaction. A failed sync rolls back; the backup path is printed before
-   the sync starts.
+   transaction. A failed sync rolls back; a successful result includes the
+   backup path. Backups are retained if a later import check fails.
 6. Inspect the active stable IDs and statuses:
 
    ```sh
    make plan-inspect COURSE=TORL
    ```
 
-Use `plan-sync` primarily for the first load of a new course or when a separate
-backup is intentionally unnecessary. Use `plan-patch` only for a
-small partial edit that must not remove omitted structure.
+All real CLI syncs and patches now create a backup automatically. Use
+`make plan-preview PLAN=...` for a rollback-only check against the live database.
+Use `plan-sync` primarily for the first load of a new course. Use `plan-patch` for a
+partial edit that must not remove omitted structure. See
+[daily patches and task tutor reviews](docs/plan-patches-and-task-reviews.md)
+for Markdown task-note blocks, conflict handling, and the Copy → Insert review →
+Q&A workflow. All feature changes and known gaps are recorded in the
+[feature log](docs/feature-log.md).
 
 The current TORL plan is updated with:
 

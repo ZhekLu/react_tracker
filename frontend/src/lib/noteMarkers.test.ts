@@ -16,4 +16,11 @@ describe("note marker highlights", () => {
     const markdown = "```python\nprint('todo! ??')\n```";
     expect(highlightNoteMarkers(markdown)).toBe(markdown);
   });
+
+  it("preserves math, tables, headings and list structure", () => {
+    const source = "## Why??\n\n- Why $Q_\\theta$ changes??\n\n$$\n\\text{todo! ??}\n$$\n\n| What?? | Value |\n| --- | --- |\n| test | 2 |\n\n`todo! ??` and $\\text{??}$";
+    const marked = highlightNoteMarkers(source);
+    expect(marked).toBe(source.replace("- Why $Q_\\theta$ changes??", "- !!Why $Q_\\theta$ changes??!!"));
+    expect(highlightNoteMarkers(marked)).toBe(marked);
+  });
 });

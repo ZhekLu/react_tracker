@@ -25,6 +25,7 @@ from tracker_api.repositories.workspace_repository import (
     import_discussion_answers,
     link_discussion_question,
     reconcile_imported_question_frame,
+    upsert_imported_annotation,
     reconcile_toggl_entries,
     record_toggl_start,
     resource_content_target,
@@ -664,6 +665,53 @@ def test_overlapping_drawboard_frame_preserves_one_logical_question(
             == current.id
         )
     assert "supersededByAnnotationId" not in by_id[edge.id].anchor.metadata
+
+
+def test_reconciled_frame_is_unchanged_until_its_page_snapshot_changes(tmp_path: Path) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+
+    def frame(fingerprint: str, rect: list[float], page_url: str) -> AnnotationCreateCommand:
+        return AnnotationCreateCommand(
+            resource_id=resource_id,
+            kind="question",
+            origin="drawboard_cloud_ink",
+            source_fingerprint=fingerprint,
+            markdown="Screenshot question",
+            anchor=AnnotationAnchorCreate(
+                anchor_type="pdf_rect",
+                page_number=1,
+                rect=rect,
+                annotation_kind="Ink",
+                metadata={
+                    "inkMemberFingerprints": ["shared"],
+                    "syncRevision": "1",
+                    "contextImageUrl": "crop-image",
+                    "annotatedPageImageUrl": page_url,
+                },
+            ),
+        )
+
+    with transaction() as connection:
+        create_annotation(connection, frame("old", [10, 10, 100, 200], "page-1"))
+        current = frame("current", [10, 100, 100, 200], "page-1")
+        saved = create_annotation(connection, current)
+        reconcile_imported_question_frame(connection, resource_id, "current")
+        before = next(
+            a for a in get_workspace(connection, course_id).annotations if a.id == saved.id
+        )
+        assert before.anchor.rect == [10, 10, 100, 200]
+        assert before.anchor.metadata["contextImageUrl"] == "page-1"
+        assert upsert_imported_annotation(connection, current, source_revision="1") == "existing"
+
+        changed = frame("current", [10, 100, 100, 200], "page-2")
+        assert upsert_imported_annotation(connection, changed, source_revision="1") == "updated"
+        after = next(
+            a for a in get_workspace(connection, course_id).annotations if a.id == saved.id
+        )
+        assert after.anchor.rect == before.anchor.rect
+        assert after.anchor.metadata["contextImageUrl"] == "page-2"
+        assert after.revision == before.revision + 1
+        assert upsert_imported_annotation(connection, changed, source_revision="1") == "existing"
 
 
 def test_reader_content_and_progress_are_persisted(tmp_path: Path) -> None:
@@ -1553,10 +1601,8 @@ def test_deleting_answer_can_archive_its_question_atomically(
         after = get_workspace(connection, course_id)
 
     archived = next(item for item in after.annotations if item.id == question.id)
-    updated_message = after.discussions[0].messages[0]
     assert archived.status == "archived"
-    assert updated_message.annotation_links == []
-    assert not (updated_message.body.markdown or "").strip()
+    assert after.discussions[0].messages == []
 
 
 def test_deleting_complete_tutor_response_reopens_all_answered_questions(
@@ -2364,9 +2410,7 @@ def test_postponed_question_groups_leave_active_counts_without_losing_state(
     assert all(annotation.postponed is False for annotation in answered_group)
 
 
-def test_question_identity_prevents_source_refresh_from_hiding_history(
-    tmp_path: Path,
-) -> None:
+def test_source_question_can_be_deleted_without_deleting_identity(tmp_path: Path) -> None:
     course_id, resource_id = _seed_course(tmp_path)
     with transaction() as connection:
         question = create_annotation(
@@ -2374,30 +2418,27 @@ def test_question_identity_prevents_source_refresh_from_hiding_history(
             AnnotationCreateCommand(
                 resource_id=resource_id,
                 kind="question",
-                markdown="Keep me after the PDF mark disappears.",
+                markdown="Source question",
                 origin="drawboard_cloud_ink",
             ),
         )
-        with pytest.raises(
-            IntegrityError,
-            match="question visibility is immutable after identity assignment",
-        ):
+        connection.execute(
+            text("""
+            UPDATE annotations SET deleted_at = '2026-09-10T12:00:00Z'
+            WHERE id = :id
+        """),
+            {"id": question.id},
+        )
+        assert question.id not in {a.id for a in get_workspace(connection, course_id).annotations}
+        assert (
             connection.execute(
                 text("""
-                    UPDATE annotations
-                    SET deleted_at = '2026-08-29T12:00:00Z'
-                    WHERE id = :annotation_id
-                    """),
-                {"annotation_id": question.id},
-            )
-        workspace = get_workspace(connection, course_id)
-
-    restored = next(
-        annotation
-        for annotation in workspace.annotations
-        if annotation.id == question.id
-    )
-    assert restored.kind == "question"
+            SELECT COUNT(*) FROM annotation_question_identities WHERE annotation_id = :id
+        """),
+                {"id": question.id},
+            ).scalar_one()
+            == 1
+        )
 
 
 def test_skipped_question_leaves_active_counts_without_archiving_history(
@@ -2614,3 +2655,56 @@ Stop when: the paper is annotated. {#day01-stop}
         and annotation.anchor.metadata.get("contextParagraph") == paragraph
         for annotation in paper.annotations
     )
+
+
+def test_task_inherits_same_day_book_scope_and_retains_closed_todo_stats(tmp_path: Path) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    plan = tmp_path / "plan.md"
+    plan.write_text(plan.read_text().replace('kind = "paper"', 'kind = "book"').replace(
+        '- [ ] Read the paper and slides. {#read-paper resources="paper,slides"}',
+        '- [ ] Read Chapter 13. {#read-paper resources="paper"}\n'
+        '- [ ] Hand derivation. {#derive resources="paper"}'
+    ), encoding="utf-8")
+    sync_study_plan(plan)
+    with transaction() as connection:
+        workspace = get_workspace(connection, course_id)
+        day = workspace.days[0]
+        task = next(t for s in day.sections for t in s.tasks if "Hand derivation" in t.title)
+        assert task.chapter_numbers == [13]
+        assert task.resource_chapter_numbers == {resource_id: [13]}
+        upsert_note(connection, NoteUpsertCommand(
+            course_id=course_id, entity_type="task", entity_id=task.id, kind="task",
+            markdown=r"%%\!\!todo\!\! Revisit the lecture later.%%",
+        ))
+        connection.execute(text("UPDATE tasks SET status='done' WHERE id=:id"), {"id": task.id})
+        connection.execute(text("UPDATE study_days SET status='closed' WHERE id=:id"), {"id": day.id})
+    with transaction() as connection:
+        workspace = get_workspace(connection, course_id)
+        day = workspace.days[0]
+        task = next(t for s in day.sections for t in s.tasks if "Hand derivation" in t.title)
+        assert task.todo_counts.total == day.todo_counts.total == 1
+        assert task.todo_counts.open == 1
+        todo = next(a for a in workspace.annotations if a.kind == "todo")
+        update_annotation(connection, todo.id, AnnotationCommand(revision=todo.revision, status="answered"))
+    with transaction() as connection:
+        day = get_workspace(connection, course_id).days[0]
+        task = next(t for s in day.sections for t in s.tasks if "Hand derivation" in t.title)
+        assert day.status == "closed" and task.status == "done"
+        assert task.todo_counts.done == day.todo_counts.done == 1
+        assert task.todo_counts.total == day.todo_counts.total == 1
+        assert task.todo_counts.open == 0
+
+
+def test_day_note_todo_counts_without_a_resource_link(tmp_path: Path) -> None:
+    course_id, _ = _seed_course(tmp_path)
+    with transaction() as connection:
+        day = get_workspace(connection, course_id).days[0]
+        upsert_note(connection, NoteUpsertCommand(
+            course_id=course_id, entity_type="day", entity_id=day.id, kind="day",
+            markdown="todo! Review the exam questions.",
+        ))
+    with transaction() as connection:
+        workspace = get_workspace(connection, course_id)
+        assert workspace.days[0].todo_counts.open == 1
+        assert workspace.days[0].open_question_count == 1
+        assert all(t.todo_counts.total == 0 for s in workspace.days[0].sections for t in s.tasks)

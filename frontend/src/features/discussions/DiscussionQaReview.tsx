@@ -1,3 +1,5 @@
+import { StudyPassProgress } from "../../components/StudyPassProgress";
+import { sourcePageSnapshot } from "../../lib/annotationSnapshots";
 import {
   Archive,
   ArrowLeft,
@@ -62,6 +64,7 @@ import {
   inferredExerciseLabels,
   qaReviewItemVisible,
   qaReviewScopeProgress,
+  qaGroupNavigationTarget,
   qaReviewStatus,
   qaReviewThreads,
   qaSectionFingerprint,
@@ -109,7 +112,7 @@ type DiscussionQaReviewProps = {
     message: DiscussionMessage,
     markdown: string,
     reviewItems?: DiscussionReviewItem[],
-  ) => void;
+  ) => void | boolean | Promise<void | boolean>;
 };
 
 function unresolvedQuestionsAreSkipped(questions: Annotation[]): boolean {
@@ -325,10 +328,10 @@ function SourcePageImage({
             };
           })
       : [];
-  const annotatedUrl = annotationImageUrl(
-    resourceId,
-    `drawboard-page-${pageNumber}`,
-  );
+  const snapshot = sourcePageSnapshot(focusQuestions, pageNumber);
+  const annotatedUrl = snapshot
+    ? annotationImageUrl(resourceId, snapshot.split("/annotation-images/")[1] ?? "")
+    : annotationImageUrl(resourceId, `drawboard-page-${pageNumber}`);
   const cleanUrl = pdfReaderPageUrl(resourceId, pageNumber);
 
   return (
@@ -689,6 +692,9 @@ export function DiscussionQaReview({
   );
   const [activeIndex, setActiveIndex] = useState(0);
   const [editorGeneration, setEditorGeneration] = useState(0);
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [savedPulse, setSavedPulse] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [answerToDelete, setAnswerToDelete] = useState<{
@@ -825,17 +831,44 @@ export function DiscussionQaReview({
     : undefined;
   const reviewUnits = allItems;
   const scopeProgress = useMemo(
-    () => qaReviewScopeProgress(allItems, questionIds),
-    [allItems, questionIds],
+    () => qaReviewScopeProgress(allItems, questionIds, course.resources),
+    [allItems, questionIds, course.resources],
   );
   const visitedUnits = reviewUnits.filter((item) =>
     !["new", "updated"].includes(
       qaReviewStatus(item, qaReviewRecords, visitedItemIds.has(item.id)),
     ),
   ).length;
-  const completionRatio = reviewUnits.length
-    ? visitedUnits / reviewUnits.length
-    : 0;
+  const [passNumber, setPassNumber] = useState(1);
+  const [passVisited, setPassVisited] = useState<Set<string>>(() => new Set());
+  const [passTargets, setPassTargets] = useState(() => visibleItems.map(item => item.id));
+  const [understandingTargets, setUnderstandingTargets] = useState(() => new Set(scopeProgress.questions.filter(q => q.status === "open").map(q => q.id)));
+  const liveTargets = passTargets.filter(id => allItems.some(item => item.id === id));
+  const passReadCount = liveTargets.filter(id => passVisited.has(id)).length;
+  const currentUnderstandingTargets = scopeProgress.questions.filter(q => understandingTargets.has(q.id) && q.status !== "setAside");
+  const gainedUnderstanding = currentUnderstandingTargets.filter(q => q.status === "understood").length;
+  const setAside = scopeProgress.total - scopeProgress.open - scopeProgress.understood;
+
+  function changeFilter(filter: QaReviewFilter) {
+    setReviewFilter(filter);
+    setPassTargets(allItems.filter(item => qaReviewItemVisible(item, filter, qaReviewRecords)).map(item => item.id));
+  }
+  function restartPass() {
+    setPassNumber(number => number + 1);
+    setPassVisited(new Set());
+    if (!visibleItems.length) changeFilter("all");
+    setPassTargets((visibleItems.length ? visibleItems : allItems).map(item => item.id));
+    setUnderstandingTargets(new Set(scopeProgress.questions.filter(q => q.status === "open").map(q => q.id)));
+    setActiveIndex(0);
+  }
+  useEffect(() => {
+    if (!activeItem) return;
+    const timer = window.setTimeout(() => setPassVisited(current => {
+      if (current.has(activeItem.id)) return current;
+      return new Set([...current, activeItem.id]);
+    }), 700);
+    return () => window.clearTimeout(timer);
+  }, [activeItem, passNumber]);
 
   const statusForItem = useCallback(
     (item: QaReviewItem | undefined) =>
@@ -847,9 +880,6 @@ export function DiscussionQaReview({
     [qaReviewRecords, visitedItemIds],
   );
   const activeReviewStatus = statusForItem(activeItem);
-  const activeSectionLabel = activeRootQuestions
-    .map((question) => metadataText(question, "subchapterTitle") || question.anchor?.sectionTitle || "")
-    .find(Boolean) ?? "";
   const maximumSectionOpen = Math.max(
     1,
     ...scopeProgress.sections.map((section) => section.open),
@@ -956,11 +986,14 @@ export function DiscussionQaReview({
     });
   }
 
-  function saveSession(
+  async function saveSession(
     activeSectionId?: string,
     activeMarkdown?: string,
     activeReviewItems?: DiscussionReviewItem[],
   ) {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true); setSaveError("");
     const drafts = new Map(sectionDrafts);
     const reviewItems = new Map(reviewItemsBySection);
     if (activeSectionId && activeMarkdown !== undefined) {
@@ -970,12 +1003,12 @@ export function DiscussionQaReview({
       reviewItems.set(activeSectionId, activeReviewItems);
     }
     const nextSaved = new Map(savedMessageMarkdown);
+    try {
     for (const [messageId, messageSections] of sectionsByMessage) {
       const message = messageById.get(messageId);
       if (!message) continue;
       const rebuilt = reconstructQaMessage(messageSections, drafts);
       const messageReviewItems = messageSections.flatMap((section) => {
-        const offset = rebuilt.sectionBodyOffsets.get(section.id) ?? 0;
         const rootQuestionIds = section.questionIds.flatMap((questionId) => {
           const question = annotationById.get(questionId);
           const storedRoots = question?.anchor?.metadata?.rootQuestionIds;
@@ -985,14 +1018,8 @@ export function DiscussionQaReview({
         });
         return (reviewItems.get(section.id) ?? []).map((item) => ({
           ...item,
-          fromPosition:
-            item.fromPosition === undefined
-              ? undefined
-              : item.fromPosition + offset,
-          toPosition:
-            item.toPosition === undefined
-              ? undefined
-              : item.toPosition + offset,
+          fromPosition: undefined,
+          toPosition: undefined,
           sectionLabel: section.label,
           questionIds: [...new Set(rootQuestionIds)],
         }));
@@ -1001,16 +1028,27 @@ export function DiscussionQaReview({
         rebuilt.markdown !== (savedMessageMarkdown.get(messageId) ?? "") ||
         messageReviewItems.length
       ) {
-        onUpdateMessage(message, rebuilt.markdown, messageReviewItems);
+        const result = await onUpdateMessage(message, rebuilt.markdown, messageReviewItems);
+        if (result === false) throw new Error("Some changes could not be saved. Your remaining drafts are still here.");
         nextSaved.set(messageId, rebuilt.markdown);
+        setSavedMessageMarkdown(new Map(nextSaved));
+        for (const section of messageSections) reviewItems.delete(section.id);
+        setReviewItemsBySection(new Map(reviewItems));
       }
     }
     setSectionDrafts(drafts);
     setSavedMessageMarkdown(nextSaved);
     setReviewItemsBySection(new Map());
-    setEditorGeneration((current) => current + 1);
     setSavedPulse(true);
     window.setTimeout(() => setSavedPulse(false), 1_500);
+    return true;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Save failed. Your drafts are still here.");
+      return false;
+    } finally {
+      setEditorGeneration((current) => current + 1);
+      savingRef.current = false; setSaving(false);
+    }
   }
 
   function requestClose() {
@@ -1060,47 +1098,52 @@ export function DiscussionQaReview({
 
   const content = (
     <div className="qaReviewBackdrop">
-      <main className="qaReviewSession" role="dialog" aria-modal="true">
+      <main className="qaReviewSession" role="dialog" aria-modal="true" aria-labelledby="qa-review-title" aria-busy={saving} inert={saving}>
         <header className="qaReviewHeader">
           <div className="qaReviewTitle">
-            <span className="qaReviewBadge">
-              <Sparkles size={15} /> QA review
-            </span>
-            <div>
-              <p>{scopeLabel ?? discussion.title}</p>
-              <strong className={scopeProgress.open ? "" : "isClear"}>
-                {scopeProgress.open ? (
-                  <><b>{scopeProgress.open}</b> open question{scopeProgress.open === 1 ? "" : "s"} to understand</>
-                ) : (
-                  <>No open questions <b>✦</b></>
-                )}
-              </strong>
-              <small>
-                {scopeProgress.understood} understood · {scopeProgress.total} total {scopeKind === "task" ? "in task" : "in scope"}
-              </small>
+            <div className="qaReviewHeadingLine">
+              <span className="qaReviewBadge"><BookOpen size={14} /> Q&A</span>
+              <p id="qa-review-title" title={scopeLabel ?? discussion.title}>
+                {scopeLabel ?? discussion.title}
+              </p>
+            </div>
+            <div className="qaReviewScopeStats" aria-label="Questions in this scope">
+              <span className={scopeProgress.open ? "qaScopeOpen" : "qaScopeClear"}>
+                <b>{scopeProgress.open}</b> open
+              </span>
+              <span><CheckCircle2 size={13} /><b>{scopeProgress.understood}</b> understood</span>
+              <span>{scopeProgress.total} total {scopeKind === "task" ? "in task" : "in scope"}</span>
             </div>
           </div>
           <div className="qaReviewProgressBlock">
             {scopeProgress.sections.length > 0 ? (
               <div className="qaReviewSectionMap">
-                <span>Sections</span>
+                <span>Jump to · open</span>
                 <div>
                   {scopeProgress.sections.map((section) => {
-                    const sectionNumber = section.label.match(/^\s*(\d+(?:\.\d+)?)/)?.[1]
-                      ?? `§${scopeProgress.sections.indexOf(section) + 1}`;
+                    const current = Boolean(activeItem && section.itemIds.includes(activeItem.id));
                     const heatLevel = section.open === 0
                       ? 0
                       : Math.max(1, Math.ceil((section.open / maximumSectionOpen) * 4));
                     return (
-                      <span
-                        aria-label={`${section.label}: ${section.open} open of ${section.total}`}
-                        className={`qaReviewSectionCell heat${heatLevel}${section.label === activeSectionLabel ? " current" : ""}`}
-                        key={section.label}
-                        title={`${section.label} · ${section.open} open of ${section.total}`}
+                      <button
+                        type="button"
+                        data-track="qa.group"
+                        aria-current={current ? "true" : undefined}
+                        aria-label={`Go to ${section.title}: ${section.open} open of ${section.total}`}
+                        className={`qaReviewSectionCell heat${heatLevel}${current ? " current" : ""}`}
+                        key={section.id}
+                        title={`${section.title} · ${section.open} open of ${section.total}${!section.open ? " · opens all questions" : ""}`}
+                        onClick={() => {
+                          const target = qaGroupNavigationTarget(section, visibleItems, allItems);
+                          if (!target) return;
+                          if (target.showAll) changeFilter("all");
+                          setActiveIndex(target.index);
+                        }}
                       >
-                        <small>{sectionNumber}</small>
+                        <small>{section.label}</small>
                         <strong>{section.open}</strong>
-                      </span>
+                      </button>
                     );
                   })}
                 </div>
@@ -1116,32 +1159,32 @@ export function DiscussionQaReview({
                       ? "Open queue clear"
                       : "No review groups"}
               </span>
-              <strong>{visitedUnits}/{reviewUnits.length} reviewed</strong>
+              <span title="Saved reading history is kept across passes">{visitedUnits}/{reviewUnits.length} seen overall</span>
             </div>
-            <div
-              aria-label="Current response groups reviewed"
-              aria-valuemax={reviewUnits.length}
-              aria-valuemin={0}
-              aria-valuenow={visitedUnits}
-              className="qaReviewProgressTrack"
-              role="progressbar"
-            >
-              <span
-                style={
-                  {
-                    "--qa-progress": `${Math.max(3, completionRatio * 100)}%`,
-                  } as CSSProperties
-                }
+            <div className="qaPassProgress">
+              <StudyPassProgress
+                label={`Reading pass ${passNumber}`} done={passReadCount} total={liveTargets.length}
+                onRestart={restartPass}
+                detail={!liveTargets.length ? "Start a new pass to read the answers again" : passReadCount === liveTargets.length
+                  ? "Reading pass complete. Keep your notes, or start another pass."
+                  : `${Math.max(0, liveTargets.length - passReadCount)} groups left in this pass`}
+              />
+              <StudyPassProgress
+                label={understandingTargets.size ? "Understanding this pass" : "Understood overall"} tone="understood"
+                done={understandingTargets.size ? gainedUnderstanding : scopeProgress.understood}
+                total={understandingTargets.size ? currentUnderstandingTargets.length : scopeProgress.understood + scopeProgress.open}
+                detail={`${gainedUnderstanding ? `+${gainedUnderstanding} understood this pass · ` : ""}${scopeProgress.open ? `${scopeProgress.open} still open` : "Open queue complete"}${setAside ? ` · ${setAside} set aside` : ""}`}
               />
             </div>
           </div>
+          {saveError ? <p className="editorSaveError" role="alert">{saveError}</p> : null}
           <div className="qaReviewHeaderActions">
             <label className="qaReviewFilter">
               <span>Show</span>
               <select
-                aria-label="QA review filter"
+                aria-label="QA review filter" data-track="qa.filter"
                 onChange={(event) => {
-                  setReviewFilter(event.target.value as "all" | "open" | "new");
+                  changeFilter(event.target.value as QaReviewFilter);
                   setActiveIndex(0);
                 }}
                 value={reviewFilter}
@@ -1152,16 +1195,17 @@ export function DiscussionQaReview({
               </select>
             </label>
             <button
+              aria-label={savedPulse ? "Session saved" : "Save QA session"}
               className={`commandButton qaSaveAll ${savedPulse ? "saved" : ""}`}
-              disabled={!hasUnsavedChanges}
+              disabled={saving || !hasUnsavedChanges}
               onClick={() => saveSession()}
               type="button"
             >
               {savedPulse ? <CheckCircle2 size={15} /> : <Save size={15} />}
-              <span>{savedPulse ? "Saved" : `Save session${pendingReviewCount ? ` · ${pendingReviewCount}` : ""}`}</span>
+              <span>{saving ? "Saving…" : savedPulse ? "Saved" : `Save session${pendingReviewCount ? ` · ${pendingReviewCount}` : ""}`}</span>
             </button>
             <button
-              aria-label="Close QA review"
+              aria-label="Close QA review" data-track="qa.close"
               className="qaReviewClose"
               onClick={requestClose}
               title="Close QA review"
@@ -1174,12 +1218,19 @@ export function DiscussionQaReview({
 
         {activeItem ? (
           <div className="qaReviewWorkspace">
-            <SourcePreview
+            {activeRootQuestions.some(q => q.anchor?.metadata?.taskNoteId) ? (
+              <section className="qaSourcePanel taskReviewSource">
+                <header><span>Original task &amp; your work</span><small>Snapshot when the review was inserted</small></header>
+                <div className="qaSourcePages">{activeRootQuestions.filter(q => q.anchor?.metadata?.taskNoteId).map(q => (
+                  <MarkdownMath key={q.id}>{q.body?.markdown ?? q.body?.plainText ?? q.anchor?.quote ?? ""}</MarkdownMath>
+                ))}</div>
+              </section>
+            ) : <SourcePreview
               key={activeItem.id}
               labelsByAnnotationId={labelsByAnnotationId}
               questions={activeSourceQuestions.length ? activeSourceQuestions : activeItem.questions}
               resourceById={resourceById}
-            />
+            />}
             <section className="qaAnswerPanel">
               <header className="qaAnswerHeading">
                 <div className="qaAnswerIdentity">
@@ -1286,7 +1337,9 @@ export function DiscussionQaReview({
                           ? "qaAnsweredToggle answered"
                           : "qaAnsweredToggle"
                       }
+                      data-track="qa.understood"
                       onClick={() => {
+                        setPassVisited(current => new Set([...current, activeItem.id]));
                         const allAnswered = activeItem.questions.every(
                           (question) => question.status === "answered",
                         );
@@ -1325,11 +1378,11 @@ export function DiscussionQaReview({
                   ) : null}
                 </div>
               </header>
-              {activeItem.questions.length ? (
+              {activeItem.questions.length && !activeRootQuestions.some(q => q.anchor?.metadata?.taskNoteId) ? (
                 <section className="qaQuestionPrompt">
                   <span>
                     <CircleHelp size={13} />
-                    Original question
+                    {activeRootQuestions.some(question => question.origin === "discussion_review_source") ? "Review source" : "Original question"}
                     {activeRootQuestions.length > 1
                       ? ` · ${activeRootQuestions.length} linked captures`
                       : ""}
@@ -1388,6 +1441,7 @@ export function DiscussionQaReview({
                           sectionDrafts.get(answer.section.id) ??
                           answer.section.bodyMarkdown
                         }
+                        initialReviewItems={reviewItemsBySection.get(answer.section.id)}
                         onCancel={requestClose}
                         onChange={(markdown) =>
                           setSectionDraft(answer.section.id, markdown)
@@ -1495,6 +1549,7 @@ export function DiscussionQaReview({
                                   sectionDrafts.get(answer.section.id) ??
                                   answer.section.bodyMarkdown
                                 }
+                                initialReviewItems={reviewItemsBySection.get(answer.section.id)}
                                 onCancel={requestClose}
                                 onChange={(markdown) =>
                                   setSectionDraft(answer.section.id, markdown)
@@ -1537,18 +1592,24 @@ export function DiscussionQaReview({
             <div className="qaCompletionHalo">
               <Sparkles size={38} />
             </div>
-            <h2>Nothing matches this QA filter</h2>
+            <h2>{scopeProgress.open ? "Reading queue complete" : "Open queue complete"}</h2>
             <p>
-              Choose Open questions or All answers to revisit the rest of this
-              resource scope.
+              Your saved answers and notes are here whenever you want another pass.
             </p>
+            <button className="commandButton" onClick={() => {
+              changeFilter("all");
+              setPassVisited(new Set());
+              setPassNumber(number => number + 1);
+              setUnderstandingTargets(new Set(scopeProgress.questions.filter(q => q.status === "open").map(q => q.id)));
+              setActiveIndex(0);
+            }} type="button"><BookOpen size={16} /> Read all answers again</button>
           </section>
         )}
 
         <footer className="qaReviewNavigation">
           <button
             disabled={boundedActiveIndex <= 0}
-            onClick={() => navigateTo(boundedActiveIndex - 1)}
+            data-track="qa.previous" onClick={() => navigateTo(boundedActiveIndex - 1)}
             type="button"
           >
             <ArrowLeft size={18} /> Previous
@@ -1559,7 +1620,7 @@ export function DiscussionQaReview({
           <span>⌘⌥ ← / → to navigate</span>
           <button
             disabled={boundedActiveIndex >= visibleItems.length - 1}
-            onClick={() => navigateTo(boundedActiveIndex + 1)}
+            data-track="qa.next" onClick={() => navigateTo(boundedActiveIndex + 1)}
             type="button"
           >
             {visibleItems[boundedActiveIndex + 1] ? (

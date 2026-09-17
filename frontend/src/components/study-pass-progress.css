@@ -1,0 +1,23 @@
+.studyPassProgress { min-width: 0; --pass-accent: #7856c0; }
+.studyPassProgress.understood { --pass-accent: #388668; }
+.studyPassHeading { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; font-size: 12px; }
+.studyPassHeading > span { font-weight: 700; }
+.studyPassHeading > strong { margin-left: auto; color: var(--pass-accent); font-size: 16px; font-variant-numeric: tabular-nums; }
+.studyPassHeading small { color: var(--muted); font-size: 11px; font-weight: 500; }
+.studyPassHeading button { display: inline-flex; align-items: center; gap: 4px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--muted); font-size: 10px; cursor: pointer; }
+.studyPassHeading button:disabled { opacity: .45; cursor: default; }
+.studyPassTrack { position: relative; }
+.studyPassProgress .progressBar { height: 10px; --progress-accent: var(--pass-accent); }
+.studyPassProgress .progressBarFill { transition: width 450ms ease, box-shadow 450ms ease; box-shadow: 0 0 8px color-mix(in srgb, var(--pass-accent) 35%, transparent); }
+.studyPassMilestones { position: absolute; inset: 0; display: flex; justify-content: space-between; margin-left: 25%; pointer-events: none; }
+.studyPassMilestones i { height: 6px; width: 6px; border-radius: 50%; margin-top: 2px; background: white; opacity: .7; }
+.studyPassMilestones i.reached { background: #fff; opacity: 1; box-shadow: 0 0 0 2px var(--pass-accent); }
+.studyPassProgress > p { display: flex; align-items: center; gap: 5px; margin: 7px 0 0; color: var(--muted); font-size: 11px; min-height: 15px; }
+.studyPassProgress.complete > p { color: var(--pass-accent); font-weight: 700; }
+.qaPassProgress { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 8px 0 0; }
+.readerPassHistory { margin-top: 7px; color: var(--muted); font-size: 11px; }
+.todoProgressBadge { display: inline-flex; align-items: center; gap: 5px; color: #687632; }
+.todoProgressBadge b { font-variant-numeric: tabular-nums; }
+.todoProgressBadge small { font-size: inherit; color: var(--muted); }
+@media (max-width: 650px) { .qaPassProgress { gap: 12px; } .studyPassHeading { flex-wrap: wrap; } }
+@media (prefers-reduced-motion: reduce) { .studyPassProgress .progressBarFill { transition: none; } }

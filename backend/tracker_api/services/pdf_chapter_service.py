@@ -29,7 +29,7 @@ def chapter_ranges(source: Path, chapter_numbers: list[int]) -> list[PdfChapterR
     if not requested:
         return []
     try:
-        with pymupdf.open(source) as document:
+        with pymupdf.open(source) as document:  # type: ignore[no-untyped-call]
             chapters = _chapter_entries(_outline_entries(document))
             ranges: list[PdfChapterRange] = []
             for index, chapter in enumerate(chapters):
@@ -77,7 +77,7 @@ def _existing_signature(target: Path) -> str:
     if not target.is_file():
         return ""
     try:
-        with pymupdf.open(target) as document:
+        with pymupdf.open(target) as document:  # type: ignore[no-untyped-call]
             return str(document.metadata.get("keywords") or "")
     except (OSError, RuntimeError, ValueError):
         return ""
@@ -100,8 +100,8 @@ def prepare_chapter_pdf(
 
     temporary = target.with_suffix(f"{target.suffix}.tmp")
     try:
-        with pymupdf.open(source) as source_document:
-            output = pymupdf.open()
+        with pymupdf.open(source) as source_document:  # type: ignore[no-untyped-call]
+            output = pymupdf.open()  # type: ignore[no-untyped-call]
             output_toc: list[list[object]] = []
             output_page = 1
             outline = _outline_entries(source_document)
@@ -109,7 +109,7 @@ def prepare_chapter_pdf(
             chapter_by_number = {item.number: item for item in chapters}
 
             for page_range in ranges:
-                output.insert_pdf(
+                output.insert_pdf(  # type: ignore[no-untyped-call]
                     source_document,
                     from_page=page_range.first_page - 1,
                     to_page=page_range.last_page - 1,
@@ -150,8 +150,8 @@ def prepare_chapter_pdf(
             output.set_metadata(metadata)
             if output_toc:
                 output.set_toc(output_toc)
-            output.save(temporary, garbage=4, deflate=True)
-            output.close()
+            output.save(temporary, garbage=4, deflate=True)  # type: ignore[no-untyped-call]
+            output.close()  # type: ignore[no-untyped-call]
         temporary.replace(target)
         source_stat = source.stat()
         os.utime(target, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))

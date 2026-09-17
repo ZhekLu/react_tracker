@@ -8,6 +8,7 @@ import { trackedQuestionKey } from "./questionIdentity";
 
 function answerReferencesByAnnotation(
   course: Course,
+  sectionsByDiscussion: Map<string, ReturnType<typeof discussionQaSections>>,
 ): Map<string, AnnotationAnswerReference[]> {
   const references = new Map<string, AnnotationAnswerReference[]>();
   const annotationById = new Map(
@@ -18,7 +19,7 @@ function answerReferencesByAnnotation(
     const messageById = new Map(
       discussion.messages.map((message) => [message.id, message]),
     );
-    for (const section of discussionQaSections(discussion, course.annotations)) {
+    for (const section of (sectionsByDiscussion.get(discussion.id) ?? [])) {
       if (section.kind === "preamble") continue;
       const message = messageById.get(section.messageId);
       if (!message) continue;
@@ -67,14 +68,17 @@ function answerReferencesByAnnotation(
   return references;
 }
 
-function discussionResponseCountsByAnnotation(course: Course): Map<string, number> {
+function discussionResponseCountsByAnnotation(
+  course: Course,
+  sectionsByDiscussion: Map<string, ReturnType<typeof discussionQaSections>>,
+): Map<string, number> {
   const annotationById = new Map(
     course.annotations.map((annotation) => [annotation.id, annotation]),
   );
   const sectionIdsByQuestion = new Map<string, Set<string>>();
 
   for (const discussion of course.discussions) {
-    for (const section of discussionQaSections(discussion, course.annotations)) {
+    for (const section of (sectionsByDiscussion.get(discussion.id) ?? [])) {
       if (section.kind === "preamble") continue;
       for (const annotationId of section.questionIds) {
         const annotation = annotationById.get(annotationId);
@@ -101,8 +105,11 @@ function discussionResponseCountsByAnnotation(course: Course): Map<string, numbe
  * link are the only persisted answer content and relationship.
  */
 export function withQuestionAnswerReferences(course: Course): Course {
-  const references = answerReferencesByAnnotation(course);
-  const discussionResponseCounts = discussionResponseCountsByAnnotation(course);
+  const sections = new Map(course.discussions.map((discussion) => [
+    discussion.id, discussionQaSections(discussion, course.annotations),
+  ]));
+  const references = answerReferencesByAnnotation(course, sections);
+  const discussionResponseCounts = discussionResponseCountsByAnnotation(course, sections);
   const enrich = (annotation: Annotation): Annotation => ({
     ...annotation,
     answerReferences: references.get(trackedQuestionKey(annotation)) ?? [],

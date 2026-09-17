@@ -7,9 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Connection, text
+from sqlalchemy.exc import SQLAlchemyError
 
+from ..backup import backup_database
+from ..config import get_settings
 from ..database import transaction
-from ..migrations.runner import run_migrations
+from ..migrations.runner import discover_migrations, run_migrations
+from ..repositories.workspace_repository import upsert_note
+from ..schemas.workspace import NoteUpsertCommand
 from .plan_enrichment_service import (
     _insert_source_binding,
     _upsert_document,
@@ -41,6 +46,8 @@ class StudyPlanSyncResult:
     import_run_id: str
     counts: dict[str, int]
     diagnostics: tuple[PlanDiagnostic, ...] = field(default_factory=tuple)
+    dry_run: bool = False
+    backup_path: str | None = None
 
 
 def _json(value: object) -> str:
@@ -307,6 +314,7 @@ def _bind(
     key: str,
     entity_id: str,
     timestamp: str,
+    payload: dict[str, object] | None = None,
 ) -> None:
     _insert_source_binding(
         connection,
@@ -316,6 +324,127 @@ def _bind(
         entity_type=entity_type,
         entity_id=entity_id,
         timestamp=timestamp,
+    )
+    if payload is not None:
+        connection.execute(
+            text("""
+            UPDATE source_bindings SET source_payload_json = :payload
+            WHERE plan_source_id = :source_id AND source_key = :key AND entity_type = :type
+            """),
+            {
+                "payload": _json(payload),
+                "source_id": plan_source_id,
+                "key": f"{plan_id}:{key}",
+                "type": entity_type,
+            },
+        )
+
+
+def _source_payload(
+    connection: Connection, plan_source_id: str, plan_id: str, key: str, entity_type: str
+) -> dict[str, Any]:
+    row = _row(
+        connection,
+        """
+        SELECT source_payload_json FROM source_bindings
+        WHERE source_key = :key AND entity_type = :type AND source_payload_json IS NOT NULL
+        ORDER BY CASE WHEN plan_source_id = :source_id THEN 0 ELSE 1 END, updated_at DESC
+        LIMIT 1
+        """,
+        {"key": f"{plan_id}:{key}", "type": entity_type, "source_id": plan_source_id},
+    )
+    return json.loads(str(row["source_payload_json"])) if row else {}
+
+
+def _sync_task_note(
+    connection: Connection,
+    *,
+    plan: StudyPlanSpec,
+    task: TaskSpec,
+    task_id: str,
+    course_id: str,
+    plan_source_id: str,
+    import_run_id: str,
+    timestamp: str,
+    counts: dict[str, int],
+) -> None:
+    if task.note_markdown is None:
+        return
+    previous = _source_payload(connection, plan_source_id, plan.plan_id, task.key, "task_note")
+    bound_id = _bound_entity_id(
+        connection,
+        plan_source_id=plan_source_id,
+        plan_id=plan.plan_id,
+        key=task.key,
+        entity_type="task_note",
+    )
+    rows = list(
+        connection.execute(
+            text("""
+        SELECT n.id, n.revision, n.attention, n.deleted_at, d.markdown, d.revision document_revision
+        FROM notes n JOIN documents d ON d.id = n.document_id
+        JOIN note_links nl ON nl.note_id = n.id
+        WHERE n.course_id = :course_id AND n.kind = 'task'
+          AND nl.entity_type = 'task' AND nl.entity_id = :task_id AND nl.relation = 'primary'
+          AND (n.deleted_at IS NULL OR n.id = :bound_id)
+        """),
+            {"course_id": course_id, "task_id": task_id, "bound_id": bound_id},
+        ).mappings()
+    )
+    if len(rows) > 1:
+        raise StudyPlanSyncError(
+            f"Task {task.key!r} has multiple notes; resolve them before importing its note."
+        )
+    note = rows[0] if rows else None
+    if note and note["deleted_at"] is not None:
+        if previous.get("markdown") == task.note_markdown:
+            counts["task_notes_preserved"] += 1
+            return
+        raise StudyPlanSyncError(
+            f"Task note {task.key!r} was deleted in the tracker; "
+            "restore it before changing it from the plan."
+        )
+    current = str(note["markdown"] or "") if note else ""
+    if note and current != task.note_markdown:
+        if previous.get("markdown") == task.note_markdown:
+            counts["task_notes_preserved"] += 1
+            return
+        if current and current != previous.get("markdown"):
+            raise StudyPlanSyncError(
+                f"Task note {task.key!r} has edits in the tracker. "
+                "Merge them into the Markdown note before retrying; nothing was applied."
+            )
+    if note is None or current != task.note_markdown:
+        result = upsert_note(
+            connection,
+            NoteUpsertCommand(
+                course_id=course_id,
+                entity_type="task",
+                entity_id=task_id,
+                kind="task",
+                note_id=str(note["id"]) if note else None,
+                note_revision=int(note["revision"]) if note else None,
+                document_revision=int(note["document_revision"]) if note else None,
+                attention=note["attention"] if note else "none",
+                markdown=task.note_markdown,
+                plain_text=task.note_markdown,
+            ),
+        )
+        note_id = result.id
+        counts["task_notes_updated" if note else "task_notes_created"] += 1
+    else:
+        note_id = str(note["id"])
+        counts["task_notes_preserved"] += 1
+    _bind(
+        connection,
+        plan_source_id=plan_source_id,
+        import_run_id=import_run_id,
+        plan_id=plan.plan_id,
+        entity_type="task_note",
+        key=task.key,
+        entity_id=note_id,
+        timestamp=timestamp,
+        payload={"markdown": task.note_markdown},
     )
 
 
@@ -335,6 +464,13 @@ def _resource_id(
         key=resource.key,
     )
     if bound:
+        owner = connection.execute(
+            text("SELECT course_id FROM resources WHERE id = :id"), {"id": bound}
+        ).scalar_one_or_none()
+        if owner != course_id:
+            raise StudyPlanSyncError(
+                f"Resource binding {resource.key!r} does not belong to this course."
+            )
         return bound
     if resource.path:
         existing_path = connection.execute(
@@ -666,6 +802,7 @@ def _day_id(
     plan_source_id: str,
     plan_id: str,
     day: DaySpec,
+    plan_mode: str = "full",
 ) -> str:
     bound = _bound_entity_id(
         connection,
@@ -675,6 +812,11 @@ def _day_id(
         key=day.key,
     )
     if bound:
+        owner = connection.execute(
+            text("SELECT course_id FROM study_days WHERE id = :id"), {"id": bound}
+        ).scalar_one_or_none()
+        if owner != course_id:
+            raise StudyPlanSyncError(f"Day binding {day.key!r} does not belong to this course.")
         return bound
     existing_number = connection.execute(
         text(
@@ -687,6 +829,11 @@ def _day_id(
         ),
         {"course_id": course_id, "number": day.number},
     ).scalar_one_or_none()
+    if existing_number is not None and plan_mode == "patch":
+        raise StudyPlanSyncError(
+            f"Unknown day ID {day.key!r}: Day {day.number} already exists. "
+            "Use its existing stable day ID instead of creating an alias."
+        )
     return (
         str(existing_number)
         if existing_number is not None
@@ -744,7 +891,7 @@ def _upsert_day(
             """
             UPDATE study_days
             SET number = :number,
-                date = :date,
+                date = CASE WHEN :set_date THEN :date ELSE date END,
                 order_index = CASE WHEN :full THEN :order_index ELSE order_index END,
                 title = :title,
                 topic = :topic,
@@ -767,6 +914,7 @@ def _upsert_day(
             "toggl_token": day.key,
             "timestamp": timestamp,
             "full": plan_mode == "full",
+            "set_date": plan_mode == "full" or day.date is not None or "date" in day.fields_present,
         },
     )
     return False
@@ -787,6 +935,15 @@ def _task_id(
         entity_type="task",
         key=task.key,
     )
+    if bound:
+        owner = connection.execute(
+            text(
+                "SELECT d.course_id FROM tasks t JOIN study_days d ON d.id=t.day_id WHERE t.id=:id"
+            ),
+            {"id": bound},
+        ).scalar_one_or_none()
+        if owner != course_id:
+            raise StudyPlanSyncError(f"Task binding {task.key!r} does not belong to this course.")
     return bound or stable_id("task", course_id, task.key)
 
 
@@ -801,6 +958,7 @@ def _sync_task(
     order_index: int,
     plan_mode: str,
     timestamp: str,
+    apply_status: bool = False,
 ) -> bool:
     rationale_document_id = (
         _upsert_document(
@@ -868,24 +1026,27 @@ def _sync_task(
                   WHEN :full THEN :rationale_document_id
                   ELSE COALESCE(:rationale_document_id, rationale_document_id)
                 END,
-                task_type = COALESCE(:task_type, task_type),
-                is_optional = :is_optional,
-                order_index = CASE WHEN :full THEN :order_index ELSE order_index END,
+                task_type = CASE WHEN :set_type THEN :task_type ELSE task_type END,
+                is_optional = CASE WHEN :set_optional THEN :is_optional ELSE is_optional END,
+                order_index = :order_index,
                 estimated_minutes = COALESCE(:estimated_minutes, estimated_minutes),
                 status = CASE
                   WHEN :apply_status THEN :status
                   ELSE status
                 END,
                 completed_at = CASE
-                  WHEN :apply_status AND :status = 'done' THEN :timestamp
+                  WHEN :apply_status AND :status = 'done' THEN COALESCE(completed_at, :timestamp)
+                  WHEN :apply_status THEN NULL
                   ELSE completed_at
                 END,
                 deferred_at = CASE
                   WHEN :apply_status AND :status = 'later' THEN :timestamp
+                  WHEN :apply_status THEN NULL
                   ELSE deferred_at
                 END,
                 skipped_at = CASE
                   WHEN :apply_status AND :status = 'skipped' THEN :timestamp
+                  WHEN :apply_status THEN NULL
                   ELSE skipped_at
                 END,
                 updated_at = :timestamp,
@@ -905,7 +1066,11 @@ def _sync_task(
             "order_index": order_index,
             "estimated_minutes": task.estimated_minutes,
             "status": initial_status,
-            "apply_status": plan_mode == "patch" and task.status is not None,
+            "apply_status": apply_status,
+            "set_type": plan_mode == "full" or "type" in task.fields_present,
+            "set_optional": plan_mode == "full"
+            or "optional" in task.fields_present
+            or task.section.lower() in {"optional", "additional", "skip", "cancelled", "canceled"},
             "timestamp": timestamp,
             "full": plan_mode == "full",
         },
@@ -975,6 +1140,7 @@ def _sync_days_and_tasks(
             plan_source_id=plan_source_id,
             plan_id=plan.plan_id,
             day=day,
+            plan_mode=plan.mode,
         )
         seen_day_ids.add(day_id)
         created = _upsert_day(
@@ -1013,9 +1179,77 @@ def _sync_days_and_tasks(
                     default=0,
                 ),
             )
+        original_sections = (
+            {
+                str(row["id"]): dict(row)
+                for row in connection.execute(
+                    text("SELECT id, order_index FROM day_sections WHERE day_id=:day_id"),
+                    {"day_id": day_id},
+                ).mappings()
+            }
+            if plan.mode == "patch"
+            else {}
+        )
+        section_max = max(
+            (int(row["order_index"]) for row in original_sections.values()), default=0
+        )
+        task_max = int(
+            connection.execute(
+                text("SELECT COALESCE(MAX(order_index),0) FROM tasks WHERE day_id=:day_id"),
+                {"day_id": day_id},
+            ).scalar_one()
+        )
+        planned_tasks = [task for section in day.sections for task in section.tasks]
+        task_ids = {
+            task.key: _task_id(
+                connection,
+                course_id=course_id,
+                plan_source_id=plan_source_id,
+                plan_id=plan.plan_id,
+                task=task,
+            )
+            for task in planned_tasks
+        }
+        original_tasks = {
+            task.key: _row(
+                connection,
+                "SELECT day_id, section_id, order_index, status FROM tasks WHERE id=:id",
+                {"id": task_ids[task.key]},
+            )
+            for task in planned_tasks
+        }
+        if plan.mode == "patch":
+            # Free only the rows named by this patch, so swaps are atomic and
+            # unmentioned rows retain their order. Collisions with them fail.
+            for index, section in enumerate(day.sections, start=1):
+                section_id = stable_id("section", course_id, day_id, section.key)
+                if section_id in original_sections:
+                    connection.execute(
+                        text("UPDATE day_sections SET order_index=:order WHERE id=:id"),
+                        {"id": section_id, "order": section_max + 1000 + index},
+                    )
+            for index, task in enumerate(planned_tasks, start=1):
+                original = original_tasks[task.key]
+                if original:
+                    maximum = connection.execute(
+                        text("SELECT COALESCE(MAX(order_index),0) FROM tasks WHERE day_id=:id"),
+                        {"id": original["day_id"]},
+                    ).scalar_one()
+                    connection.execute(
+                        text("UPDATE tasks SET order_index=:order WHERE id=:id"),
+                        {"id": task_ids[task.key], "order": int(maximum) + 1000 + index},
+                    )
         day_skill_keys = set(day.skill_keys)
-        for section in day.sections:
+        for section_index, section in enumerate(day.sections, start=1):
             section_id = stable_id("section", course_id, day_id, section.key)
+            existing_section = original_sections.get(section_id)
+            section_order = section.order_index
+            if plan.mode == "patch" and "order" not in section.fields_present:
+                section_order = (
+                    int(existing_section["order_index"])
+                    if existing_section
+                    else section_max + section_index
+                )
             seen_section_ids.add(section_id)
             connection.execute(
                 text(
@@ -1030,11 +1264,9 @@ def _sync_days_and_tasks(
                     )
                     ON CONFLICT(id) DO UPDATE SET
                       title = excluded.title,
-                      order_index = CASE
-                        WHEN :full THEN excluded.order_index
-                        ELSE day_sections.order_index
-                      END,
-                      default_collapsed = excluded.default_collapsed,
+                      order_index = excluded.order_index,
+                      default_collapsed = CASE WHEN :set_collapsed
+                        THEN excluded.default_collapsed ELSE day_sections.default_collapsed END,
                       updated_at = excluded.updated_at,
                       deleted_at = NULL
                     """
@@ -1043,21 +1275,40 @@ def _sync_days_and_tasks(
                     "id": section_id,
                     "day_id": day_id,
                     "title": section.title,
-                    "order_index": section.order_index,
+                    "order_index": section_order,
                     "default_collapsed": section.default_collapsed,
                     "timestamp": timestamp,
-                    "full": plan.mode == "full",
+                    "set_collapsed": plan.mode == "full" or "collapsed" in section.fields_present,
                 },
             )
             counts["sections"] += 1
             for task in section.tasks:
-                task_id = _task_id(
-                    connection,
-                    course_id=course_id,
-                    plan_source_id=plan_source_id,
-                    plan_id=plan.plan_id,
-                    task=task,
+                task_id = task_ids[task.key]
+                original = original_tasks[task.key]
+                task_order = section_order * 1000 + task.order_index
+                if plan.mode == "patch" and "order" not in task.fields_present:
+                    task_order = (
+                        int(original["order_index"])
+                        if original and original["day_id"] == day_id
+                        else task_max + 1000 + planned_tasks.index(task) + 1
+                    )
+                previous = _source_payload(
+                    connection, plan_source_id, plan.plan_id, task.key, "task"
                 )
+                apply_status = (
+                    plan.mode == "patch"
+                    and task.status is not None
+                    and previous.get("status") != task.status
+                )
+                if (
+                    original
+                    and original["status"] == "done"
+                    and task.status != "done"
+                    and "status" not in task.fields_present
+                ):
+                    apply_status = False
+                if original and original["status"] == task.status:
+                    apply_status = False
                 seen_task_ids.add(task_id)
                 created_task = _sync_task(
                     connection,
@@ -1066,9 +1317,10 @@ def _sync_days_and_tasks(
                     section_id=section_id,
                     task_id=task_id,
                     task=task,
-                    order_index=section.order_index * 1000 + task.order_index,
+                    order_index=task_order,
                     plan_mode=plan.mode,
                     timestamp=timestamp,
+                    apply_status=apply_status,
                 )
                 counts["tasks_created" if created_task else "tasks_updated"] += 1
                 _bind(
@@ -1080,9 +1332,29 @@ def _sync_days_and_tasks(
                     key=task.key,
                     entity_id=task_id,
                     timestamp=timestamp,
+                    payload={"status": task.status},
+                )
+                _sync_task_note(
+                    connection,
+                    plan=plan,
+                    task=task,
+                    task_id=task_id,
+                    course_id=course_id,
+                    plan_source_id=plan_source_id,
+                    import_run_id=import_run_id,
+                    timestamp=timestamp,
+                    counts=counts,
                 )
                 day_skill_keys.update(task.skill_keys)
                 if plan.mode == "full" or task.resource_keys:
+                    effective_task = (
+                        connection.execute(
+                            text("SELECT is_optional,task_type FROM tasks WHERE id=:id"),
+                            {"id": task_id},
+                        )
+                        .mappings()
+                        .one()
+                    )
                     connection.execute(
                         text("DELETE FROM task_resources WHERE task_id = :task_id"),
                         {"task_id": task_id},
@@ -1108,19 +1380,22 @@ def _sync_days_and_tasks(
                                 "task_id": task_id,
                                 "resource_id": resource_ids[resource_key],
                                 "relation": (
-                                    "exercise" if task.task_type == "solve" else "reading"
+                                    "exercise"
+                                    if effective_task["task_type"] == "solve"
+                                    else "reading"
                                 ),
-                                "is_required": not task.is_optional,
+                                "is_required": not effective_task["is_optional"],
                                 "order_index": resource_order,
                                 "timestamp": timestamp,
                             },
                         )
                         counts["task_resource_links"] += 1
         if plan.mode == "full" or day_skill_keys:
-            connection.execute(
-                text("DELETE FROM day_skills WHERE day_id = :day_id"),
-                {"day_id": day_id},
-            )
+            if plan.mode == "full":
+                connection.execute(
+                    text("DELETE FROM day_skills WHERE day_id = :day_id"),
+                    {"day_id": day_id},
+                )
             for skill_key in sorted(day_skill_keys):
                 connection.execute(
                     text(
@@ -1131,6 +1406,7 @@ def _sync_days_and_tasks(
                         VALUES (
                           :day_id, :skill_id, 'introduced', 0, 1, :timestamp
                         )
+                        ON CONFLICT(day_id, skill_id) DO NOTHING
                         """
                     ),
                     {
@@ -1219,7 +1495,21 @@ def _soft_delete_missing_structure(
     )
 
 
-def sync_study_plan(path: Path, *, force_patch: bool = False) -> StudyPlanSyncResult:
+def sync_study_plan(
+    path: Path, *, force_patch: bool = False, dry_run: bool = False, backup: bool = False
+) -> StudyPlanSyncResult:
+    try:
+        return _sync_study_plan(path, force_patch=force_patch, dry_run=dry_run, backup=backup)
+    except SQLAlchemyError as error:
+        raise StudyPlanSyncError(
+            "Plan was not applied; the database transaction was rolled back. "
+            f"{getattr(error, 'orig', error)}"
+        ) from error
+
+
+def _sync_study_plan(
+    path: Path, *, force_patch: bool, dry_run: bool, backup: bool
+) -> StudyPlanSyncResult:
     parsed = parse_study_plan(path)
     if parsed.plan is None or parsed.errors:
         raise StudyPlanSyncError(
@@ -1231,7 +1521,13 @@ def sync_study_plan(path: Path, *, force_patch: bool = False) -> StudyPlanSyncRe
         raise StudyPlanSyncError(
             'The patch command requires mode = "patch" in the plan frontmatter.'
         )
-    run_migrations()
+    database_path = get_settings().database_path
+    if not database_path.exists() or database_path.stat().st_size == 0:
+        if plan.mode == "patch" or dry_run:
+            raise StudyPlanSyncError(
+                "Initialize the database and sync a full plan before patching or previewing it."
+            )
+        run_migrations()
     timestamp = utc_now()
     counts = {
         "days_created": 0,
@@ -1245,8 +1541,32 @@ def sync_study_plan(path: Path, *, force_patch: bool = False) -> StudyPlanSyncRe
         "skills_updated": 0,
         "task_resource_links": 0,
         "day_skill_links": 0,
+        "task_notes_created": 0,
+        "task_notes_updated": 0,
+        "task_notes_preserved": 0,
     }
+    backup_path: str | None = None
     with transaction() as active_connection:
+        # Lock before reading mutable state; another writer cannot race the
+        # preflight, note conflict checks, or revision snapshots.
+        active_connection.exec_driver_sql("BEGIN IMMEDIATE")
+        applied = {
+            int(row[0]): str(row[1])
+            for row in active_connection.execute(
+                text("SELECT version, checksum FROM schema_migrations")
+            )
+        }
+        expected = {migration.version: migration.checksum for migration in discover_migrations()}
+        if applied != expected:
+            raise StudyPlanSyncError(
+                "Database schema is not current. Run migrations separately before applying a plan."
+            )
+        if plan.mode == "patch" and _course_for_plan(active_connection, plan.plan_id) is None:
+            raise StudyPlanSyncError(
+                f"Patch targets unknown plan {plan.plan_id!r}; sync a full plan first."
+            )
+        if backup and not dry_run:
+            backup_path = str(backup_database())
         course_id = _upsert_course(active_connection, plan, timestamp=timestamp)
         import_run_id = _start_import_run(
             active_connection,
@@ -1350,6 +1670,13 @@ def sync_study_plan(path: Path, *, force_patch: bool = False) -> StudyPlanSyncRe
                 "timestamp": timestamp,
             },
         )
+        violations = active_connection.exec_driver_sql("PRAGMA foreign_key_check").fetchmany(5)
+        if violations:
+            raise StudyPlanSyncError(
+                f"Plan failed referential-integrity validation; nothing was applied: {violations}"
+            )
+        if dry_run:
+            active_connection.rollback()
     return StudyPlanSyncResult(
         course_id=course_id,
         plan_id=plan.plan_id,
@@ -1358,11 +1685,14 @@ def sync_study_plan(path: Path, *, force_patch: bool = False) -> StudyPlanSyncRe
         import_run_id=import_run_id,
         counts=counts,
         diagnostics=tuple(parsed.diagnostics),
+        dry_run=dry_run,
+        backup_path=backup_path,
     )
 
 
 def inspect_plan_structure(course_selector: str) -> str:
-    run_migrations()
+    if not get_settings().database_path.exists():
+        raise StudyPlanSyncError("There is no tracker database to inspect.")
     with transaction() as active_connection:
         course = _row(
             active_connection,
@@ -1459,7 +1789,9 @@ def inspect_plan_structure(course_selector: str) -> str:
                 for task in tasks:
                     task_id = str(task["id"])
                     task_key = keys_by_entity.get(("task", task_id), task_id)
-                    checkbox = "x" if task["status"] == "done" else " "
+                    checkbox = {"done": "x", "skipped": "-", "later": ">", "in_progress": "/"}.get(
+                        str(task["status"]), " "
+                    )
                     lines.append(f"- [{checkbox}] {task['title']} {{#{task_key}}}")
             lines.append("")
         return "\n".join(lines).rstrip() + "\n"

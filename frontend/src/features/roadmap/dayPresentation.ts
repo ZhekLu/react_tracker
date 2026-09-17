@@ -7,10 +7,34 @@ export function dayTasks(day: StudyDay): Task[] {
 }
 
 export function dayEstimatedMinutes(day: StudyDay): number {
-  return dayTasks(day).reduce(
+  return dayTasks(day).filter(task => task.status !== "skipped").reduce(
     (total, task) => total + (task.estimatedMinutes ?? 0),
     0,
   );
+}
+
+export function dayOptionalMinutes(day: StudyDay): number {
+  return dayTasks(day).filter(task => task.isOptional && task.status !== "skipped")
+    .reduce((total, task) => total + (task.estimatedMinutes ?? 0), 0);
+}
+
+/** Status is authoritative even when an old patch placed a task in Cancelled. */
+export function dayVisibleSections(day: StudyDay): StudyDay["sections"] {
+  const restored: Task[] = [];
+  const sections = day.sections.map(section => {
+    if (!/^(cancelled|canceled|skipped|skip)$/i.test(section.title.trim())) return section;
+    restored.push(...section.tasks.filter(task => task.status !== "skipped").map(task => ({
+      ...task, title: task.title.replace(/^CANCELLED\s*[—–:-]\s*/i, ""),
+    })));
+    return {...section, tasks: section.tasks.filter(task => task.status === "skipped")};
+  }).filter(section => section.tasks.length);
+  if (!restored.length) return sections;
+  const cancelledIndex = sections.findIndex(section => /^(cancelled|canceled|skipped|skip)$/i.test(section.title.trim()));
+  sections.splice(cancelledIndex < 0 ? sections.length : cancelledIndex, 0, {
+    id: `${day.id}:restored`, title: "Restored work", orderIndex: 0,
+    defaultCollapsed: false, tasks: restored,
+  });
+  return sections;
 }
 
 export function dayDisplayTopic(day: StudyDay): string {
@@ -24,7 +48,7 @@ export function isDayClosed(day: StudyDay): boolean {
 
 export function isDayFullyComplete(day: StudyDay): boolean {
   const requiredTasks = dayTasks(day).filter((task) => !task.isOptional);
-  return requiredTasks.length > 0 && requiredTasks.every((task) => task.status === "done");
+  return requiredTasks.length > 0 && requiredTasks.every((task) => task.status === "done" || task.status === "skipped");
 }
 
 export function localDateKey(date = new Date()): string {
@@ -56,7 +80,14 @@ export function dayTone(day: StudyDay): DayTone {
 
 export function dayToneLabel(day: StudyDay): string {
   const tone = dayTone(day);
-  if (tone === "question") return `${day.openQuestionCount} open question${day.openQuestionCount === 1 ? "" : "s"}`;
+  if (tone === "question") {
+    const todos = day.todoCounts?.open ?? 0;
+    const questions = Math.max(0, day.openQuestionCount - todos);
+    return [
+      questions ? `${questions} open question${questions === 1 ? "" : "s"}` : "",
+      todos ? `${todos} open to-do${todos === 1 ? "" : "s"}` : "",
+    ].filter(Boolean).join(" · ");
+  }
   if (tone === "later") return "Work saved for later";
   if (tone === "complete") return "Fully completed";
   return isDayClosed(day) ? "Closed for now" : "Open";

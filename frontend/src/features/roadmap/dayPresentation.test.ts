@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StudyDay, Task } from "../../types/tracker";
-import { catchUpDayCount } from "./dayPresentation";
+import { catchUpDayCount, dayEstimatedMinutes, dayOptionalMinutes, dayVisibleSections, dayToneLabel } from "./dayPresentation";
 
 function day(date: string, taskStatus: Task["status"]): StudyDay {
   return {
@@ -41,6 +41,14 @@ function day(date: string, taskStatus: Task["status"]): StudyDay {
 }
 
 describe("catch-up progress", () => {
+  it("names remaining todos accurately on a completed day", () => {
+    const completed = day("2026-09-17", "done");
+    completed.openQuestionCount = 1;
+    completed.todoCounts = {total: 2, open: 1, done: 1, later: 0, skipped: 0};
+    expect(dayToneLabel(completed)).toBe("1 open to-do");
+    completed.openQuestionCount = 3;
+    expect(dayToneLabel(completed)).toBe("2 open questions · 1 open to-do");
+  });
   it("counts unfinished scheduled days before today only", () => {
     expect(catchUpDayCount([
       day("2026-07-07", "done"),
@@ -48,5 +56,29 @@ describe("catch-up progress", () => {
       day("2026-07-10", "todo"),
       day("2026-07-11", "todo"),
     ], "2026-07-10")).toBe(1);
+  });
+
+  it("excludes skipped work from time and restores resumed tasks without changing their identity", () => {
+    const sample = day("2026-07-09", "done");
+    sample.sections[0].tasks[0].estimatedMinutes = 165;
+    const base = sample.sections[0].tasks[0];
+    sample.sections.push({id:"cancelled",title:"Cancelled",orderIndex:99,defaultCollapsed:true,tasks:[
+      {...base,id:"lecture",title:"CANCELLED — Lecture",isOptional:true,estimatedMinutes:200},
+      {...base,id:"assignment",title:"CANCELLED — Assignment",status:"skipped",isOptional:true,estimatedMinutes:295},
+    ]});
+    expect(dayEstimatedMinutes(sample)).toBe(365);
+    expect(dayOptionalMinutes(sample)).toBe(200);
+    const sections = dayVisibleSections(sample);
+    const restored = sections.find(section => section.title === "Restored work")!;
+    expect(restored.defaultCollapsed).toBe(false);
+    expect(restored.tasks.map(task => [task.id,task.title])).toEqual([["lecture","Lecture"]]);
+    expect(sections.find(section => section.title === "Cancelled")?.tasks.map(task => task.id)).toEqual(["assignment"]);
+    expect(sample.sections[1].tasks[0].title).toBe("CANCELLED — Lecture");
+    sample.sections[1].tasks[1].status = "todo";
+    expect(dayVisibleSections(sample).find(section => section.title === "Restored work")?.tasks).toHaveLength(2);
+  });
+
+  it("does not keep a finished day overdue only because a core task was skipped", () => {
+    expect(catchUpDayCount([day("2026-07-09", "skipped")], "2026-07-10")).toBe(0);
   });
 });

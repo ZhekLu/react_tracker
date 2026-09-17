@@ -1,3 +1,6 @@
 # This is a byte-for-byte external paste corpus. It intentionally contains
 # trailing spaces and delimiter rows that resemble merge-conflict markers.
 frontend/src/lib/day5TutorResponse.raw.fixture.md -diff
+
+# Raw paste fixtures preserve the original whitespace that the parser must handle.
+frontend/src/lib/*.raw.fixture.md whitespace=-blank-at-eol

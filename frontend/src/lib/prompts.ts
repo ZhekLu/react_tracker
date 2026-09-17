@@ -163,8 +163,8 @@ function dayScopedAnnotations(course: Course, day: StudyDay): Annotation[] {
       };
       if (resource?.kind !== "book") {
         current.unrestricted = true;
-      } else if (task.chapterNumbers.length > 0) {
-        task.chapterNumbers.forEach((chapter) => current.chapters.add(chapter));
+      } else {
+        (task.resourceChapterNumbers?.[resourceId] ?? task.chapterNumbers).forEach((chapter) => current.chapters.add(chapter));
       }
       resourceScopes.set(resourceId, current);
     }
@@ -197,17 +197,26 @@ export function taskScopedAnnotations(
   task: Task,
 ): Annotation[] {
   const resourceIds = new Set(task.resourceIds);
-  const chapterScope = new Set(task.chapterNumbers);
+
+  const taskRootIds = new Set(course.annotations.filter(a => a.anchor?.metadata?.taskId === task.id).map(a => a.id));
   const resourceById = new Map(
     course.resources.map((resource) => [resource.id, resource]),
   );
   return course.annotations.filter((annotation) => {
+    const metadata = annotationMetadata(annotation);
+    const sourceNoteId = metadata.sourceNoteId;
+    if (Array.isArray(metadata.rootQuestionIds) && metadata.rootQuestionIds.some(id => taskRootIds.has(String(id)))) return true;
+    if (metadata.taskId === task.id || metadata.sourceTaskId === task.id ||
+      (typeof sourceNoteId === "string" && task.notes.some(note => note.id === sourceNoteId))) return true;
+    if (metadata.taskId || metadata.sourceTaskId) return false;
+    if (typeof sourceNoteId === "string" && course.days?.some(d => d.sections.some(s => s.tasks.some(t =>
+      t.notes.some(note => note.id === sourceNoteId))))) return false;
     if (!resourceIds.has(annotation.resourceId)) return false;
     const resource = resourceById.get(annotation.resourceId);
     if (resource?.kind !== "book") return true;
     if (annotationMetadata(annotation).createdDayId === day.id) return true;
     const chapter = annotationChapterNumber(annotation);
-    return chapter !== null && chapterScope.has(chapter);
+    return chapter !== null && (task.resourceChapterNumbers?.[annotation.resourceId] ?? task.chapterNumbers).includes(chapter);
   });
 }
 
@@ -304,12 +313,15 @@ function promptQuestionGroups(
   options: {
     annotationIds?: readonly string[];
     unansweredOnly?: boolean;
+    includeAnswered?: boolean;
   } = {},
 ): TrackedQuestionGroup[] {
   const requestedIds = options.annotationIds
     ? new Set(options.annotationIds)
     : null;
-  return trackedQuestionGroups(activeQuestions([...annotations])).filter(
+  return trackedQuestionGroups(options.includeAnswered
+    ? annotations.filter(a => isTrackedQuestion(a) && a.status !== "archived" && a.origin !== "discussion_review_source")
+    : activeQuestions([...annotations])).filter(
     (group) =>
       (!requestedIds ||
         group.annotations.some((annotation) => requestedIds.has(annotation.id))) &&
@@ -330,6 +342,7 @@ export function taskQuestions(
     questionLabelStart?: number;
     questionLabels?: Readonly<Record<string, string>>;
     unansweredOnly?: boolean;
+    includeAnswered?: boolean;
   } = {},
 ): PromptPayload {
   const resourceById = new Map(
@@ -370,6 +383,19 @@ export function taskQuestions(
     sourceTaskId: task.id,
     title: `${course.shortCode} Day ${day.number} · ${task.title}`,
   };
+}
+
+export function taskTutorPrompt(course: Course, day: StudyDay, task: Task,
+  options: Parameters<typeof taskQuestions>[3] = {}): PromptPayload {
+  const payload = taskQuestions(course, day, task, {...options, includeAnswered: true});
+  return {...payload, sourceScope: "task_review", markdown: [
+    `# Review my task · Day ${day.number}`,
+    "Please review my explanation and attempt. Preserve correct reasoning, point out gaps, and explain corrections. Put the task feedback under `## Task review`. Answer attached questions separately under their exact Q-… headings; do not rename IDs.",
+    `## Task\n\n${task.title}`,
+    task.rationale ? `### Task info\n\n${task.rationale.markdown ?? task.rationale.plainText}` : "",
+    `### Task note / my work\n\n${noteText(task.notes.filter(note => note.kind === "task")) || "No task note yet."}`,
+    "## Attached questions", payload.markdown,
+  ].filter(Boolean).join("\n\n")};
 }
 
 export function dayPrompt(

@@ -1,3 +1,5 @@
+import { measuredFetch } from "../lib/usageLog";
+import { recordSavedInsert } from "../lib/insertDebug";
 import type {
   Annotation,
   AnnotationAnchor,
@@ -27,6 +29,7 @@ import type {
   StudyDay,
   Task,
   TaskStatus,
+  TodoCounts,
 } from "../types/tracker";
 
 const API_BASE = import.meta.env.VITE_TRACKER_API_BASE ?? "http://127.0.0.1:8787/api";
@@ -120,6 +123,7 @@ type ApiAnnotation = {
 };
 
 type ApiTask = {
+  todo_counts?: TodoCounts;
   id: string;
   day_id: string;
   section_id?: string | null;
@@ -135,6 +139,7 @@ type ApiTask = {
   exam_question_ids: string[];
   skill_ids: string[];
   chapter_numbers: number[];
+  resource_chapter_numbers?: Record<string, number[]>;
   rationale?: ApiDocumentContent | null;
   notes: ApiNote[];
   open_question_count: number;
@@ -158,6 +163,7 @@ type ApiDayProgress = {
 };
 
 type ApiStudyDay = {
+  todo_counts?: TodoCounts;
   id: string;
   number: number;
   date?: string | null;
@@ -618,13 +624,14 @@ class ApiError extends Error {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await measuredFetch(`${API_BASE}${path}`, {
     headers: {
       "Content-Type": "application/json",
       ...init?.headers,
     },
     ...init,
   });
+  recordSavedInsert(path, init, response.ok ? "saved" : `save failed (${response.status})`);
   if (!response.ok) {
     let detail = response.statusText;
     try {
@@ -639,7 +646,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestFormJson<T>(path: string, form: FormData): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await measuredFetch(`${API_BASE}${path}`, {
     body: form,
     method: "POST",
   });
@@ -760,6 +767,7 @@ function annotation(api: ApiAnnotation): Annotation {
 
 function task(api: ApiTask): Task {
   return {
+    todoCounts: api.todo_counts,
     id: api.id,
     dayId: api.day_id,
     sectionId: api.section_id,
@@ -775,6 +783,7 @@ function task(api: ApiTask): Task {
     examQuestionIds: api.exam_question_ids,
     skillIds: api.skill_ids,
     chapterNumbers: api.chapter_numbers,
+    resourceChapterNumbers: api.resource_chapter_numbers,
     rationale: api.rationale ? documentContent(api.rationale) : null,
     notes: api.notes.map(note),
     openQuestionCount: api.open_question_count,
@@ -794,6 +803,7 @@ function dayProgress(api: ApiDayProgress): DayProgress {
 
 function studyDay(api: ApiStudyDay): StudyDay {
   return {
+    todoCounts: api.todo_counts,
     id: api.id,
     number: api.number,
     date: api.date,
@@ -1658,6 +1668,23 @@ export async function importDiscussionAnswers(
       method: "POST",
     },
   );
+}
+
+export async function markDiscussionReviewSource(messageId: string): Promise<MutationResponse> {
+  return requestJson<MutationResponse>(`/discussion-messages/${messageId}/review-source`, {method: "POST"});
+}
+
+export async function importTaskTutorReview(taskId: string, input: {
+  importId: string; discussionId?: string; note?: Note; reviewMarkdown: string;
+  answers: DiscussionAnswerImportInput["answers"];
+}): Promise<{discussion_id: string; note_id: string; message_id: string; question_id: string}> {
+  return requestJson(`/tasks/${taskId}/tutor-review`, {method: "POST", body: JSON.stringify({
+    import_id: input.importId, discussion_id: input.discussionId,
+    note_id: input.note?.id, note_revision: input.note?.revision,
+    document_revision: input.note?.document.revision, review_markdown: input.reviewMarkdown,
+    answers: input.answers.map(answer => ({markdown: answer.markdown, plain_text: answer.plainText,
+      annotation_links: answer.annotationLinks?.map(link => ({annotation_id: link.annotationId, relation: link.relation}))})),
+  })});
 }
 
 export async function updateDiscussionMessage(

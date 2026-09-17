@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import re
+import tempfile
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, TypeGuard
 
@@ -340,7 +342,7 @@ def _render_capture(
         return
     color = tuple(capture.rgb[:3])
     for capture_rect in _capture_rects(capture, page_height):
-        if clip is not None and not capture_rect.intersects(clip):
+        if clip is not None and not capture_rect.intersects(clip):  # type: ignore[no-untyped-call]
             continue
         if capture.annotation_kind == "TextUnderline":
             page.draw_line(
@@ -419,6 +421,19 @@ def _blend_opacities(
         f"/{normalized}",
     )
     return effective_fill, effective_stroke
+
+
+def _save_snapshot(pixmap: Any, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=output_path.parent, suffix=".png", delete=False
+    ) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        pixmap.save(temporary_path)
+        temporary_path.replace(output_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def _render_ink(
@@ -514,7 +529,7 @@ def _render_ink(
             if pixmap.width < 1 or pixmap.height < 1:
                 raise PdfInkImageError(f"Ink crop rendered an empty image: {ink.fingerprint}")
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            pixmap.save(output_path)  # type: ignore[no-untyped-call]
+            _save_snapshot(pixmap, output_path)
         except PdfInkImageError:
             raise
         except Exception as error:
@@ -592,9 +607,26 @@ def _render_annotated_page(
             colorspace=pymupdf.csRGB,
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        pixmap.save(output_path)  # type: ignore[no-untyped-call]
+        _save_snapshot(pixmap, output_path)
     finally:
         overlay_document.close()  # type: ignore[no-untyped-call]
+
+
+def _snapshot_id(source_path: Path, image_id: str, payload: object) -> str:
+    stat = source_path.stat()
+    revision = hashlib.sha256(
+        json.dumps(
+            [
+                INK_RENDERER_VERSION,
+                str(source_path.resolve()),
+                stat.st_mtime_ns,
+                stat.st_size,
+                payload,
+            ],
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()[:24]
+    return f"{image_id}-snapshot-{revision}"
 
 
 def render_annotated_page_images(
@@ -607,50 +639,50 @@ def render_annotated_page_images(
     scale: float = 3.0,
     stroke_width: float = 0.65,
 ) -> dict[int, str]:
-    """Cache complete PDF pages with the exact Drawboard annotation overlay."""
-
-    try:
-        source_document: Any = pymupdf.open(  # type: ignore[no-untyped-call]
-            source_path
-        )
-    except Exception as error:
-        raise PdfInkImageError(f"Could not open PDF for annotated pages: {source_path}") from error
+    """Reuse immutable snapshots; never overwrite a saved question's image."""
     capture_list = list(captures)
     ink_list = list(page_inks)
     urls: dict[int, str] = {}
+    source_document: Any = None
     try:
         for page_number in sorted(set(pages)):
-            page_captures = [item for item in capture_list if item.page == page_number]
-            page_ink_items = [item for item in ink_list if item.page == page_number]
+            page_captures = sorted(
+                (item for item in capture_list if item.page == page_number),
+                key=lambda item: item.fingerprint,
+            )
+            page_ink_items = sorted(
+                (item for item in ink_list if item.page == page_number),
+                key=lambda item: item.fingerprint,
+            )
             if not page_captures and not page_ink_items:
                 continue
-            image_id = f"drawboard-page-{page_number}"
+            image_id = _snapshot_id(
+                source_path,
+                f"drawboard-page-{page_number}",
+                [
+                    scale,
+                    stroke_width,
+                    [asdict(item) for item in page_captures],
+                    [asdict(item) for item in page_ink_items],
+                ],
+            )
             output_path = annotation_image_path(resource_id, image_id)
-            _render_annotated_page(
-                source_document,
-                page_number,
-                output_path,
-                captures=page_captures,
-                page_inks=page_ink_items,
-                scale=scale,
-                stroke_width=stroke_width,
-            )
-            revision = hashlib.sha1(
-                ":".join(
-                    [
-                        *sorted(item.source_revision for item in page_captures),
-                        *sorted(item.source_revision for item in page_ink_items),
-                    ]
-                ).encode(),
-                usedforsecurity=False,
-            ).hexdigest()
-            urls[page_number] = annotation_image_url(
-                resource_id,
-                image_id,
-                source_revision=revision,
-            )
+            if not output_path.is_file():
+                if source_document is None:
+                    source_document = pymupdf.open(source_path)  # type: ignore[no-untyped-call]
+                _render_annotated_page(
+                    source_document,
+                    page_number,
+                    output_path,
+                    captures=page_captures,
+                    page_inks=page_ink_items,
+                    scale=scale,
+                    stroke_width=stroke_width,
+                )
+            urls[page_number] = annotation_image_url(resource_id, image_id)
     finally:
-        source_document.close()
+        if source_document is not None:
+            source_document.close()
     return urls
 
 
@@ -665,32 +697,53 @@ def render_ink_context_images(
     scale: float = 5.0,
     stroke_width: float = 0.65,
 ) -> dict[str, str]:
-    try:
-        source_document: Any = pymupdf.open(  # type: ignore[no-untyped-call]
-            source_path
-        )
-    except Exception as error:
-        raise PdfInkImageError(
-            f"Could not open PDF for handwriting images: {source_path}"
-        ) from error
     urls: dict[str, str] = {}
     capture_list = list(captures)
     page_ink_list = list(page_inks)
+    source_document: Any = None
     try:
         for ink in inks:
-            image_id = ink.fingerprint
+            # Both coordinate systems reverse Y, so overlap can be tested in
+            # Drawboard coordinates without opening or rasterizing the PDF.
+            def in_crop(item: DrawboardCapture | DrawboardInk, ink: DrawboardInk = ink) -> bool:
+                return item.page == ink.page and (
+                    len(item.rect) != 4
+                    or len(ink.rect) != 4
+                    or (
+                        item.rect[1] <= ink.rect[3] + margin
+                        and item.rect[3] >= ink.rect[1] - margin
+                    )
+                )
+
+            visible_captures = sorted(filter(in_crop, capture_list), key=lambda i: i.fingerprint)
+            visible_inks = sorted(filter(in_crop, page_ink_list), key=lambda i: i.fingerprint)
+            image_id = _snapshot_id(
+                source_path,
+                ink.fingerprint,
+                [
+                    margin,
+                    scale,
+                    stroke_width,
+                    asdict(ink),
+                    [asdict(item) for item in visible_captures],
+                    [asdict(item) for item in visible_inks],
+                ],
+            )
             output_path = annotation_image_path(resource_id, image_id)
             try:
-                _render_ink(
-                    source_document,
-                    ink,
-                    output_path,
-                    captures=capture_list,
-                    page_inks=page_ink_list,
-                    margin=margin,
-                    scale=scale,
-                    stroke_width=stroke_width,
-                )
+                if not output_path.is_file():
+                    if source_document is None:
+                        source_document = pymupdf.open(source_path)  # type: ignore[no-untyped-call]
+                    _render_ink(
+                        source_document,
+                        ink,
+                        output_path,
+                        captures=visible_captures,
+                        page_inks=visible_inks,
+                        margin=margin,
+                        scale=scale,
+                        stroke_width=stroke_width,
+                    )
             except PdfInkImageError as error:
                 logger.warning(
                     "Skipping invalid handwriting crop resource_id=%s "
@@ -701,28 +754,8 @@ def render_ink_context_images(
                     error,
                 )
                 continue
-            urls[ink.fingerprint] = annotation_image_url(
-                resource_id,
-                image_id,
-                source_revision=hashlib.sha1(
-                    ":".join(
-                        [
-                            ink.source_revision,
-                            *sorted(
-                                item.source_revision
-                                for item in capture_list
-                                if item.page == ink.page
-                            ),
-                            *sorted(
-                                item.source_revision
-                                for item in page_ink_list
-                                if item.page == ink.page
-                            ),
-                        ]
-                    ).encode(),
-                    usedforsecurity=False,
-                ).hexdigest(),
-            )
+            urls[ink.fingerprint] = annotation_image_url(resource_id, image_id)
     finally:
-        source_document.close()
+        if source_document is not None:
+            source_document.close()
     return urls

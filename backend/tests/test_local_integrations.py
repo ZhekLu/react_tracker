@@ -186,3 +186,72 @@ def test_toggl_integration_recognizes_torl_without_extra_prefix_config(
     stopped = toggl_service.stop()
     assert stopped["running"] is False
     assert stopped["current"] is None
+
+
+def test_local_source_identity_survives_recolor_and_deletion(tmp_path: Path) -> None:
+    resource_id = _seed_pdf_resource(tmp_path)
+    path = tmp_path / "annotated.pdf"
+    with transaction() as connection:
+        collect_resource_pdf_annotations(connection, resource_id)
+        saved = (
+            connection.execute(text("SELECT id, source_fingerprint FROM annotations"))
+            .mappings()
+            .one()
+        )
+        connection.execute(
+            text("UPDATE annotations SET status='answered' WHERE id=:id"), {"id": saved["id"]}
+        )
+    doc = pymupdf.open(path)
+    page = doc[0]
+    annotation = page.first_annot
+    annotation.set_colors(stroke=(0, 0, 1))
+    annotation.update()
+    doc.saveIncr()
+    doc.close()
+    with transaction() as connection:
+        recolored = collect_resource_pdf_annotations(connection, resource_id)
+        row = (
+            connection.execute(text("SELECT id, kind, status, source_fingerprint FROM annotations"))
+            .mappings()
+            .one()
+        )
+        assert recolored.created_count == 0 and recolored.updated_count == 1
+        assert row["id"] == saved["id"] and row["source_fingerprint"] == saved["source_fingerprint"]
+        assert row["kind"] == "question" and row["status"] == "answered"
+    doc = pymupdf.open(path)
+    page = doc[0]
+    page.delete_annot(page.first_annot)
+    doc.saveIncr()
+    doc.close()
+    with transaction() as connection:
+        removed = collect_resource_pdf_annotations(connection, resource_id)
+        assert removed.removed_count == 1
+        assert connection.execute(text("SELECT deleted_at FROM annotations")).scalar_one()
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM annotation_question_identities")
+            ).scalar_one()
+            == 1
+        )
+
+
+def test_local_legacy_fingerprint_upgrade_preserves_question_id(tmp_path: Path) -> None:
+    from tracker_api.services.pdf_annotation_service import extract_pdf_annotations
+
+    resource_id = _seed_pdf_resource(tmp_path)
+    capture = extract_pdf_annotations(tmp_path / "annotated.pdf").captures[0]
+    with transaction() as connection:
+        collect_resource_pdf_annotations(connection, resource_id)
+        saved_id = connection.execute(text("SELECT id FROM annotations")).scalar_one()
+        connection.execute(
+            text("UPDATE annotations SET source_fingerprint=:legacy"),
+            {"legacy": capture.legacy_fingerprint},
+        )
+        collect_resource_pdf_annotations(connection, resource_id)
+        row = (
+            connection.execute(text("SELECT id, source_fingerprint FROM annotations"))
+            .mappings()
+            .one()
+        )
+        assert row["id"] == saved_id
+        assert row["source_fingerprint"] == capture.fingerprint

@@ -5,6 +5,7 @@ import type {
 } from "../types/tracker";
 import {
   discussionAnswerSections,
+  discussionSectionSearchText,
   matchAnswerSectionsToQuestions,
   normalizeDiscussionMarkdown,
 } from "./discussionText";
@@ -39,7 +40,7 @@ type TutorAnswerEnvelope = {
 };
 
 function exerciseAnswerEnvelopes(markdown: string): TutorAnswerEnvelope[] {
-  const headings = [...markdown.matchAll(/^(#{1,6})[ \t]+(.+)$/gm)]
+  const headings = [...discussionSectionSearchText(markdown).matchAll(/^(#{1,6})[ \t]+(.+)$/gm)]
     .map((match) => ({
       index: match.index ?? 0,
       level: match[1].length,
@@ -150,16 +151,9 @@ export function responseQuestionIds(
     discussion,
     annotations,
   );
-  const ids = labels.length
-    ? labels.flatMap((label) => questionIdsByLabel.get(label) ?? [])
-    : discussion.questionIds.filter((id) => {
-        const annotation = annotations.find((item) => item.id === id);
-        return (
-          annotation?.status === "open" &&
-          !annotation.postponed &&
-          !annotation.skipped
-        );
-      });
+  // Only explicit labels establish an automatic relationship. A free-form
+  // note is not an answer to every currently open question in this discussion.
+  const ids = labels.flatMap((label) => questionIdsByLabel.get(label) ?? []);
   return [...new Set(ids)];
 }
 
@@ -185,14 +179,15 @@ function linkedQuestionCandidates(
   annotationById: Map<string, Annotation>,
 ): Annotation[] {
   const linkedQuestionIds = new Set(
-    message.annotationLinks.map((link) => link.annotationId),
+    message.annotationLinks.filter(link => link.relation !== "followup_to").map((link) => link.annotationId),
   );
   const orderedQuestionIds = [
     ...discussion.questionIds.filter((id) => linkedQuestionIds.has(id)),
     ...(
       discussion.initialPromptBatchId
-        ? []
-        : message.annotationLinks
+        ? message.annotationLinks.filter(link => link.relation !== "followup_to").map(link => link.annotationId).filter(id =>
+            annotationById.get(id)?.origin === "discussion_review_source" && !discussion.questionIds.includes(id))
+        : message.annotationLinks.filter(link => link.relation !== "followup_to")
             .map((link) => link.annotationId)
             .filter((id) => !discussion.questionIds.includes(id))
     ),
@@ -240,7 +235,8 @@ export function discussionQaSections(
       annotationById,
     );
     const parsed = discussionAnswerSections(markdown);
-    if (!parsed.sections.length) {
+    const reviewSources = questions.filter(question => question.origin === "discussion_review_source");
+    if (!parsed.sections.length || reviewSources.length) {
       return [
         {
           bodyMarkdown: markdown,
@@ -250,9 +246,9 @@ export function discussionQaSections(
           label: `Response #${message.sequenceNumber}`,
           messageId: message.id,
           messageSequenceNumber: message.sequenceNumber,
-          questionIds: questions.map((question) => question.id),
+          questionIds: (reviewSources.length ? reviewSources : questions).map((question) => question.id),
           sectionOrder: 0,
-          title: `Response #${message.sequenceNumber}`,
+          title: markdown.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? `Response #${message.sequenceNumber}`,
         },
       ];
     }

@@ -1,5 +1,28 @@
 import type { Annotation, Discussion } from "../types/tracker";
 import { normalizeMathMarkdown } from "./mathMarkdown";
+import { unified } from "unified";
+import remarkParse from "remark-parse";
+import remarkMath from "remark-math";
+import type { Root, RootContent } from "mdast";
+
+const sectionParser = unified().use(remarkParse).use(remarkMath);
+
+/** Preserve source offsets while excluding literals from answer boundaries. */
+export function discussionSectionSearchText(markdown: string): string {
+  const ranges: { start: number; end: number }[] = [];
+  function visit(node: Root | RootContent) {
+    if (["code", "inlineCode", "math", "inlineMath", "html"].includes(node.type)) {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start !== undefined && end !== undefined) ranges.push({ start, end });
+    } else if ("children" in node) node.children.forEach(visit);
+  }
+  visit(sectionParser.parse(markdown));
+  for (const { start, end } of ranges.reverse()) {
+    markdown = markdown.slice(0, start) + markdown.slice(start, end).replace(/[^\n]/g, " ") + markdown.slice(end);
+  }
+  return markdown;
+}
 
 type ProtectedMarkdown = {
   value: string;
@@ -90,7 +113,13 @@ function repairInlineMathWordBoundaries(value: string): string {
   );
 }
 
-export function normalizeDiscussionMarkdown(value: string): string {
+const normalizedMarkdownCache = new Map<string, string>();
+let normalizedMarkdownCacheSize = 0;
+const NORMALIZED_MARKDOWN_CACHE_LIMIT = 4_000_000;
+
+export function repairLegacyDiscussionMarkdown(value: string): string {
+  const cached = normalizedMarkdownCache.get(value);
+  if (cached !== undefined) return cached;
   const protectedMarkdown = protectFencedCode(value);
   const normalized = normalizeMathMarkdown(
     repairOrphanInlineMath(
@@ -106,7 +135,24 @@ export function normalizeDiscussionMarkdown(value: string): string {
     .replace(/^•\s+/gm, "- ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return protectedMarkdown.restore(normalized);
+  const result = protectedMarkdown.restore(normalized);
+  const size = value.length + result.length;
+  if (size <= NORMALIZED_MARKDOWN_CACHE_LIMIT) {
+    while (normalizedMarkdownCacheSize + size > NORMALIZED_MARKDOWN_CACHE_LIMIT) {
+      const oldest = normalizedMarkdownCache.entries().next().value;
+      if (!oldest) break;
+      normalizedMarkdownCache.delete(oldest[0]);
+      normalizedMarkdownCacheSize -= oldest[0].length + oldest[1].length;
+    }
+    normalizedMarkdownCache.set(value, result);
+    normalizedMarkdownCacheSize += size;
+  }
+  return result;
+}
+
+/** Normal editing must never guess missing spaces or rewrite valid LaTeX. */
+export function normalizeDiscussionMarkdown(value: string): string {
+  return normalizeMathMarkdown(value, { repairLegacy: false }).trim();
 }
 
 export type DiscussionAnswerSection = {
@@ -175,7 +221,8 @@ export function discussionAnswerSections(markdown: string): {
   preamble: string;
   sections: DiscussionAnswerSection[];
 } {
-  const headings = [...markdown.matchAll(MARKDOWN_HEADING)].map((match) => ({
+  const searchable = discussionSectionSearchText(markdown);
+  const headings = [...searchable.matchAll(MARKDOWN_HEADING)].map((match) => ({
     ...match,
     level: match[0].match(/^#+/)?.[0].length ?? 1,
     title: match[1].trim(),

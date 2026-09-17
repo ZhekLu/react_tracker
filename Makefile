@@ -10,7 +10,7 @@ SERVICE := $(ROOT)/scripts/service.py
 SERVICE_PYTHON ?= python3
 
 .PHONY: help install backend-install frontend-install build serve app dev-api dev-ui \
-	migrate plan-validate plan-sync plan-update plan-patch plan-inspect backup \
+	migrate plan-validate plan-sync plan-update plan-patch plan-preview plan-inspect backup \
 	backend-check test frontend-test lint check service-install service-start \
 	service-stop service-restart service-status service-uninstall rebuild update \
 	service-attach logs logs-once health
@@ -73,8 +73,11 @@ plan-sync:
 plan-update:
 	@test -n "$(PLAN)" || (echo "Usage: make plan-update PLAN=/path/to/plan.md" && exit 2)
 	cd $(BACKEND) && $(UV_RUN) run python -m tracker_api.plan validate "$(abspath $(PLAN))"
-	cd $(BACKEND) && $(UV_RUN) run python -m tracker_api.backup
 	cd $(BACKEND) && $(UV_RUN) run python -m tracker_api.plan sync "$(abspath $(PLAN))"
+
+plan-preview:
+	@test -n "$(PLAN)" || (echo "Usage: make plan-preview PLAN=/path/to/plan.md" && exit 2)
+	cd $(BACKEND) && $(UV_RUN) run python -m tracker_api.plan sync "$(abspath $(PLAN))" --dry-run
 
 plan-patch:
 	@test -n "$(PATCH)" || (echo "Usage: make plan-patch PATCH=/path/to/patch.md" && exit 2)
@@ -136,3 +139,12 @@ logs-once:
 
 health:
 	curl -fsS http://127.0.0.1:8787/api/health
+
+
+#cd /Users/eugene/Documents/Thesis/Tracker/react_tracker
+#
+#make plan-validate PLAN=../study_plans/special_course/patches/TORL_day10_DQN_crash_patch.md
+#
+#make plan-update PLAN=../study_plans/special_course/patches/TORL_day10_DQN_crash_patch.md
+#
+#make plan-inspect COURSE=TORL

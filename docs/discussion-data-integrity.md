@@ -61,6 +61,27 @@ Import boundaries never discard prose:
 
 Focused tests also preserve the earlier regressions: heading-corrupted display delimiters, lost subtraction rows, malformed bracket displays, short display equations, block quotes, fenced code, and follow-up labels.
 
+## Source annotation lifecycle
+
+A successful complete PDF/Drawboard scan soft-deletes imported annotations whose
+source identities have disappeared, including questions. They leave active
+workspace lists, while their UUIDs, readable labels, answers, and revision history
+remain available in the database. Partial or malformed cloud downloads fail before
+reconciliation. Migration `0024_reconcile_deleted_source_questions.sql` removes the
+old visibility guard; question identity and kind guards remain enforced.
+
+Changing a question's source color never demotes it or resets its understood
+status. Presence is checked against all source IDs, not just current question
+colors. Local PDF imports use stable PDF annotation IDs and upgrade legacy
+content-derived identities in place when the match is unambiguous.
+
+Only open questions/todos receive refreshed screenshots. Answered/archived items
+retain their saved image references, even when an open question shares their page.
+Images have content-versioned filenames and are written atomically; old image
+files are never overwritten. QA uses the annotation's saved page snapshots,
+including saved neighboring pages, instead of a shared current-page image.
+Reopening a question makes its screenshots eligible for the next collection.
+
 ## Failure rules
 
 - UUIDs are authoritative; readable labels are never foreign keys.

@@ -15,6 +15,7 @@ import type {
   Annotation,
   Discussion,
   Note,
+  Resource,
 } from "../../types/tracker";
 
 export function centeredQaSourceScrollTop(input: {
@@ -101,13 +102,17 @@ function activeQuestion(question: Annotation): boolean {
 }
 
 export type QaScopeSectionProgress = {
+  id: string;
   label: string;
+  title: string;
+  itemIds: string[];
   open: number;
   total: number;
   understood: number;
 };
 
 export type QaScopeProgress = {
+  questions: Array<{ id: string; status: "open" | "understood" | "setAside" }>;
   open: number;
   sections: QaScopeSectionProgress[];
   total: number;
@@ -118,6 +123,7 @@ export type QaScopeProgress = {
 export function qaReviewScopeProgress(
   items: readonly QaReviewItem[],
   scopedQuestionIds?: readonly string[],
+  resources: readonly Resource[] = [],
 ): QaScopeProgress {
   const annotationById = new Map(
     items.flatMap((item) => item.questions).map((annotation) => [annotation.id, annotation]),
@@ -133,9 +139,30 @@ export function qaReviewScopeProgress(
           .map(trackedQuestionKey),
       )
     : null;
+  const resourceById = new Map(resources.map((resource) => [resource.id, resource]));
+  const sourceIds = new Set(items.flatMap((item) => (item.rootQuestions ?? item.questions)
+    .filter((question) => question.origin !== "discussion_review_followup")
+    .filter((question) => !scopedIds || scopedIds.has(question.id) || scopedKeys?.has(trackedQuestionKey(question)))
+    .map((question) => question.resourceId)));
+  function navigationGroup(question: Annotation, sectionLabel: string) {
+    const resource = resourceById.get(question.resourceId);
+    const resourceTitle = resource?.title || "Notes";
+    if ((!resource || resource.kind === "book") && sectionLabel !== "Other") {
+      return {
+        id: `${question.resourceId}:section:${sectionLabel}`,
+        label: sectionLabel.match(/^\s*(\d+(?:\.\d+)*)\b/)?.[1] || sectionLabel,
+        title: `${resourceTitle} · ${sectionLabel}`,
+      };
+    }
+    const page = question.anchor?.pageNumber;
+    if (sourceIds.size <= 1 && page && page > 0) {
+      return { id: `${question.resourceId}:page:${page}`, label: `p. ${page}`, title: `${resourceTitle} · page ${page}` };
+    }
+    return { id: `${question.resourceId}:resource`, label: resourceTitle, title: resourceTitle };
+  }
   const logicalQuestions = new Map<
     string,
-    { annotations: Annotation[]; sectionLabel: string }
+    { annotations: Annotation[]; group: ReturnType<typeof navigationGroup>; itemIds: Set<string> }
   >();
 
   items.forEach((item) => {
@@ -187,32 +214,44 @@ export function qaReviewScopeProgress(
         annotationSubchapter(question) ||
         inheritedSectionLabel ||
         fallbackSectionLabel;
+      const inheritedRoot = Array.isArray(storedRoots)
+        ? storedRoots.map((id) => typeof id === "string" ? annotationById.get(id) : undefined).find(Boolean)
+        : undefined;
+      const source = question.origin === "discussion_review_followup"
+        ? inheritedRoot ?? rootsInScope[0] ?? question
+        : question;
+      const group = navigationGroup(source, sectionLabel);
       const current = logicalQuestions.get(key);
       if (current) {
         if (!current.annotations.some((candidate) => candidate.id === question.id)) {
           current.annotations.push(question);
         }
-        if (current.sectionLabel === "Other" && sectionLabel !== "Other") {
-          current.sectionLabel = sectionLabel;
+        current.itemIds.add(item.id);
+        // One capture may carry the location while a companion ink capture does not.
+        if (current.group.id.endsWith(":resource") && !group.id.endsWith(":resource")) {
+          current.group = group;
         }
       } else {
-        logicalQuestions.set(key, { annotations: [question], sectionLabel });
+        logicalQuestions.set(key, { annotations: [question], group, itemIds: new Set([item.id]) });
       }
     });
   });
 
   const sections = new Map<string, QaScopeSectionProgress>();
+  const questions: QaScopeProgress["questions"] = [];
   let open = 0;
   let understood = 0;
-  logicalQuestions.forEach(({ annotations, sectionLabel }) => {
+  logicalQuestions.forEach(({ annotations, group, itemIds }, id) => {
     const isOpen = annotations.some(activeQuestion);
     const isUnderstood = !isOpen && annotations.some(
       (annotation) => annotation.status === "answered",
     );
     if (isOpen) open += 1;
     if (isUnderstood) understood += 1;
-    const section = sections.get(sectionLabel) ?? {
-      label: sectionLabel,
+    questions.push({ id, status: isOpen ? "open" : isUnderstood ? "understood" : "setAside" });
+    const section = sections.get(group.id) ?? {
+      ...group,
+      itemIds: [],
       open: 0,
       total: 0,
       understood: 0,
@@ -220,11 +259,13 @@ export function qaReviewScopeProgress(
     section.total += 1;
     if (isOpen) section.open += 1;
     if (isUnderstood) section.understood += 1;
-    sections.set(sectionLabel, section);
+    section.itemIds = [...new Set([...section.itemIds, ...itemIds])];
+    sections.set(group.id, section);
   });
 
   const collator = new Intl.Collator(undefined, { numeric: true });
   return {
+    questions,
     open,
     sections: [...sections.values()].sort((left, right) =>
       collator.compare(left.label, right.label),
@@ -232,6 +273,18 @@ export function qaReviewScopeProgress(
     total: logicalQuestions.size,
     understood,
   };
+}
+
+/** Keep the current filter when possible; completed groups remain reachable. */
+export function qaGroupNavigationTarget(
+  group: Pick<QaScopeSectionProgress, "itemIds">,
+  visibleItems: readonly QaReviewItem[],
+  allItems: readonly QaReviewItem[],
+): { index: number; showAll: boolean } | undefined {
+  const visibleIndex = visibleItems.findIndex((item) => group.itemIds.includes(item.id));
+  if (visibleIndex >= 0) return { index: visibleIndex, showAll: false };
+  const index = allItems.findIndex((item) => group.itemIds.includes(item.id));
+  return index < 0 ? undefined : { index, showAll: true };
 }
 
 function reviewMatchesSection(
@@ -630,7 +683,12 @@ export function qaReviewThreads(
   // structurally mapped to that follow-up's UUID. This supports a later response
   // round whose parent answer lives in another discussion without trusting a
   // reused Q-### display label or a stale annotation link.
+  const reviewSourceIds = annotations.filter(annotation =>
+    annotation.origin === "discussion_review_source" && annotation.status !== "archived" &&
+    activeDiscussion.messages.some(message => message.id === annotation.anchor?.discussionMessageId)
+  ).map(annotation => annotation.id);
   const activeQuestionIds = new Set([
+    ...(!scopedQuestionIds?.length ? reviewSourceIds : []),
     ...immutableScopeIds,
     ...mappedFollowupIds,
   ]);

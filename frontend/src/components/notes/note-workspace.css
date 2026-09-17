@@ -1,0 +1,26 @@
+.noteWorkspace { min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; overflow: hidden; }
+.noteWorkspaceTools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 12px; background: #f7faf8; border-bottom: 1px solid var(--line); }
+.noteWorkspaceMode { margin-right: auto; color: var(--muted); font-size: 12px; font-weight: 700; }
+.noteTextSize { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.noteTextSize button { width: 32px; min-height: 32px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); cursor: pointer; }
+.noteTextSize button:disabled { opacity: .4; cursor: default; }
+.noteTextSize output { min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
+.noteHeadingNavigation { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.noteHeadingNavigation span { flex: 0 0 auto; }
+.noteHeadingNavigation select { min-width: 0; width: 100%; max-width: 720px; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); font: inherit; }
+.noteWorkspaceContent { max-height: 56vh; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 12px clamp(12px, 3vw, 32px); }
+.noteWorkspace.expanded .noteWorkspaceContent { min-height: 68vh; max-height: 76vh; }
+.noteWorkspace .discussionRichSurface { max-width: 80ch; margin-inline: auto; font-size: var(--note-font-size); line-height: 1.75; }
+.noteWorkspace .discussionRichSurface :is(h1,h2,h3,h4,h5,h6) { line-height: 1.35; scroll-margin-top: 70px; }
+.noteWorkspace .discussionRichSurface h1 { font-size: 1.65em; }
+.noteWorkspace .discussionRichSurface h2 { font-size: 1.4em; }
+.noteWorkspace .discussionRichSurface h3 { font-size: 1.2em; }
+.noteWorkspace .discussionRichSurface :is(h4,h5,h6) { font-size: 1.05em; }
+.noteWorkspace .discussionRichSurface p { margin-block: .75em; }
+.noteWorkspace .discussionRichSurface li { margin-block: .3em; }
+.noteWorkspace .entityNotePreview { padding: 0; max-height: none; overflow: visible; border: 0; background: transparent; }
+.noteWorkspace .discussionEditorToolbar { position: sticky; top: -12px; z-index: 2; background: white; }
+.dayNotes > .entityNoteEditor { margin: 0; border: 0; }
+.dayNotes > .entityNoteEditor > summary { padding: 12px 16px; font-size: 13px; }
+.dayNotes .entityNoteEditorBody { padding: 10px; }
+.noteWorkspace button:focus-visible, .noteWorkspace select:focus-visible { outline: 2px solid #7653c8; outline-offset: 2px; }

@@ -6,6 +6,7 @@ import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -14,9 +15,7 @@ import pymupdf
 from .pdf_ink_image_service import drawboard_rect_to_pdf
 
 PART_TITLE = re.compile(r"^[IVXLC]+\s+\S")
-SENTENCE_BREAK = re.compile(
-    r"(?<=[.!?])\s+(?=(?:[A-Z0-9“\"'(\[]|Exercise\s|Figure\s))"
-)
+SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+(?=(?:[A-Z0-9“\"'(\[]|Exercise\s|Figure\s))")
 WORD_TOKEN = re.compile(r"[a-z0-9]+")
 TERMINAL_PUNCTUATION = re.compile(r"[.!?][\"'\u2019\u201d\])}]*$")
 PAGE_NUMBER_ONLY = re.compile(r"^\s*(?:page\s+)?\d+\s*$", re.IGNORECASE)
@@ -297,8 +296,9 @@ def _sentence_context(
     capture: ContextCapture,
     *,
     drawboard_coordinates: bool,
+    page_text: str | None = None,
 ) -> tuple[str, str, str, str]:
-    sentences = _sentences(page.get_text("text", sort=True))
+    sentences = _sentences(page.get_text("text", sort=True) if page_text is None else page_text)
     if not sentences:
         return "", "", "", "unavailable"
     exact_indexes = _exact_sentence_indexes(sentences, capture.quote)
@@ -601,12 +601,42 @@ def _paragraph_excerpt(
     return excerpt, True
 
 
+@lru_cache(maxsize=8)
+def _pdf_structure(
+    path: Path,
+    mtime_ns: int,
+    size: int,
+) -> tuple[list[OutlineEntry], list[ChapterEntry], dict[int, list[PdfParagraph]]]:
+    # Cache plain text/geometry only; a PyMuPDF document must not be shared
+    # across request threads. File edits automatically select a new entry.
+    document: Any = pymupdf.open(path)  # type: ignore[no-untyped-call]
+    try:
+        outline = _outline_entries(document)
+        return outline, _chapter_entries(outline), _paragraphs(document)[1]
+    finally:
+        document.close()
+
+
+@lru_cache(maxsize=1024)
+def _page_sorted_text(path: Path, mtime_ns: int, size: int, page_number: int) -> str:
+    # Sorting is expensive in PyMuPDF: do it once per PDF page/version, not
+    # for every highlight and again after ink grouping. Cache only plain text.
+    document: Any = pymupdf.open(path)  # type: ignore[no-untyped-call]
+    try:
+        return cast(str, document[page_number - 1].get_text("text", sort=True))
+    finally:
+        document.close()
+
+
 def extract_pdf_annotation_contexts(
     path: Path,
     captures: Iterable[ContextCapture],
     *,
     drawboard_coordinates: bool = False,
 ) -> dict[str, PdfAnnotationContext]:
+    capture_list = list(captures)
+    if not capture_list:
+        return {}
     pdf_path = path.expanduser().resolve()
     try:
         document: Any = pymupdf.open(  # type: ignore[no-untyped-call]
@@ -615,11 +645,13 @@ def extract_pdf_annotation_contexts(
     except Exception as error:
         raise PdfContextError(f"Could not read PDF context: {pdf_path}") from error
     contexts: dict[str, PdfAnnotationContext] = {}
-    capture_list = list(captures)
     try:
-        outline = _outline_entries(document)
-        chapters = _chapter_entries(outline)
-        _all_paragraphs, paragraphs_by_page = _paragraphs(document)
+        stat = pdf_path.stat()
+        outline, chapters, paragraphs_by_page = _pdf_structure(
+            pdf_path,
+            stat.st_mtime_ns,
+            stat.st_size,
+        )
         paragraph_by_capture: dict[str, PdfParagraph] = {}
         captures_by_paragraph: dict[str, list[ContextCapture]] = defaultdict(list)
 
@@ -656,6 +688,7 @@ def extract_pdf_annotation_contexts(
                 page,
                 capture,
                 drawboard_coordinates=drawboard_coordinates,
+                page_text=_page_sorted_text(pdf_path, stat.st_mtime_ns, stat.st_size, capture.page),
             )
             paragraph = paragraph_by_capture.get(capture.fingerprint)
             paragraph_text = ""
@@ -664,11 +697,7 @@ def extract_pdf_annotation_contexts(
                 paragraph_text, paragraph_truncated = paragraph_context[paragraph.id]
             contexts[capture.fingerprint] = PdfAnnotationContext(
                 chapter_number=chapter.number if chapter else None,
-                chapter_title=(
-                    f"Chapter {chapter.number} · {chapter.title}"
-                    if chapter
-                    else ""
-                ),
+                chapter_title=(f"Chapter {chapter.number} · {chapter.title}" if chapter else ""),
                 context_after=after,
                 context_before=before,
                 context_sentence=sentence,

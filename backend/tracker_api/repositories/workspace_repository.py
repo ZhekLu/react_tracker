@@ -65,6 +65,7 @@ from ..schemas.workspace import (
     StudyDay,
     Task,
     TaskStatusCommand,
+    TodoCounts,
 )
 from ..services.chapter_scope_service import (
     annotation_chapter_number,
@@ -467,6 +468,28 @@ def _open_question_count(annotations: Iterable[Annotation]) -> int:
     return len(logical_questions)
 
 
+def _todo_counts(annotations: Iterable[Annotation]) -> TodoCounts:
+    groups: dict[str, list[Annotation]] = defaultdict(list)
+    for annotation in annotations:
+        if annotation.kind != "todo" or annotation.status == "archived":
+            continue
+        metadata = annotation.anchor.metadata if annotation.anchor else {}
+        identity = metadata.get("questionFrameId") or metadata.get("contextGroupId")
+        identity = identity or annotation.stable_label or annotation.id
+        groups[f"{annotation.resource_id}:{identity}"].append(annotation)
+    result = TodoCounts(total=len(groups))
+    for captures in groups.values():
+        if any(a.status == "open" and not a.skipped and not a.postponed for a in captures):
+            result.open += 1
+        elif any(a.status == "open" and a.postponed and not a.skipped for a in captures):
+            result.later += 1
+        elif any(a.status == "answered" for a in captures):
+            result.done += 1
+        else:
+            result.skipped += 1
+    return result
+
+
 def _postponed_question_count(annotations: Iterable[Annotation]) -> int:
     logical_questions: set[str] = set()
     for annotation in annotations:
@@ -510,11 +533,12 @@ def _task_scoped_annotations(
     resource_kind_by_id: Mapping[str, str],
     chapter_numbers: Sequence[int],
     day_id: str,
+    resource_chapters: Mapping[str, Sequence[int]] | None = None,
 ) -> list[Annotation]:
-    chapter_scope = set(chapter_numbers)
     scoped: list[Annotation] = []
     seen: set[str] = set()
     for resource_id in resource_ids:
+        chapter_scope = set((resource_chapters or {}).get(resource_id, chapter_numbers))
         for annotation in annotations_by_resource.get(resource_id, []):
             if annotation.id in seen:
                 continue
@@ -788,24 +812,80 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
     )
     tasks_by_section: dict[str | None, list[Task]] = defaultdict(list)
     task_annotation_ids: dict[str, set[str]] = {}
+    task_by_note = {
+        note.id: entity_id
+        for (entity_type, entity_id), entity_notes in notes_by_entity.items()
+        if entity_type == "task"
+        for note in entity_notes
+    }
+    direct_tasks_by_annotation: dict[str, set[str]] = {}
+    for annotation in annotations:
+        metadata = annotation.anchor.metadata if annotation.anchor else {}
+        owner = metadata.get("taskId") or metadata.get("sourceTaskId") or task_by_note.get(
+            str(metadata.get("sourceNoteId", ""))
+        )
+        if isinstance(owner, str):
+            direct_tasks_by_annotation[annotation.id] = {owner}
+    for annotation in annotations:
+        metadata = annotation.anchor.metadata if annotation.anchor else {}
+        roots = metadata.get("rootQuestionIds", [])
+        if isinstance(roots, list):
+            owners = {
+                owner for root in roots
+                for owner in direct_tasks_by_annotation.get(str(root), set())
+            }
+            if owners:
+                direct_tasks_by_annotation.setdefault(annotation.id, set()).update(owners)
+    direct_annotations_by_task: dict[str, list[Annotation]] = defaultdict(list)
+    for annotation in annotations:
+        for owner in direct_tasks_by_annotation.get(annotation.id, set()):
+            direct_annotations_by_task[owner].append(annotation)
     planned_chapters_by_resource: dict[str, set[int]] = defaultdict(set)
+    day_book_chapters: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for row in task_rows:
+        if row["status"] == "skipped":
+            continue
+        for resource_id in task_to_resources.get(str(row["id"]), []):
+            if resource_kind_by_id.get(resource_id) == "book":
+                day_book_chapters[(str(row["day_id"]), resource_id)].update(
+                    referenced_chapter_numbers(str(row["title"]))
+                )
     for row in task_rows:
         task_id = str(row["id"])
         linked_resources = task_to_resources.get(task_id, [])
         linked_questions = task_to_exam_questions.get(task_id, [])
         chapter_numbers = referenced_chapter_numbers(str(row["title"]))
+        resource_chapters = {
+            resource_id: chapter_numbers or sorted(
+                day_book_chapters.get((str(row["day_id"]), resource_id), set())
+            )
+            for resource_id in linked_resources if resource_kind_by_id.get(resource_id) == "book"
+        }
+        if not chapter_numbers:
+            chapter_numbers = sorted({
+                chapter
+                for resource_id in linked_resources
+                for chapter in day_book_chapters.get((str(row["day_id"]), resource_id), set())
+            })
         for resource_id in linked_resources:
-            planned_chapters_by_resource[resource_id].update(chapter_numbers)
+            planned_chapters_by_resource[resource_id].update(
+                resource_chapters.get(resource_id, chapter_numbers)
+            )
         linked_annotations = _task_scoped_annotations(
             [*linked_resources, *linked_questions],
             annotations_by_resource,
             resource_kind_by_id,
             chapter_numbers,
             str(row["day_id"]),
+            resource_chapters,
         )
         task_annotation_ids[task_id] = {
-            annotation.id for annotation in linked_annotations
+            annotation.id
+            for annotation in [*linked_annotations, *direct_annotations_by_task[task_id]]
+            if annotation.id not in direct_tasks_by_annotation
+            or task_id in direct_tasks_by_annotation[annotation.id]
         }
+        linked_annotations = [annotation_by_id[id] for id in task_annotation_ids[task_id]]
         task = Task(
             id=task_id,
             day_id=str(row["day_id"]),
@@ -822,6 +902,7 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
             exam_question_ids=linked_questions,
             skill_ids=[],
             chapter_numbers=chapter_numbers,
+            resource_chapter_numbers=resource_chapters,
             rationale=(
                 documents.get(str(row["rationale_document_id"]))
                 if row["rationale_document_id"]
@@ -829,6 +910,7 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
             ),
             notes=notes_by_entity.get(("task", task_id), []),
             open_question_count=_open_question_count(linked_annotations),
+            todo_counts=_todo_counts(linked_annotations),
         )
         tasks_by_section[task.section_id].append(task)
 
@@ -889,6 +971,12 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
             for task in section.tasks
             for annotation_id in task_annotation_ids.get(task.id, set())
         }
+        # Day-note markers and captures still belong to their day without a
+        # linked resource/task (and remain visible after that day is closed).
+        linked_annotation_ids.update(
+            annotation.id for annotation in annotations
+            if _annotation_created_day_id(annotation) == day_id
+        )
         linked_annotations = [
             annotation_by_id[annotation_id]
             for annotation_id in linked_annotation_ids
@@ -911,6 +999,7 @@ def get_workspace(connection: Connection, course_id: str) -> CourseWorkspace:
                 postponed_question_count=_postponed_question_count(linked_annotations),
                 tracked_seconds=day_time.get(day_id, 0),
                 progress=day_progress.get(day_id, _empty_day_progress()),
+                todo_counts=_todo_counts(linked_annotations),
             )
         )
 
@@ -2435,6 +2524,13 @@ def _refresh_imported_anchor(
         existing["selector_json"],
         {},
     )
+    # Keep tracker-owned identity and historical images when refreshing the source.
+    for key in ("questionFrameId", "questionFrameLabel", "supersededByAnnotationId"):
+        if key in previous_metadata:
+            metadata[key] = previous_metadata[key]
+    for key in ("contextImageUrl", "annotatedPageImageUrl", "annotatedPageImageUrls"):
+        if key in previous_metadata and (existing["status"] != "open" or not metadata.get(key)):
+            metadata[key] = previous_metadata[key]
     previous_created_day_id = previous_metadata.get("createdDayId")
     if isinstance(previous_created_day_id, str) and previous_created_day_id.strip():
         metadata["createdDayId"] = previous_created_day_id
@@ -2600,14 +2696,12 @@ def upsert_imported_annotation(
     source_revision: str,
 ) -> str:
     if not command.source_fingerprint:
-        raise WorkspaceRepositoryError(
-            "Imported annotations require a source fingerprint."
-        )
+        raise WorkspaceRepositoryError("Imported annotations require a source fingerprint.")
     existing = _one_or_none(
         connection,
         """
         SELECT a.id, a.body_document_id, a.deleted_at, a.kind, a.status,
-               aa.annotation_id AS anchor_annotation_id, aa.selector_json,
+               aa.annotation_id AS anchor_annotation_id, aa.selector_json, aa.rect_json,
                d.plain_text AS body_plain_text
         FROM annotations a
         LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
@@ -2629,10 +2723,35 @@ def upsert_imported_annotation(
         {},
     )
     previous_sync_revision = str(
-        previous_metadata.get("syncRevision")
-        or previous_metadata.get("sourceRevision")
-        or ""
+        previous_metadata.get("syncRevision") or previous_metadata.get("sourceRevision") or ""
     )
+    # Frame reconciliation may expand a crop to include historical companion
+    # captures and use the full page as its preview. An unchanged source still
+    # produces the smaller crop; retain the reconciled frame instead of writing
+    # that crop and expanding it again on every collection. Page-only edits must
+    # still advance an open question to the new immutable page snapshot.
+    if (
+        command.anchor is not None
+        and previous_sync_revision == source_revision
+        and previous_metadata.get("questionFrameId")
+        and previous_metadata.get("annotatedPageImageUrl")
+        and previous_metadata.get("contextImageUrl")
+        == previous_metadata.get("annotatedPageImageUrl")
+    ):
+        command = command.model_copy(
+            update={
+                "anchor": command.anchor.model_copy(
+                    update={
+                        "rect": _json_loads(existing["rect_json"], []),
+                        "metadata": {
+                            **command.anchor.metadata,
+                            "contextImageUrl": command.anchor.metadata.get("annotatedPageImageUrl")
+                            or previous_metadata["contextImageUrl"],
+                        },
+                    }
+                )
+            }
+        )
     next_metadata = command.anchor.metadata if command.anchor else {}
     next_color_role_revision = str(next_metadata.get("colorRoleRevision") or "")
     reclassify = bool(
@@ -2640,10 +2759,16 @@ def upsert_imported_annotation(
         and previous_metadata.get("colorRoleRevision") != next_color_role_revision
     )
     preserve_question_kind = bool(str(existing["kind"]) in {"question", "todo"})
-    preserve_question_status = bool(
-        str(existing["kind"]) in {"question", "todo"} and existing["deleted_at"] is None
+    preserve_question_status = bool(str(existing["kind"]) in {"question", "todo"})
+    images_changed = existing["status"] == "open" and any(
+        next_metadata.get(key) and next_metadata.get(key) != previous_metadata.get(key)
+        for key in ("contextImageUrl", "annotatedPageImageUrl", "annotatedPageImageUrls")
     )
-    if existing["deleted_at"] is None and previous_sync_revision == source_revision:
+    if (
+        existing["deleted_at"] is None
+        and previous_sync_revision == source_revision
+        and not images_changed
+    ):
         return "existing"
 
     now = _now()
@@ -2671,9 +2796,8 @@ def upsert_imported_annotation(
                   ELSE kind
                 END,
                 status = CASE
-                  WHEN :revive
-                    THEN 'open'
                   WHEN :preserve_question_status THEN status
+                  WHEN :revive THEN 'open'
                   WHEN :reclassify AND :kind = 'question' THEN 'open'
                   ELSE status
                 END,
@@ -2755,7 +2879,7 @@ def reconcile_imported_question_frame(
     candidates = _rows(
         connection,
         """
-        SELECT a.id, a.origin, a.source_fingerprint, a.created_at,
+        SELECT a.id, a.origin, a.source_fingerprint, a.created_at, a.status,
                aa.rect_json, aa.selector_json, qi.readable_label
         FROM annotations a
         JOIN annotation_anchors aa ON aa.annotation_id = a.id
@@ -2801,11 +2925,7 @@ def reconcile_imported_question_frame(
             and color_role.endswith(":question:merged-with-ink")
             and vertical_gap(canonical_rect, rect) == 0.0
         )
-        if (
-            str(candidate["id"]) == str(canonical["id"])
-            or ink_matches
-            or merged_highlight_matches
-        ):
+        if str(candidate["id"]) == str(canonical["id"]) or ink_matches or merged_highlight_matches:
             related.append((candidate, metadata))
     if not related:
         return 0
@@ -2860,7 +2980,7 @@ def reconcile_imported_question_frame(
             next_metadata["questionFrameLabel"] = frame_label
         if candidate_id == str(canonical["id"]):
             next_metadata.pop("supersededByAnnotationId", None)
-            if frame_rect != canonical_rect:
+            if frame_rect != canonical_rect and candidate["status"] == "open":
                 annotated_page_url = next_metadata.get("annotatedPageImageUrl")
                 if isinstance(annotated_page_url, str) and annotated_page_url:
                     # Existing databases may not have the newly merged crop on
@@ -2871,7 +2991,7 @@ def reconcile_imported_question_frame(
             next_metadata["supersededByAnnotationId"] = str(canonical["id"])
         next_rect = (
             frame_rect
-            if candidate_id == str(canonical["id"])
+            if candidate_id == str(canonical["id"]) and candidate["status"] == "open"
             else _json_loads(candidate["rect_json"], [])
         )
         current_rect: list[float] = _json_loads(candidate["rect_json"], [])
@@ -2904,56 +3024,101 @@ def reconcile_imported_question_frame(
     return updated
 
 
+def adopt_local_pdf_identity(
+    connection: Connection,
+    command: AnnotationCreateCommand,
+    legacy_fingerprint: str | None,
+) -> None:
+    """Upgrade content-derived fingerprints without replacing saved annotations."""
+    if not legacy_fingerprint or command.anchor is None:
+        return
+    anchor = command.anchor
+    candidates = _rows(
+        connection,
+        """
+        SELECT a.id, a.source_fingerprint, aa.page_number, aa.rect_json, aa.annotation_kind
+        FROM annotations a JOIN annotation_anchors aa ON aa.annotation_id = a.id
+        WHERE a.resource_id = :resource_id AND a.origin = 'pdf_import'
+          AND a.source_fingerprint NOT LIKE 'pdf-source-%' AND a.deleted_at IS NULL
+        """,
+        {"resource_id": command.resource_id},
+    )
+    exact = [row for row in candidates if row["source_fingerprint"] == legacy_fingerprint]
+    matching = exact or [
+        row
+        for row in candidates
+        if (
+            row["page_number"] == anchor.page_number
+            and row["annotation_kind"] == anchor.annotation_kind
+            and _json_loads(row["rect_json"], []) == anchor.rect
+        )
+    ]
+    if len(matching) > 1:
+        raise WorkspaceRepositoryError("Multiple legacy PDF captures match one source annotation.")
+    if matching:
+        connection.execute(
+            text("""
+            UPDATE annotations SET source_fingerprint = :fingerprint, external_id = :fingerprint
+            WHERE id = :id
+            """),
+            {"id": str(matching[0]["id"]), "fingerprint": command.source_fingerprint},
+        )
+
+
+def imported_annotation_states(
+    connection: Connection,
+    resource_id: str,
+) -> dict[str, dict[str, Any]]:
+    """Read workflow and source membership once, before expensive extraction."""
+    return {
+        str(row["source_fingerprint"]): {
+            "id": str(row["id"]),
+            "status": str(row["status"]),
+            "kind": str(row["kind"]),
+            "origin": str(row["origin"]),
+            "metadata": _json_loads(row["selector_json"], {}),
+        }
+        for row in _rows(
+            connection,
+            """
+            SELECT a.id, a.source_fingerprint, a.status, a.kind, a.origin, aa.selector_json
+            FROM annotations a
+            LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
+            WHERE a.resource_id = :resource_id AND a.deleted_at IS NULL
+              AND a.origin IN ('drawboard_cloud', 'drawboard_cloud_ink', 'pdf_import')
+            """,
+            {"resource_id": resource_id},
+        )
+    }
+
+
 def soft_delete_stale_imported_annotations(
     connection: Connection,
     resource_id: str,
     active_cloud_fingerprints: set[str],
+    *,
+    origins: tuple[str, ...] = ("drawboard_cloud", "drawboard_cloud_ink", "pdf_import"),
 ) -> int:
-    stale_ids = [
-        str(row["id"])
-        for row in _rows(
-            connection,
-            """
-            SELECT a.id, a.origin, a.source_fingerprint, a.kind,
-                   EXISTS (
-                     SELECT 1
-                     FROM annotation_question_identities aqi
-                     WHERE aqi.annotation_id = a.id
-                   ) AS has_question_identity
-            FROM annotations a
-            WHERE a.resource_id = :resource_id
-              AND a.origin IN (
-                'drawboard_cloud',
-                'drawboard_cloud_ink',
-                'pdf_import'
-              )
-              AND a.deleted_at IS NULL
-            """,
-            {"resource_id": resource_id},
-        )
-        if (
-            str(row["kind"]) not in {"question", "todo"}
-            and not bool(row["has_question_identity"])
-            and (
-                str(row["origin"]) == "pdf_import"
-                or str(row["source_fingerprint"] or "") not in active_cloud_fingerprints
-            )
-        )
-    ]
+    # Presence is independent of color/classification. An ink group survives
+    # while any of its source strokes survives, including recolored strokes.
+    stale_ids = []
+    for fingerprint, state in imported_annotation_states(connection, resource_id).items():
+        if state["origin"] not in origins:
+            continue
+        members = set(state["metadata"].get("inkMemberFingerprints") or [])
+        if fingerprint not in active_cloud_fingerprints and not members & active_cloud_fingerprints:
+            stale_ids.append(state["id"])
     if not stale_ids:
         return 0
     now = _now()
-    for annotation_id in stale_ids:
-        connection.execute(
-            text("""
-                UPDATE annotations
-                SET deleted_at = :now,
-                    updated_at = :now,
-                    revision = revision + 1
-                WHERE id = :id AND deleted_at IS NULL
-                """),
-            {"id": annotation_id, "now": now},
-        )
+    connection.execute(
+        text("""
+            UPDATE annotations
+            SET deleted_at = :now, updated_at = :now, revision = revision + 1
+            WHERE id = :id AND deleted_at IS NULL
+            """),
+        [{"id": annotation_id, "now": now} for annotation_id in stale_ids],
+    )
     return len(stale_ids)
 
 
@@ -3316,6 +3481,9 @@ def _note_marker_resource_id(
             {"course_id": command.course_id, "entity_id": command.entity_id},
         ).scalar_one_or_none()
         return str(value) if value else None
+    if command.entity_type == "day":
+        from ..services.task_review_service import task_note_resource
+        return task_note_resource(connection, command)
     if command.entity_type == "task":
         value = connection.execute(
             text("""
@@ -3333,7 +3501,10 @@ def _note_marker_resource_id(
                 """),
             {"course_id": command.course_id, "entity_id": command.entity_id},
         ).scalar_one_or_none()
-        return str(value) if value else None
+        if value:
+            return str(value)
+        from ..services.task_review_service import task_note_resource
+        return task_note_resource(connection, command)
     return None
 
 
@@ -3341,6 +3512,8 @@ def _note_marker_source_day_id(
     connection: Connection,
     command: NoteUpsertCommand,
 ) -> str | None:
+    if command.entity_type == "day":
+        return command.entity_id
     if command.entity_type != "task":
         return None
     value = connection.execute(
@@ -3365,6 +3538,9 @@ def _sync_note_marker_annotations(
     markdown: str,
     timestamp: str,
 ) -> None:
+    if command.kind == "task":
+        from ..services.task_review_service import original_note
+        markdown = original_note(markdown)
     resource_id = _note_marker_resource_id(connection, command)
     if resource_id is None:
         return
@@ -3376,10 +3552,13 @@ def _sync_note_marker_annotations(
     ]
     markers: list[tuple[str, str, str]] = []
     for paragraph in paragraphs:
+        # Tiptap correctly escapes literal punctuation in Markdown. Detect the
+        # visible marker, while retaining the authored text in the annotation.
+        marker_text = re.sub(r"\\([!?])", r"\1", paragraph)
         kind = (
             "todo"
-            if re.search(r"\btodo!", paragraph, flags=re.I)
-            else ("question" if "??" in paragraph else "")
+            if re.search(r"\btodo!", marker_text, flags=re.I)
+            else ("question" if "??" in marker_text else "")
         )
         if not kind:
             continue
@@ -3480,7 +3659,8 @@ def _sync_note_marker_annotations(
         )
 
 
-def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationResponse:
+def upsert_note(connection: Connection, command: NoteUpsertCommand, *,
+                sync_task_reviews: bool = True) -> MutationResponse:
     now = _now()
     markdown = command.markdown
     plain_text = command.plain_text or markdown
@@ -3563,6 +3743,9 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
             markdown=markdown,
             timestamp=now,
         )
+        if sync_task_reviews and command.kind == "task":
+            from ..services.task_review_service import sync_note_reviews
+            sync_note_reviews(connection, note_id, markdown)
         return MutationResponse(id=note_id, revision=1, updated_at=now)
 
     if command.note_revision is None or command.document_revision is None:
@@ -3661,6 +3844,9 @@ def upsert_note(connection: Connection, command: NoteUpsertCommand) -> MutationR
         markdown=markdown,
         timestamp=now,
     )
+    if sync_task_reviews and command.kind == "task":
+        from ..services.task_review_service import sync_note_reviews
+        sync_note_reviews(connection, command.note_id, markdown)
     return _mutation_result(row)
 
 
@@ -3669,6 +3855,8 @@ def delete_note(
     note_id: str,
     command: NoteDeleteCommand,
 ) -> MutationResponse:
+    from ..services.task_review_service import sync_note_reviews
+    sync_note_reviews(connection, note_id, "")
     now = _now()
     row = _one_or_none(
         connection,
@@ -4339,6 +4527,7 @@ def create_discussion_message(
     connection: Connection,
     discussion_id: str,
     command: DiscussionMessageCreateCommand,
+    *, export_artifacts: bool = True,
 ) -> MutationResponse:
     thread = _one_or_none(
         connection,
@@ -4476,11 +4665,12 @@ def create_discussion_message(
             {"discussion_id": discussion_id, "now": now},
         )
     try:
-        sync_discussion_exports(
-            short_code=course_short_code(connection, str(thread["course_id"])),
-            message_id=message_id,
-            markdown=markdown,
-        )
+        if export_artifacts:
+            sync_discussion_exports(
+                short_code=course_short_code(connection, str(thread["course_id"])),
+                message_id=message_id,
+                markdown=markdown,
+            )
     except CourseFileError as error:
         raise WorkspaceRepositoryError(str(error)) from error
     return _mutation_result(row)
@@ -4535,6 +4725,7 @@ def update_discussion_message(
     connection: Connection,
     message_id: str,
     command: DiscussionMessageUpdateCommand,
+    *, sync_task_note: bool = True, export_artifacts: bool = True,
 ) -> MutationResponse:
     message = _one_or_none(
         connection,
@@ -4648,12 +4839,17 @@ def update_discussion_message(
             """),
         {"thread_id": str(message["thread_id"]), "updated_at": now},
     )
+    if sync_task_note:
+        from ..services.task_review_service import sync_message_review
+        if sync_message_review(connection, message_id, markdown):
+            export_artifacts = False
     try:
-        sync_discussion_exports(
-            short_code=course_short_code(connection, str(message["course_id"])),
-            message_id=message_id,
-            markdown=markdown,
-        )
+        if export_artifacts:
+            sync_discussion_exports(
+                short_code=course_short_code(connection, str(message["course_id"])),
+                message_id=message_id,
+                markdown=markdown,
+            )
     except CourseFileError as error:
         raise WorkspaceRepositoryError(str(error)) from error
     return _mutation_result(row)
@@ -4686,6 +4882,20 @@ def _followup_prompt_label(
         if row is not None:
             root_label = str(row["question_label"])
             break
+    if root_label is None:
+        for root_question_id in dict.fromkeys(root_question_ids):
+            identity = _one_or_none(
+                connection,
+                """
+                SELECT qi.readable_label FROM annotation_question_identities aqi
+                JOIN question_identities qi ON qi.id = aqi.question_identity_id
+                WHERE aqi.annotation_id = :annotation_id
+                """,
+                {"annotation_id": root_question_id},
+            )
+            if identity is not None:
+                root_label = str(identity["readable_label"])
+                break
     if root_label is None and section_label:
         match = re.search(
             r"\bQ-((?:[a-z][a-z0-9]*-\d{2,3}-)?\d{1,})",
@@ -4720,6 +4930,56 @@ def _followup_prompt_label(
     return f"{root_label}-F{max(suffixes, default=0) + 1}"
 
 
+def mark_discussion_review_source(
+    connection: Connection,
+    message_id: str,
+) -> MutationResponse:
+    """Give a standalone note one persistent review root, atomically/idempotently."""
+    message = _one_or_none(connection, """
+        SELECT dm.thread_id, dm.role, dt.resource_id, dt.course_id, d.markdown
+        FROM discussion_messages dm
+        JOIN discussion_threads dt ON dt.id = dm.thread_id
+        JOIN documents d ON d.id = dm.body_document_id
+        WHERE dm.id = :id AND dm.deleted_at IS NULL AND dt.deleted_at IS NULL
+        """, {"id": message_id})
+    if message is None:
+        raise EntityNotFoundError(f"Discussion message does not exist: {message_id}")
+    if message["role"] != "assistant":
+        raise WorkspaceRepositoryError("Only tutor messages can be review sources.")
+    existing = _one_or_none(connection, """
+        SELECT a.id, a.revision, a.updated_at FROM annotations a
+        JOIN annotation_anchors aa ON aa.annotation_id = a.id
+        WHERE aa.discussion_message_id = :id
+          AND a.origin = 'discussion_review_source' AND a.deleted_at IS NULL
+        """, {"id": message_id})
+    if existing is not None:
+        return _mutation_result(existing)
+    markdown = str(message["markdown"] or "").strip()
+    if not markdown:
+        raise WorkspaceRepositoryError("An empty message cannot be a review source.")
+    heading = re.search(r"^#{1,6}\s+(.+)$", markdown, re.MULTILINE)
+    title = heading[1] if heading else markdown.splitlines()[0][:160]
+    source = create_annotation(connection, AnnotationCreateCommand(
+        resource_id=str(message["resource_id"]),
+        kind="question",
+        origin="discussion_review_source",
+        markdown=f"Review note: {title}",
+        plain_text=f"Review note: {title}",
+        anchor=AnnotationAnchorCreate(
+            anchor_type="discussion_message",
+            discussion_message_id=message_id,
+            quote=title,
+            metadata={"reviewSource": True},
+        ),
+    ))
+    _set_discussion_message_annotation(
+        connection, message_id=message_id, annotation_id=source.id,
+        relation="references", course_id=str(message["course_id"]),
+        timestamp=_now(), update_question_status=False,
+    )
+    return source
+
+
 def review_discussion_message(
     connection: Connection,
     message_id: str,
@@ -4741,13 +5001,19 @@ def review_discussion_message(
         raise EntityNotFoundError(f"Discussion message does not exist: {message_id}")
     result = update_discussion_message(connection, message_id, command)
     now = _now()
+    source_ids = [str(row["id"]) for row in _rows(connection, """
+        SELECT a.id FROM annotations a JOIN annotation_anchors aa ON aa.annotation_id = a.id
+        WHERE aa.discussion_message_id = :id AND a.origin = 'discussion_review_source'
+          AND a.deleted_at IS NULL
+        """, {"id": message_id})]
     for item in command.review_items:
+        root_question_ids = item.question_ids or source_ids
         prompt_label: str | None = None
         if item.kind == "question":
             prompt_label = _followup_prompt_label(
                 connection,
                 str(scope["thread_id"]),
-                item.question_ids,
+                root_question_ids,
                 item.section_label,
             )
         annotation = create_annotation(
@@ -4781,8 +5047,8 @@ def review_discussion_message(
                             else {}
                         ),
                         **(
-                            {"rootQuestionIds": item.question_ids}
-                            if item.question_ids
+                            {"rootQuestionIds": root_question_ids}
+                            if root_question_ids
                             else {}
                         ),
                         **({"promptLabel": prompt_label} if prompt_label else {}),
@@ -4825,7 +5091,22 @@ def delete_discussion_answer(
     if scope is None:
         raise EntityNotFoundError(f"Discussion message does not exist: {message_id}")
 
-    result = update_discussion_message(connection, message_id, command)
+    if not command.markdown.strip():
+        # A final-section delete removes the message, preserving its document history.
+        # Check BOTH revisions, just as a partial-section edit does.
+        document = _one_or_none(connection, """
+            SELECT d.revision FROM documents d
+            JOIN discussion_messages dm ON dm.body_document_id = d.id
+            WHERE dm.id = :id AND d.deleted_at IS NULL
+        """, {"id": message_id})
+        if document is None or document["revision"] != command.document_revision:
+            raise RevisionConflictError(
+                f"Stale revision for discussion message document: {message_id}"
+            )
+        result = delete_discussion_message(connection, message_id,
+            DiscussionMessageDeleteCommand(revision=command.revision))
+    else:
+        result = update_discussion_message(connection, message_id, command)
     now = _now()
     for annotation_id in dict.fromkeys(command.question_ids):
         removed = connection.execute(
@@ -4839,13 +5120,16 @@ def delete_discussion_answer(
                 "annotation_id": annotation_id,
             },
         )
-        if not removed.rowcount and not command.archive_questions:
+        if not command.archive_questions:
+            if removed.rowcount:
+                _reopen_questions_without_answers(connection, [annotation_id], now)
             continue
         connection.execute(
             text("""
                 UPDATE annotations
                 SET status = :status,
                     answered_at = NULL,
+                    archived_at = :updated_at,
                     skipped_at = CASE WHEN :status = 'archived' THEN NULL ELSE skipped_at END,
                     updated_at = :updated_at,
                     revision = revision + 1
@@ -4867,12 +5151,33 @@ def delete_discussion_answer(
     return result
 
 
+def _reopen_questions_without_answers(
+    connection: Connection, question_ids: list[str], timestamp: str,
+) -> None:
+    if not question_ids:
+        return
+    connection.execute(text("""
+        UPDATE annotations SET status = 'open', answered_at = NULL,
+            updated_at = :now, revision = revision + 1
+        WHERE id IN :ids AND deleted_at IS NULL AND status = 'answered'
+          AND NOT EXISTS (
+            SELECT 1 FROM discussion_message_annotations dma
+            JOIN discussion_messages dm ON dm.id = dma.message_id
+            JOIN discussion_threads dt ON dt.id = dm.thread_id
+            WHERE dma.annotation_id = annotations.id AND dma.relation = 'answers'
+              AND dm.deleted_at IS NULL AND dt.deleted_at IS NULL
+          )
+    """).bindparams(bindparam("ids", expanding=True)),
+        {"ids": question_ids, "now": timestamp})
+
+
 def delete_discussion_message(
     connection: Connection,
     message_id: str,
     command: DiscussionMessageDeleteCommand,
+    *, sync_task_note: bool = True, update_thread: bool = True,
 ) -> MutationResponse:
-    """Soft-delete one response and reopen every question it answered."""
+    """Soft-delete a response; reopen understood questions with no remaining answer."""
 
     scope = _one_or_none(
         connection,
@@ -4901,6 +5206,9 @@ def delete_discussion_message(
             f"Stale revision for discussion message: {message_id}"
         )
 
+    if sync_task_note:
+        from ..services.task_review_service import sync_message_review
+        sync_message_review(connection, message_id, None)
     linked_question_ids = [
         str(row["annotation_id"])
         for row in connection.execute(
@@ -4916,16 +5224,6 @@ def delete_discussion_message(
         ).mappings()
     ]
     now = _now()
-    if linked_question_ids:
-        connection.execute(
-            text("""
-                UPDATE annotations
-                SET status = 'open', answered_at = NULL,
-                    updated_at = :now, revision = revision + 1
-                WHERE id IN :question_ids AND deleted_at IS NULL
-                """).bindparams(bindparam("question_ids", expanding=True)),
-            {"question_ids": linked_question_ids, "now": now},
-        )
     connection.execute(
         text("""
             UPDATE annotations
@@ -4938,7 +5236,8 @@ def delete_discussion_message(
               )
               AND origin IN (
                 'discussion_review_followup',
-                'discussion_review_highlight'
+                'discussion_review_highlight',
+                'discussion_review_source'
               )
             """),
         {"message_id": message_id, "now": now},
@@ -4949,6 +5248,12 @@ def delete_discussion_message(
         ),
         {"message_id": message_id},
     )
+    _reopen_questions_without_answers(connection, linked_question_ids, now)
+    if update_thread:
+        connection.execute(text("""
+            UPDATE discussion_threads SET updated_at = :now, revision = revision + 1
+            WHERE id = (SELECT thread_id FROM discussion_messages WHERE id = :message_id)
+        """), {"now": now, "message_id": message_id})
     row = _one_or_none(
         connection,
         """
@@ -5211,21 +5516,14 @@ def delete_discussion(
             raise EntityNotFoundError(f"Discussion does not exist: {discussion_id}")
         raise RevisionConflictError(f"Stale revision for discussion: {discussion_id}")
 
+    messages = _rows(connection, """
+        SELECT id, revision FROM discussion_messages
+        WHERE thread_id = :id AND deleted_at IS NULL
+    """, {"id": discussion_id})
+    for message in messages:
+        delete_discussion_message(connection, str(message["id"]),
+            DiscussionMessageDeleteCommand(revision=int(message["revision"])), update_thread=False)
     now = _now()
-    connection.execute(
-        text("""
-            UPDATE discussion_messages
-            SET deleted_at = :deleted_at,
-                updated_at = :updated_at,
-                revision = revision + 1
-            WHERE thread_id = :thread_id AND deleted_at IS NULL
-            """),
-        {
-            "thread_id": discussion_id,
-            "deleted_at": now,
-            "updated_at": now,
-        },
-    )
     row = _one_or_none(
         connection,
         """

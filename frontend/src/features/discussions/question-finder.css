@@ -1,0 +1,30 @@
+.discussionViewModes { display:flex; gap:8px; margin-bottom:16px; }
+.discussionViewModes button[aria-pressed="true"] { background:var(--ink,#273d36); color:white; }
+.questionFinder { max-width:1100px; margin:0 auto; width:100%; }
+.questionFinder header h2 { font-size:28px; margin:4px 0 10px; }
+.questionFinder header p:not(.eyebrow), .questionResultContext, .questionResultCount { color:var(--muted,#69726b); font-size:13px; }
+.questionFinderFilters { display:flex; gap:10px; flex-wrap:wrap; margin-top:22px; }
+.questionFinderFilters select, .questionSearch { border:1px solid var(--line,#d8ddd5); border-radius:8px; background:var(--paper,#fffef9); padding:10px 12px; color:inherit; }
+.questionSearch { display:flex; gap:10px; align-items:center; flex:1 1 340px; }
+.questionSearch input { width:100%; border:0; outline:0; background:transparent; color:inherit; font:inherit; }
+.questionSearch:focus-within { outline:2px solid #63866b; outline-offset:2px; }
+.questionResults { display:grid; gap:12px; margin-bottom:16px; }
+.questionResult { border:1px solid var(--line,#d8ddd5); border-radius:10px; padding:18px 22px; background:var(--paper,#fffef9); }
+.questionResultMeta { display:flex; gap:12px; align-items:center; font-size:11px; flex-wrap:wrap; }
+.questionResultMeta > strong { font-family:monospace; }
+.questionState { border-radius:20px; padding:4px 9px; background:#eceee8; }
+.questionState.understood { background:#dfeadf; color:#315b39; }
+.questionState.no-response { background:#f5e7cb; color:#745b29; }
+.questionResult h3 { font-size:16px; line-height:1.5; margin:12px 0 6px; }
+.questionResult h3 button { text-align:left; color:inherit; border:0; background:none; padding:0; font:inherit; cursor:pointer; }
+.questionAnswerPreview { border-left:2px solid #98afa0; padding-left:12px; font-size:13px; line-height:1.65; color:#4f6157; }
+.questionResult footer { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+.questionExpanded { max-height:420px; overflow:auto; padding:16px; background:#f4f5ef; margin-top:10px; }
+.questionFinderEmpty { padding:32px; border:1px dashed #bcc8bc; border-radius:10px; }
+.discussionIndexFilters { display:grid; gap:8px; padding:8px 0; }
+.discussionIndexFilters input, .discussionIndexFilters select { width:100%; min-width:0; padding:8px; border:1px solid #d4dbd2; border-radius:6px; background:transparent; }
+@media (max-width:700px) { .questionFinderFilters select { width:100%; } .questionResult { padding:14px; } }
+.questionResult h3 .markdownMath p { margin:0; }
+.questionAnswerPreview .markdownMath p { margin:4px 0; }
+.questionAnswerPreview .katex-display { margin:0; }
+.questionResult h3, .questionAnswerPreview { max-height:9em; overflow:hidden; }

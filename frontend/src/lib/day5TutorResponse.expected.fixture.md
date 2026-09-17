@@ -427,12 +427,12 @@ $$
 \boxed{\text{stochastic}}.
 $$
 
-For discrete actions, deterministic policies are perfectly normal. For example: $\pi(a^{\ast}(s)\mid s)=1.$ Then importance ratios are simple:
+For discrete actions, deterministic policies are perfectly normal. For example: $\pi(a^*(s)\mid s)=1.$ Then importance ratios are simple:
 
 $$
 \rho_t=
 \begin{cases}
-1/b(A_t\mid S_t), & A_t=a^{\ast}(S_t),\\
+1/b(A_t\mid S_t), & A_t=a^*(S_t),\\
 0, & \text{otherwise}.
 \end{cases}
 $$

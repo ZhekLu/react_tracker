@@ -57,6 +57,8 @@ from ..schemas.workspace import (
     ResourceProgressCommand,
     ResourceStatusCommand,
     TaskStatusCommand,
+    TaskTutorReviewCommand,
+    TaskTutorReviewResponse,
     TogglStartCommand,
     TogglStatusResponse,
 )
@@ -587,8 +589,10 @@ def get_annotation_image(resource_id: str, image_id: str) -> FileResponse:
         path,
         media_type="image/png",
         headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-            "Pragma": "no-cache",
+            "Cache-Control": (
+                "private, max-age=31536000, immutable"
+                if "-snapshot-" in image_id else "private, no-cache"
+            ),
         },
     )
 
@@ -923,6 +927,17 @@ def create_discussion(
         raise _translate_repository_error(error) from error
 
 
+@router.post("/tasks/{task_id}/tutor-review", response_model=TaskTutorReviewResponse)
+def import_task_tutor_review(
+    task_id: str, command: TaskTutorReviewCommand, connection: Database,
+) -> TaskTutorReviewResponse:
+    from ..services.task_review_service import import_task_review
+    try:
+        return import_task_review(connection, task_id, command)
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
 @router.post("/discussions/{discussion_id}/messages", response_model=MutationResponse)
 def create_discussion_message(
     discussion_id: str,
@@ -986,6 +1001,14 @@ def delete_discussion_message(
             message_id,
             command,
         )
+    except workspace_repository.WorkspaceRepositoryError as error:
+        raise _translate_repository_error(error) from error
+
+
+@router.post("/discussion-messages/{message_id}/review-source", response_model=MutationResponse)
+def mark_discussion_review_source(message_id: str, connection: Database) -> MutationResponse:
+    try:
+        return workspace_repository.mark_discussion_review_source(connection, message_id)
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error
 

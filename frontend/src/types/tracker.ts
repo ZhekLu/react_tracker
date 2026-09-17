@@ -33,7 +33,8 @@ export type TrackerView =
   | "skills"
   | "exams"
   | "notes"
-  | "discussions";
+  | "discussions"
+  | "debug";
 
 export type CourseStats = {
   dayCount: number;
@@ -147,7 +148,10 @@ export type Annotation = {
   updatedAt: string;
 };
 
+export type TodoCounts = { total: number; done: number; open: number; later: number; skipped: number };
+
 export type Task = {
+  todoCounts?: TodoCounts;
   id: string;
   dayId: string;
   sectionId?: string | null;
@@ -163,6 +167,7 @@ export type Task = {
   examQuestionIds: string[];
   skillIds: string[];
   chapterNumbers: number[];
+  resourceChapterNumbers?: Record<string, number[]>;
   rationale?: DocumentContent | null;
   notes: Note[];
   openQuestionCount: number;
@@ -186,6 +191,7 @@ export type DayProgress = {
 };
 
 export type StudyDay = {
+  todoCounts?: TodoCounts;
   id: string;
   number: number;
   title: string;

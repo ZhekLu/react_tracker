@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Bug,
   CalendarDays,
   FileQuestion,
   Layers3,
@@ -47,6 +48,7 @@ const navItems: Array<{
   { view: "exams", label: "Exams", icon: FileQuestion },
   { view: "notes", label: "Notes", icon: StickyNote },
   { view: "discussions", label: "Discussions", icon: MessageSquareText },
+  { view: "debug", label: "Debug", icon: Bug },
 ];
 
 function localDateKey(): string {
@@ -145,6 +147,8 @@ export function WorkspaceSidebar({
           const Icon = item.icon;
           return (
             <button
+              aria-label={item.label}
+              title={item.label}
               className={item.view === view ? "workspaceNavButton active" : "workspaceNavButton"}
               key={item.view}
               onClick={() => onViewChange(item.view)}
@@ -254,6 +258,7 @@ export function WorkspaceSidebar({
           {view === "exams" ? <FileQuestion size={18} /> : null}
           {view === "notes" ? <StickyNote size={18} /> : null}
           {view === "discussions" ? <MessageSquareText size={18} /> : null}
+          {view === "debug" ? <Bug size={18} /> : null}
           <div>
             <strong>
               {view === "resources" ? "Library map" : null}
@@ -261,6 +266,7 @@ export function WorkspaceSidebar({
               {view === "exams" ? "Practice map" : null}
               {view === "notes" ? "Study memory" : null}
               {view === "discussions" ? "Tutor conversations" : null}
+              {view === "debug" ? "Insert review" : null}
             </strong>
             <span>
               {view === "resources"
@@ -275,7 +281,7 @@ export function WorkspaceSidebar({
         </div>
       )}
       <div className="sidebarShortcutHint">
-        <span>⌥1–6 views</span>
+        <span>⌥1–7 views</span>
         <span>J/K days</span>
       </div>
       <a

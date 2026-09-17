@@ -1,3 +1,5 @@
+import { QuestionFinder } from "./QuestionFinder";
+import type { FinderEntry } from "./questionSearchModel";
 import { useMemo, useState, type CSSProperties } from "react";
 import {
   Archive,
@@ -55,10 +57,9 @@ import type {
 import {
   discussionAnswerSections,
   discussionFollowups,
-  matchAnswerSectionsToQuestions,
   normalizeDiscussionMarkdown,
 } from "../../lib/discussionText";
-import { importPastedMarkdown } from "../../lib/discussionImport";
+import { importWithDebug } from "../../lib/insertDebug";
 import {
   discussionQuestionIdsByLabel,
   responseQuestionIds,
@@ -78,6 +79,14 @@ import {
   trackedQuestionGroups,
 } from "../../lib/questionIdentity";
 
+function useMappedQuestionCounts(course: Course, discussionId?: string) {
+  return useMemo(() => {
+    const selected = course.discussions.find(item => item.id === discussionId);
+    return new Map((selected?.messages ?? []).map(message => [message.id, selected
+      ? responseQuestionIds(selected, message.body.markdown || message.body.plainText, course.annotations, course.discussions).length : 0]));
+  }, [course.annotations, course.discussions, discussionId]);
+}
+
 type DiscussionsViewProps = {
   course: Course;
   focusedResourceId: string;
@@ -91,12 +100,13 @@ type DiscussionsViewProps = {
     token: number;
   } | null;
   onTaskQaClose?: () => void;
-  onAddMessage: (discussionId: string, input: DiscussionMessageInput) => void;
+  onAddMessage: (discussionId: string, input: DiscussionMessageInput) => void | boolean | Promise<void | boolean>;
+  onReviewSource: (message: DiscussionMessage) => Promise<string | null>;
   onUpdateMessage: (
     message: DiscussionMessage,
     markdown: string,
     reviewItems?: DiscussionReviewItem[],
-  ) => void;
+  ) => void | boolean | Promise<void | boolean>;
   onAnnotationChange: (
     annotation: Annotation,
     changes: {
@@ -266,376 +276,113 @@ function HighlightOnlyExcerptList({
 }
 
 function DiscussionMessageContent({
-  annotationById,
-  message,
-  editing,
-  highlightsOnly,
-  onCancelEditing,
-  onQuestionLink,
-  onAnnotationChange,
-  onNoteSave,
-  questionLabelsAreOrdered,
-  questionIdsByLabel,
-  questionOrderIds,
-  resourceById,
-  reviewHighlights,
-  onSaveEditing,
+  annotationById, message, editing, visible, highlightsOnly, onCancelEditing,
+  questionIdsByLabel, reviewHighlights, onSaveEditing, onDeleteSection,
 }: {
   annotationById: Map<string, Annotation>;
   message: DiscussionMessage;
   editing: boolean;
+  visible: boolean;
   highlightsOnly: boolean;
   onCancelEditing: () => void;
-  onQuestionLink: DiscussionsViewProps["onQuestionLink"];
-  onAnnotationChange: DiscussionsViewProps["onAnnotationChange"];
-  onNoteSave: DiscussionsViewProps["onNoteSave"];
-  questionLabelsAreOrdered: boolean;
   questionIdsByLabel: Map<string, string[]>;
-  questionOrderIds: string[];
-  resourceById: Map<string, Resource>;
   reviewHighlights: Annotation[];
-  onSaveEditing: (
-    markdown: string,
-    reviewItems: DiscussionReviewItem[],
-  ) => void;
+  onSaveEditing: (markdown: string, reviewItems: DiscussionReviewItem[]) => void | boolean | Promise<void | boolean>;
+  onDeleteSection: (markdown: string, questionIds: string[]) => void;
 }) {
   const [editingSectionKey, setEditingSectionKey] = useState("");
-  const markdown = normalizeDiscussionMarkdown(
-    message.body.markdown || message.body.plainText,
-  );
-  if (highlightsOnly && !editing) {
-    return (
-      <HighlightOnlyExcerptList
-        excerpts={[
-          ...discussionHighlights(markdown),
-          ...reviewHighlightExcerpts(reviewHighlights, markdown),
-        ]}
-      />
-    );
-  }
-  const linkedQuestionIds = new Set(
-    message.annotationLinks.map((link) => link.annotationId),
-  );
-  const orderedQuestionIds = [
-    ...questionOrderIds.filter((id) => linkedQuestionIds.has(id)),
-    ...message.annotationLinks
-      .map((link) => link.annotationId)
-      .filter((id) => !questionOrderIds.includes(id)),
-  ];
-  const linkedQuestions = orderedQuestionIds
-    .map((id) => annotationById.get(id))
-    .filter((item): item is Annotation =>
-      Boolean(item && ["question", "todo"].includes(item.kind)),
-    );
-  const questionCandidates = questionLabelsAreOrdered
-    ? linkedQuestions
-    : [...linkedQuestions].sort(
-        (left, right) =>
-          left.resourceId.localeCompare(right.resourceId) ||
-          (left.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER) -
-            (right.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER) ||
-          (left.anchor?.rect?.[1] ?? Number.MAX_SAFE_INTEGER) -
-            (right.anchor?.rect?.[1] ?? Number.MAX_SAFE_INTEGER) ||
-          left.createdAt.localeCompare(right.createdAt),
-      );
+  const [sectionDrafts, setSectionDrafts] = useState(new Map<string, string>());
+  const [sectionItems, setSectionItems] = useState(new Map<string, DiscussionReviewItem[]>());
+  const [pendingDelete, setPendingDelete] = useState<{index: number; label: string} | null>(null);
+  if (!visible) return null;
+  const markdown = normalizeDiscussionMarkdown(message.body.markdown || message.body.plainText);
   const parsed = discussionAnswerSections(markdown);
-  if (message.role !== "assistant" || !parsed.sections.length) {
-    if (editing) {
-      return (
-        <DiscussionMarkdownSurface
-          className="discussionMessageEditor"
-          editable
-          markdown={markdown}
-          onCancel={onCancelEditing}
-          onSave={onSaveEditing}
-          reviewMode
-        />
-      );
-    }
-    return <ExportAwareDiscussionMarkdown markdown={markdown} />;
+  const occurrences = new Map<string, number>();
+  const sections = [
+    ...(parsed.preamble ? [{label: "Introduction", labels: [] as string[], markdown: parsed.preamble}] : []),
+    ...parsed.sections,
+  ].map(section => {
+    const occurrence = occurrences.get(section.label) ?? 0;
+    occurrences.set(section.label, occurrence + 1);
+    return {...section, key: `${section.label}:${occurrence}`};
+  });
+  function clearDraft(key: string) {
+    setSectionDrafts(current => { const next = new Map(current); next.delete(key); return next; });
+    setSectionItems(current => { const next = new Map(current); next.delete(key); return next; });
+    setEditingSectionKey("");
   }
-  const ordinaryQuestionCandidates = questionCandidates.filter(
-    (question) => question.origin !== "discussion_review_followup",
-  );
-  const followupQuestionCandidates = questionCandidates.filter(
-    (question) => question.origin === "discussion_review_followup",
-  );
-  const sectionMatches = questionIdsByLabel.size
-    ? new Map(
-        parsed.sections.map((section) => [
-          section.label,
-          [...new Set(
-            section.labels.flatMap(
-              (label) => questionIdsByLabel.get(label) ?? [],
-            ),
-          )],
-        ]),
-      )
-    : new Map(
-        matchAnswerSectionsToQuestions(
-          parsed.sections,
-          ordinaryQuestionCandidates.map((question) => ({
-            id: question.id,
-            text: questionText(question),
-          })),
-          questionLabelsAreOrdered && parsed.sections.every(
-            (section) => section.labels.length > 0,
-          ),
-        ).map((match) => [match.sectionLabel, match.questionIds]),
-      );
-  for (const followup of questionIdsByLabel.size ? [] : followupQuestionCandidates) {
-    const promptLabel = followup.anchor?.metadata?.promptLabel;
-    const directSection = typeof promptLabel === "string"
-        ? parsed.sections.find((section) => section.labels.includes(promptLabel))
-        : undefined;
-    const matchedSection =
-      directSection ??
-      parsed.sections.find((section) =>
-        (matchAnswerSectionsToQuestions(
-          [section],
-          [{ id: followup.id, text: questionText(followup) }],
-          false,
-        )[0]?.questionIds ?? []).includes(followup.id),
-      );
-    if (!matchedSection) continue;
-    const current = sectionMatches.get(matchedSection.label) ?? [];
-    sectionMatches.set(
-      matchedSection.label,
-      [...new Set([...current, followup.id])],
-    );
+  if (highlightsOnly && !editing) return <HighlightOnlyExcerptList excerpts={[
+    ...discussionHighlights(markdown), ...reviewHighlightExcerpts(reviewHighlights, markdown),
+  ]} />;
+  // Edit means edit immediately, including headings and the full document.
+  if (editing) return <DiscussionMarkdownSurface className="discussionMessageEditor" editable
+    markdown={sections.map(section => sectionDrafts.get(section.key) ?? section.markdown).join("\n\n")}
+    initialReviewItems={[...sectionItems.values()].flat()}
+    onCancel={() => { setSectionDrafts(new Map()); setSectionItems(new Map()); onCancelEditing(); }} reviewMode
+    onSave={async (value, items) => {
+      const result = await onSaveEditing(value, items);
+      if (result !== false) { setSectionDrafts(new Map()); setSectionItems(new Map()); setEditingSectionKey(""); onCancelEditing(); }
+      return result;
+    }} />;
+  if (message.role !== "assistant" || !parsed.sections.length) return <ExportAwareDiscussionMarkdown markdown={markdown} />;
+  function replaceSection(index: number, value: string) {
+    return sections.map((section, position) => position === index ? value.trim() : section.markdown).filter(Boolean).join("\n\n");
   }
-  return (
-    <div className={`discussionStructuredAnswer ${editing ? "isEditing" : ""}`}>
-      {parsed.preamble ? (
-        <details
-          className="discussionAnswerSection discussionAnswerPreamble"
-          open={editingSectionKey === "preamble" || undefined}
-        >
-          <summary>
-            <strong>Introduction</strong>
-            {editing ? (
-              <button
-                className="discussionSectionEdit"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setEditingSectionKey((current) =>
-                    current === "preamble" ? "" : "preamble",
-                  );
-                }}
-                type="button"
-              >
-                <Pencil size={10} />
-                {editingSectionKey === "preamble" ? "Close editor" : "Edit"}
-              </button>
-            ) : (
-              <span>context</span>
-            )}
-          </summary>
-          {editing && editingSectionKey === "preamble" ? (
-            <DiscussionMarkdownSurface
-              className="discussionMessageEditor discussionSectionEditor"
-              editable
-              markdown={parsed.preamble}
-              onCancel={() => setEditingSectionKey("")}
-              onSave={(updatedMarkdown, reviewItems) => {
-                onSaveEditing(
-                  `${updatedMarkdown.trim()}\n\n${markdown.slice(parsed.preamble.length).trimStart()}`,
-                  reviewItems,
-                );
-                setEditingSectionKey("");
-              }}
-              reviewMode
-            />
-          ) : (
-            <ExportAwareDiscussionMarkdown markdown={parsed.preamble} />
-          )}
-        </details>
-      ) : null}
-      {parsed.sections.map((section) => {
-        const questions = (sectionMatches.get(section.label) ?? [])
-          .map((questionId) => annotationById.get(questionId))
-          .filter((item): item is Annotation => Boolean(item));
-        const headingLine = section.markdown.match(/^#{1,6}\s+.+$/m)?.[0] ?? "";
-        const sectionBody = section.markdown.replace(/^#{1,6}\s+.+(?:\n+|$)/, "");
-        const sectionKey = section.label;
-        const sectionEditing = editing && editingSectionKey === sectionKey;
-        const sectionEditor = sectionEditing ? (
-          <DiscussionMarkdownSurface
-            className="discussionMessageEditor discussionSectionEditor"
-            editable
-            markdown={sectionBody}
-            onCancel={() => setEditingSectionKey("")}
-            onSave={(updatedMarkdown, reviewItems) => {
-              const sectionStart = markdown.indexOf(section.markdown);
-              const reconstructed = [headingLine, updatedMarkdown.trim()]
-                .filter(Boolean)
-                .join("\n\n");
-              const updatedDiscussion =
-                sectionStart < 0
-                  ? markdown
-                  : `${markdown.slice(0, sectionStart)}${reconstructed}${markdown.slice(sectionStart + section.markdown.length)}`;
-              const editorOffset = Math.max(
-                0,
-                sectionStart + headingLine.length + 2,
-              );
-              onSaveEditing(
-                updatedDiscussion,
-                reviewItems.map((item) => ({
-                  ...item,
-                  fromPosition:
-                    item.fromPosition === undefined
-                      ? undefined
-                      : item.fromPosition + editorOffset,
-                  toPosition:
-                    item.toPosition === undefined
-                      ? undefined
-                      : item.toPosition + editorOffset,
-                })),
-              );
-              setEditingSectionKey("");
-            }}
-            reviewMode
-          />
-        ) : null;
-        return (
-          <details
-            className="discussionAnswerSection"
-            key={section.label}
-            open={
-              sectionEditing ||
-              questions.some(
-                (question) =>
-                  question.status === "open" &&
-                  !question.postponed &&
-                  !question.skipped,
-              ) ||
-              undefined
-            }
-          >
-            <summary>
-              <strong>
-                {section.markdown.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? section.label}
-              </strong>
-              {editing ? (
-                <button
-                  className="discussionSectionEdit"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setEditingSectionKey((current) =>
-                      current === sectionKey ? "" : sectionKey,
-                    );
-                  }}
-                  type="button"
-                >
-                  <Pencil size={10} />
-                  {sectionEditing ? "Close editor" : "Edit"}
-                </button>
-              ) : (
-                <span>
-                  {questions.filter(
-                    (question) =>
-                      question.status === "open" &&
-                      !question.postponed &&
-                      !question.skipped,
-                  ).length
-                    ? `${questions.filter(
-                        (question) =>
-                          question.status === "open" &&
-                          !question.postponed &&
-                          !question.skipped,
-                      ).length} open`
-                    : questions.length
-                      ? "answered"
-                      : "section"}
-                </span>
-              )}
-            </summary>
-            {sectionEditor}
-            {questions.map((question, questionIndex) => {
-              const relation = message.annotationLinks.find(
-                (link) => link.annotationId === question.id,
-              )?.relation;
-              const source = resourceById.get(question.resourceId);
-              return (
-                <aside
-                  className={`inlineAnsweredQuestion status-${question.status}`}
-                  id={`discussion-answer-${message.id}-${question.id}`}
-                  key={question.id}
-                >
-                  <header>
-                    <span>
-                      {section.labels[questionIndex] ?? section.label} · linked
-                      question
-                    </span>
-                    <strong>{relation ?? question.status}</strong>
-                  </header>
-                  <AnnotationChapterGroups
-                    annotations={[question]}
-                    flat
-                    onAnnotationChange={onAnnotationChange}
-                    onNoteSave={onNoteSave}
-                  />
-                  <footer>
-                    <span>
-                      {source?.title ?? "Source"}
-                      {question.anchor?.pageNumber
-                        ? ` · p. ${question.anchor.pageNumber}`
-                        : ""}
-                    </span>
-                    <div>
-                      <button
-                        className={relation === "references" ? "active" : ""}
-                        onClick={() =>
-                          onQuestionLink(
-                            message.id,
-                            question.id,
-                            "references",
-                          )
-                        }
-                        type="button"
-                      >
-                        Referenced
-                      </button>
-                      <button
-                        className={
-                          relation === "partially_answers" ? "active" : ""
-                        }
-                        onClick={() =>
-                          onQuestionLink(
-                            message.id,
-                            question.id,
-                            "partially_answers",
-                          )
-                        }
-                        type="button"
-                      >
-                        Partial
-                      </button>
-                      <button
-                        className={relation === "answers" ? "active" : ""}
-                        onClick={() =>
-                          onQuestionLink(message.id, question.id, "answers")
-                        }
-                        type="button"
-                      >
-                        <CheckCircle2 size={12} />
-                        Done
-                      </button>
-                    </div>
-                  </footer>
-                </aside>
-              );
-            })}
-            {!sectionEditing ? (
-              <ExportAwareDiscussionMarkdown markdown={sectionBody} />
-            ) : null}
-          </details>
-        );
-      })}
-    </div>
-  );
+  function sectionQuestionIds(index: number) {
+    return sections[index].labels.flatMap(label => questionIdsByLabel.get(label) ?? []);
+  }
+  return <div className="discussionStructuredAnswer discussionReadableSections">
+    {sections.map((section, index) => {
+      const key = section.key;
+      const isEditing = editingSectionKey === key;
+      const questions = sectionQuestionIds(index).map(id => annotationById.get(id)).filter(Boolean);
+      const title = (section.markdown.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? section.label)
+        .replace(/(?:\*\*|__|==|\^\^|!!|%%|`)/g, "");
+      return <section className="discussionDocumentSection" key={key}>
+        <header className="discussionDocumentSectionHeader">
+          <strong>{title}</strong>
+          {sectionDrafts.has(key) && sectionDrafts.get(key) !== section.markdown ? <span>Unsaved draft</span> : null}
+          {questions.length ? <span>{questions.length} linked</span> : null}
+          <div>
+            <button type="button" onClick={() => isEditing ? clearDraft(key) : setEditingSectionKey(key)}>
+              <Pencil size={12} /> {isEditing ? "Cancel" : "Edit section"}
+            </button>
+            <button type="button" className="danger" disabled={Boolean(editingSectionKey) || sectionDrafts.size > 0}
+              title={editingSectionKey || sectionDrafts.size ? "Save or cancel section drafts before deleting" : undefined}
+              onClick={() => setPendingDelete({index, label: title})}>
+              <Trash2 size={12} /> Delete section
+            </button>
+          </div>
+        </header>
+        {isEditing ? <DiscussionMarkdownSurface editable reviewMode markdown={sectionDrafts.get(key) ?? section.markdown}
+          initialReviewItems={sectionItems.get(key) ?? []}
+          onChange={value => setSectionDrafts(current => new Map(current).set(key, value))}
+          onReviewItemsChange={items => setSectionItems(current => new Map(current).set(key, items.map(item => ({
+            ...item, sectionLabel: section.label, questionIds: sectionQuestionIds(index),
+            fromPosition: undefined, toPosition: undefined,
+          }))))}
+          onCancel={() => clearDraft(key)}
+          onSave={async (value, items) => {
+            const result = await onSaveEditing(replaceSection(index, value), items.map(item => ({
+              ...item, sectionLabel: section.label, questionIds: sectionQuestionIds(index),
+              // ProseMirror positions belong to this editor, not Markdown offsets.
+              fromPosition: undefined, toPosition: undefined,
+            })));
+            if (result !== false) clearDraft(key);
+            return result;
+          }} /> : <ExportAwareDiscussionMarkdown markdown={
+            section.markdown.replace(/^#{1,6}\s+.+(?:\n+|$)/, "")
+          } />}
+      </section>;
+    })}
+    {pendingDelete ? <ConfirmDialog title="Delete this section?" confirmLabel="Delete section"
+      description={`Remove “${pendingDelete.label}” and reopen questions linked only to this section. Other sections stay in the discussion.`}
+      onCancel={() => setPendingDelete(null)} onConfirm={() => {
+        const remainingIds = new Set(sections.flatMap((_section, index) => index === pendingDelete.index ? [] : sectionQuestionIds(index)));
+        onDeleteSection(replaceSection(pendingDelete.index, ""), sectionQuestionIds(pendingDelete.index).filter(id => !remainingIds.has(id)));
+        setEditingSectionKey(""); setPendingDelete(null);
+      }} /> : null}
+  </div>;
 }
 
 function ExportAwareDiscussionMarkdown({ markdown }: { markdown: string }) {
@@ -679,6 +426,7 @@ type DiscussionWorkshopPanelProps = {
   onCreateCapture: DiscussionsViewProps["onCreateCapture"];
   onNoteSave: DiscussionsViewProps["onNoteSave"];
   onQuestionLink: DiscussionsViewProps["onQuestionLink"];
+  onOpenQuestion: (questionId: string) => void;
   resource: Resource;
   resourceById: Map<string, Resource>;
   showHighlights: boolean;
@@ -704,6 +452,7 @@ function DiscussionWorkshopPanel({
   showHighlights,
   studyCaptureCount,
   onShowHighlightsChange,
+  onOpenQuestion,
 }: DiscussionWorkshopPanelProps) {
   const [openQuestionsOnly, setOpenQuestionsOnly] = useState(true);
   const visibleCoverageQuestions = openQuestionsOnly
@@ -785,7 +534,7 @@ function DiscussionWorkshopPanel({
           <summary>
             <span>
               <CircleHelp size={13} />
-              Answer coverage
+              Questions understood
             </span>
             <strong>
               {answeredCount}/{coverageQuestions.length}
@@ -826,13 +575,7 @@ function DiscussionWorkshopPanel({
                   <div>
                     {linkedMessage ? (
                       <button
-                        onClick={() =>
-                          document
-                            .getElementById(
-                              `discussion-answer-${linkedMessage.id}-${question.id}`,
-                            )
-                            ?.scrollIntoView({ behavior: "smooth", block: "center" })
-                        }
+                        onClick={() => onOpenQuestion(question.id)}
                         type="button"
                       >
                         Go to answer
@@ -850,7 +593,7 @@ function DiscussionWorkshopPanel({
                       }
                       type="button"
                     >
-                      Referenced
+                      Link to latest response
                     </button>
                     <button
                       disabled={!latestAssistantMessage}
@@ -864,7 +607,7 @@ function DiscussionWorkshopPanel({
                       }
                       type="button"
                     >
-                      Partial
+                      Latest response: partial
                     </button>
                     <button
                       disabled={!latestAssistantMessage}
@@ -899,6 +642,7 @@ export function DiscussionsView({
   onTaskQaClose,
   onAddMessage,
   onUpdateMessage,
+  onReviewSource,
   onAnnotationChange,
   onAskMessageQuestion,
   onCreateCapture,
@@ -920,12 +664,16 @@ export function DiscussionsView({
   onQuestionLink,
   onQaViewed,
 }: DiscussionsViewProps) {
+  const [mode, setMode] = useState<"questions" | "conversations">(focusedResourceId ? "conversations" : "questions");
+  const [conversationQuery, setConversationQuery] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Discussion | null>(null);
   const [pendingMessageDelete, setPendingMessageDelete] =
     useState<DiscussionMessage | null>(null);
   const [captureEditorResourceId, setCaptureEditorResourceId] = useState("");
   const [allCaptureResourceId, setAllCaptureResourceId] = useState("");
   const [editingMessageId, setEditingMessageId] = useState("");
+  const [messageExpansion, setMessageExpansion] = useState(new Map<string, boolean>());
   const [qaReviewScope, setQaReviewScope] = useState<{
     discussionId: string;
     label?: string;
@@ -949,15 +697,15 @@ export function DiscussionsView({
     ) ??
     course.discussions.find(
       (item) =>
-        item.scopeType === "resource" &&
+        item.status !== "archived" && item.scopeType === "resource" &&
         item.sourceResourceIds.includes(focusedResourceId),
     ) ??
     course.discussions.find((item) =>
-      item.sourceResourceIds.includes(focusedResourceId),
+      item.status !== "archived" && item.sourceResourceIds.includes(focusedResourceId),
     );
   const discussion =
     focusedDiscussion ??
-    (focusedResourceId ? undefined : course.discussions[0]);
+    (focusedResourceId ? undefined : course.discussions.find(item => item.status !== "archived"));
   const selectedSourceId =
     discussion
       ? discussion.sourceResourceIds.includes(focusedResourceId)
@@ -1096,7 +844,7 @@ export function DiscussionsView({
   );
   const visibleMessages = (discussion?.messages ?? []).filter(
     (message) =>
-      !highlightsOnly ||
+      Boolean((message.body.markdown || message.body.plainText).trim()) && (!highlightsOnly ||
       discussionHighlights(
         message.body.markdown || message.body.plainText,
       ).length > 0 ||
@@ -1104,25 +852,9 @@ export function DiscussionsView({
         (annotation) =>
           annotation.kind === "highlight" &&
           annotation.origin === "discussion_review_highlight",
-      ),
+      )),
   );
-  const mappedQuestionCountByMessage = useMemo(
-    () =>
-      new Map(
-        (discussion?.messages ?? []).map((message) => [
-          message.id,
-          discussion
-            ? responseQuestionIds(
-                discussion,
-                message.body.markdown || message.body.plainText,
-                course.annotations,
-                course.discussions,
-              ).length
-            : 0,
-        ]),
-      ),
-    [course.annotations, course.discussions, discussion],
-  );
+  const mappedQuestionCountByMessage = useMappedQuestionCounts(course, discussion?.id);
   const highlightCount = (discussion?.messages ?? []).reduce(
     (count, message) =>
       count +
@@ -1141,6 +873,30 @@ export function DiscussionsView({
     setCaptureEditorResourceId(open ? selectedSourceId : "");
   }
 
+  function openQuestion(questionId: string) {
+    if (!discussion) return;
+    onTaskQaClose?.();
+    onFocusResource(discussion.id);
+    setQaReviewScope({discussionId: discussion.id, questionIds: [questionId], initialFilter: "all", label: "Question and all its answers"});
+  }
+  function openSearchResult(entry: FinderEntry) {
+    const answer = entry.answers.at(-1);
+    if (!answer) return;
+    onTaskQaClose?.();
+    onFocusResource(answer.discussion.id);
+    if (entry.questions.length) {
+      setQaReviewScope({discussionId: answer.discussion.id, questionIds: entry.questions.map(q => q.id), initialFilter: "all", label: entry.label});
+    } else {
+      setQaReviewScope(null);
+      setMode("conversations");
+      setMessageExpansion(previous => new Map(previous).set(answer.section.messageId, true));
+      window.setTimeout(() => document.getElementById(`discussion-message-${answer.section.messageId}`)?.scrollIntoView({block: "center", behavior: "smooth"}), 100);
+    }
+  }
+  const conversations = course.discussions.filter(item => (includeArchived || item.status !== "archived") &&
+    [item.title, ...item.messages.map(m => m.body.markdown || m.body.plainText)].join(" ").toLowerCase().includes(conversationQuery.toLowerCase()))
+    .sort((a,b) => (b.messages.at(-1)?.createdAt ?? "").localeCompare(a.messages.at(-1)?.createdAt ?? ""));
+
   const workshop = selectedSource ? (
     <DiscussionWorkshopPanel
       activeCaptures={activeCaptures}
@@ -1155,6 +911,7 @@ export function DiscussionsView({
       onCreateCapture={onCreateCapture}
       onNoteSave={onNoteSave}
       onQuestionLink={onQuestionLink}
+      onOpenQuestion={openQuestion}
       resource={selectedSource}
       resourceById={resourceById}
       showHighlights={showHighlights}
@@ -1167,13 +924,25 @@ export function DiscussionsView({
 
   return (
     <div className="discussionLayout">
+      <nav className="discussionViewModes" aria-label="Discussion views">
+        <button className="commandButton subtle" data-track="discussion.finder" aria-pressed={mode === "questions"} onClick={() => setMode("questions")}>Find questions & answers</button>
+        <button className="commandButton subtle" data-track="discussion.conversations" aria-pressed={mode === "conversations"} onClick={() => setMode("conversations")}>Conversations</button>
+      </nav>
+      <div hidden={mode !== "questions"}><QuestionFinder course={course} onOpen={openSearchResult} onOpenSource={id => {
+        const target = course.discussions.find(d => d.resourceId === id);
+        if (target) {onTaskQaClose?.(); setQaReviewScope(null); onFocusResource(target.id); setMode("conversations");}
+        else onOpenResource(id);
+      }} onPrepare={id => {
+        const resource = course.resources.find(r => r.id === id);
+        if (resource) { setMode("conversations"); onCopyResourceQuestions(resource); }
+      }}/></div>
+      <div hidden={mode !== "conversations"}>
       <header className="viewToolbar">
         <div>
           <p className="eyebrow">Tutor conversations</p>
           <h2>
             {course.discussions.length} discussion
-            {course.discussions.length === 1 ? "" : "s"} · {answeredCount}/
-            {coverageQuestions.length} resource questions answered
+            {course.discussions.length === 1 ? "" : "s"} in this course
           </h2>
         </div>
         <label className="discussionResourceSelect">
@@ -1198,25 +967,29 @@ export function DiscussionsView({
             <MessageSquareText size={16} />
             <strong>Conversations</strong>
           </header>
-          {course.discussions.map((item) => (
+          <div className="discussionIndexFilters">
+            <input type="search" aria-label="Search conversations" placeholder="Search conversations…" value={conversationQuery} onChange={e => setConversationQuery(e.target.value)}/>
+            <label><input type="checkbox" checked={includeArchived} onChange={e => setIncludeArchived(e.target.checked)}/> Include archived</label>
+          </div>
+          {conversations.map((item) => (
             <button
               className={item.id === discussion?.id ? "active" : ""}
               key={item.id}
-              onClick={() => onFocusResource(item.resourceId)}
+              data-track="discussion.open" onClick={() => {onTaskQaClose?.(); setQaReviewScope(null); onFocusResource(item.id);}}
               type="button"
             >
               <strong>{item.title}</strong>
               <span>
-                {item.messages.length} messages · {item.questionIds.length} questions ·{" "}
+                {item.messages.filter(m => (m.body.markdown || m.body.plainText).trim()).length} messages · {item.scopeType} ·{" "}
                 {item.status}
               </span>
             </button>
           ))}
-          {!course.discussions.length ? <p>No discussions yet.</p> : null}
+          {!conversations.length ? <p>No conversations match this view.</p> : null}
           {selectedSource ? (
             <button
               className="newDiscussionButton"
-              onClick={() => onCreateDiscussion(selectedSource.id)}
+              data-track="discussion.create" onClick={() => onCreateDiscussion(selectedSource.id)}
               type="button"
             >
               <Plus size={14} /> New discussion
@@ -1399,7 +1172,7 @@ export function DiscussionsView({
                 {discussion ? (
                   <button
                     className="commandButton dangerGhost"
-                    onClick={() => setPendingDelete(discussion)}
+                    data-track="discussion.delete" onClick={() => setPendingDelete(discussion)}
                     type="button"
                   >
                     <Trash2 size={14} />
@@ -1408,9 +1181,9 @@ export function DiscussionsView({
                 ) : null}
                 <button
                   className="commandButton"
-                  onClick={() =>
+                  data-track="discussion.import" onClick={() =>
                     onImportClipboard(
-                      discussion?.resourceId ?? selectedSource?.id ?? "",
+                      discussion?.id ?? selectedSource?.id ?? "",
                     )
                   }
                   type="button"
@@ -1529,17 +1302,19 @@ export function DiscussionsView({
             <div className="discussionContentGrid">
               <div>
                 <div className="messageStream">
-                  {visibleMessages.map((message, messageIndex) => (
+                  {visibleMessages.map((message, messageIndex) => {
+                    const messageOpen = highlightsOnly || editingMessageId === message.id ||
+                      (messageExpansion.get(message.id) ?? messageIndex === visibleMessages.length - 1);
+                    return (
                     <details
                       className={`discussionMessage role-${message.role}`}
-                      key={message.id}
-                      open={
-                        highlightsOnly ||
-                        editingMessageId === message.id ||
-                        messageIndex === visibleMessages.length - 1
-                          ? true
-                          : undefined
-                      }
+                      id={`discussion-message-${message.id}`}
+                  key={message.id}
+                      open={messageOpen}
+                      onToggle={event => {
+                        const nextOpen = event.currentTarget.open;
+                        if (nextOpen !== messageOpen) setMessageExpansion(current => new Map(current).set(message.id, nextOpen));
+                      }}
                     >
                       <summary>
                         {message.role === "assistant" ? (
@@ -1547,10 +1322,9 @@ export function DiscussionsView({
                         ) : (
                           <UserRound size={15} />
                         )}
-                        <strong>{messageRoleLabel(message.role)}</strong>
+                        <strong className="discussionMessageTitle">{(message.body.markdown?.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? (message.body.plainText || message.body.markdown || messageRoleLabel(message.role)).slice(0, 105)).replace(/(?:\*\*|__|==|\^\^|!!|%%|`)/g, "")}</strong>
                         <span>
-                          #{message.sequenceNumber}
-                          {message.importedFromClipboard ? " · pasted" : ""}
+                          {messageRoleLabel(message.role)} · #{message.sequenceNumber}
                         </span>
                         <button
                           aria-label={
@@ -1584,6 +1358,17 @@ export function DiscussionsView({
                             {editingMessageId === message.id ? "Cancel" : "Edit"}
                           </span>
                         </button>
+                        {message.role === "assistant" && !discussionAnswerSections(message.body.markdown || message.body.plainText).sections.some(section => section.labels.length) ? (
+                          <button className="messageReviewSourceButton" type="button"
+                            onClick={async event => {
+                              event.preventDefault(); event.stopPropagation();
+                              const button = event.currentTarget; button.disabled = true;
+                              try {
+                                const id = await onReviewSource(message);
+                                if (id) { onTaskQaClose?.(); setQaReviewScope({discussionId: discussion.id, questionIds: [id], initialFilter: "all", label: "Review tutor note"}); }
+                              } finally { button.disabled = false; }
+                            }}><BookOpen size={12} /> {message.annotationLinks.some(link => annotationById.get(link.annotationId)?.origin === "discussion_review_source") ? "Review source" : "Review as source"}</button>
+                        ) : null}
                         {message.role === "assistant" ? (
                           <button
                             aria-label="Delete tutor response fully"
@@ -1604,26 +1389,23 @@ export function DiscussionsView({
                       <DiscussionMessageContent
                           annotationById={annotationById}
                           editing={editingMessageId === message.id}
+                          visible={messageOpen}
                           highlightsOnly={highlightsOnly}
                           message={message}
                           onCancelEditing={() => setEditingMessageId("")}
-                          onAnnotationChange={onAnnotationChange}
-                          onNoteSave={onNoteSave}
-                          onQuestionLink={onQuestionLink}
-                          questionLabelsAreOrdered={Boolean(
-                            discussion.initialPromptBatchId,
-                          )}
                           questionIdsByLabel={discussionQuestionIdsByLabel(
                             discussion,
                             course.annotations,
                           )}
-                          questionOrderIds={discussion.questionIds}
-                          resourceById={resourceById}
                           reviewHighlights={
                             reviewAnnotationsByMessage.get(message.id) ?? []
                           }
                           onSaveEditing={(updatedMarkdown, reviewItems) => {
-                            onUpdateMessage(message, updatedMarkdown, reviewItems);
+                            return onUpdateMessage(message, updatedMarkdown, reviewItems);
+                          }}
+                          onDeleteSection={(value, ids) => {
+                            if (!value.trim()) onDeleteMessage(message);
+                            else onDeleteAnswer(message, value, ids);
                           }}
                         />
                       {(mappedQuestionCountByMessage.get(message.id) ?? 0) ||
@@ -1668,8 +1450,8 @@ export function DiscussionsView({
                         </footer>
                       ) : null}
                     </details>
-                  ))}
-                  {!discussion.messages.length ? (
+                  ); })}
+                  {!highlightsOnly && !visibleMessages.length ? (
                     <div className="emptyInline">
                       The thread is ready for its first message.
                     </div>
@@ -1697,7 +1479,7 @@ export function DiscussionsView({
                 </p>
                 <button
                   className="commandButton"
-                  onClick={() => onCreateDiscussion(selectedSource.id)}
+                  data-track="discussion.create" onClick={() => onCreateDiscussion(selectedSource.id)}
                   type="button"
                 >
                   <Plus size={15} />
@@ -1707,6 +1489,7 @@ export function DiscussionsView({
             </div>
           ) : null}
         </section>
+      </div>
       </div>
       {pendingDelete ? (
         <ConfirmDialog
@@ -1734,6 +1517,7 @@ export function DiscussionsView({
       ) : null}
       {discussion && activeQaReviewDiscussionId === discussion.id ? (
         <DiscussionQaReview
+          key={`${discussion.id}:${taskQaLaunch?.token ?? qaReviewScope?.questionIds?.join(",") ?? "all"}`}
           course={course}
           discussion={discussion}
           questionIds={
@@ -1784,22 +1568,30 @@ export function DiscussionsView({
 function DiscussionComposer({
   onSubmit,
 }: {
-  onSubmit: (input: DiscussionMessageInput) => void;
+  onSubmit: (input: DiscussionMessageInput) => void | boolean | Promise<void | boolean>;
 }) {
   const [draft, setDraft] = useState("");
   const [importedFromClipboard, setImportedFromClipboard] = useState(false);
   const [role, setRole] = useState<DiscussionMessageInput["role"]>("assistant");
 
-  function submit() {
-    if (!draft.trim()) return;
-    onSubmit({
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  async function submit() {
+    if (!draft.trim() || saving) return;
+    setSaving(true); setSaveError("");
+    try {
+    const result = await onSubmit({
       markdown: draft,
       plainText: draft,
       role,
       importedFromClipboard,
     });
-    setDraft("");
+    if (result === false) throw new Error("Message could not be saved. Your draft is still here.");
+    setDraft(current => current === draft ? "" : current);
     setImportedFromClipboard(false);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Could not save the message.");
+    } finally { setSaving(false); }
   }
 
   return (
@@ -1828,7 +1620,7 @@ function DiscussionComposer({
           event.preventDefault();
           const start = event.currentTarget.selectionStart;
           const end = event.currentTarget.selectionEnd;
-          const imported = importPastedMarkdown(pasted);
+          const imported = importWithDebug(pasted);
           setDraft(
             `${draft.slice(0, start)}${imported}${draft.slice(end)}`,
           );
@@ -1839,19 +1631,20 @@ function DiscussionComposer({
         value={draft}
       />
       {draft.trim() ? (
-        <MarkdownMath className="discussionComposerPreview">
-          {draft}
-        </MarkdownMath>
+        <DiscussionMarkdownSurface className="discussionComposerPreview" markdown={draft}/>
       ) : null}
+      {saveError ? <p className="editorSaveError" role="alert">{saveError}</p> : null}
       <div className="noteActions">
+        <button type="button" className="commandButton subtle" disabled={!draft.trim() || saving}
+          onClick={() => setDraft(importWithDebug(draft, {compact: true}))}>Compact layout</button>
         <button
           className="commandButton"
-          disabled={!draft.trim()}
-          onClick={submit}
+          disabled={!draft.trim() || saving}
+          onClick={() => void submit()}
           type="button"
         >
           <Send size={14} />
-          <span>Add message</span>
+          <span>{saving ? "Saving…" : "Add message"}</span>
         </button>
       </div>
     </section>

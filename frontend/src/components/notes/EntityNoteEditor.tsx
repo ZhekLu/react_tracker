@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   FilePenLine,
   GraduationCap,
@@ -13,6 +13,7 @@ import {
 } from "../../lib/discussionHighlights";
 import type { Attention, Note } from "../../types/tracker";
 import { FileMentionChips } from "./FileMentionChips";
+import { NoteWorkspace } from "./NoteWorkspace";
 import { highlightNoteMarkers } from "../../lib/noteMarkers";
 
 type EntityNoteEditorProps = {
@@ -21,11 +22,12 @@ type EntityNoteEditorProps = {
   label?: string;
   note?: Note;
   placeholder: string;
-  onSave: (html: string) => void;
+  onSave: (markdown: string) => void | boolean | Promise<void | boolean>;
   onAttentionChange?: (note: Note, attention: Attention) => void;
   onDelete?: (note: Note) => void;
   deleteLabel?: string;
   showDeleteInSummary?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 function noteContent(note?: Note): string {
@@ -48,6 +50,7 @@ export function EntityNoteEditor({
   onDelete,
   deleteLabel = "Delete note",
   showDeleteInSummary = false,
+  onDirtyChange,
   onSave,
 }: EntityNoteEditorProps) {
   const [open, setOpen] = useState(defaultOpen);
@@ -57,13 +60,17 @@ export function EntityNoteEditor({
   const [highlightsOnly, setHighlightsOnly] = useState(false);
   const highlights = discussionHighlights(savedContent);
   const contentType = noteContentType(savedContent);
+  useEffect(() => { onDirtyChange?.(draft !== savedContent); }, [draft, savedContent, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
-  function save(markdown: string) {
+  async function save(markdown: string) {
     const highlighted = highlightNoteMarkers(markdown);
-    onSave(highlighted);
+    const result = await onSave(highlighted);
+    if (result === false) return false;
     setDraft(highlighted);
     setSavedContent(highlighted);
     setEditing(false);
+    return true;
   }
 
   return (
@@ -146,12 +153,14 @@ export function EntityNoteEditor({
       </summary>
       {open ? (
         <div className="entityNoteEditorBody">
+          <NoteWorkspace editing={editing} onEdit={() => setEditing(true)}>
           {editing ? (
             <DiscussionMarkdownSurface
               contentType={noteContentType(draft)}
               editable
               markdown={draft}
-              onCancel={() => setEditing(false)}
+              onChange={setDraft}
+              onCancel={() => { setDraft(savedContent); setEditing(false); }}
               onSave={save}
               placeholder={placeholder}
             />
@@ -171,14 +180,6 @@ export function EntityNoteEditor({
                 markdown={savedContent}
               />
               <div className="noteActions">
-                <button
-                  className="commandButton subtle"
-                  onClick={() => setEditing(true)}
-                  type="button"
-                >
-                  <Pencil size={13} />
-                  <span>Edit</span>
-                </button>
                 {note && onDelete ? (
                   <button
                     className="commandButton danger subtle"
@@ -192,6 +193,7 @@ export function EntityNoteEditor({
               </div>
             </>
           )}
+          </NoteWorkspace>
           {!editing && !savedContent.trim() ? (
             <button
               className="commandButton"

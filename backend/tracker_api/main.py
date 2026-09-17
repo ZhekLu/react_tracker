@@ -1,26 +1,58 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from .api.insert_debug_routes import router as insert_debug_router
 from .api.routes import router
+from .api.usage_log_routes import router as usage_log_router
 from .config import get_settings
 from .migrations.runner import run_migrations
+from .services.insert_debug_service import cleanup as cleanup_editor_debug
+from .services.usage_log_service import cleanup as cleanup_usage_log
 
 logger = logging.getLogger("uvicorn.error")
 READ_ONLY_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    async def expire_diagnostics() -> None:
+        while True:
+            await asyncio.sleep(3600)
+            for cleanup in (cleanup_editor_debug, cleanup_usage_log):
+                try:
+                    await asyncio.to_thread(cleanup)
+                except Exception:
+                    logger.warning("Diagnostic expiry failed; will retry next hour")
+
+    task = asyncio.create_task(expire_diagnostics())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     run_migrations()
-    app = FastAPI(title=settings.app_name)
+    cleanup_editor_debug()
+    try:
+        cleanup_usage_log()
+    except Exception:
+        logger.warning("Usage diagnostics unavailable; tracker will continue without them")
+    app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
@@ -77,6 +109,8 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(router)
+    app.include_router(insert_debug_router)
+    app.include_router(usage_log_router)
     if settings.frontend_dist_path.is_dir():
         app.mount(
             "/",

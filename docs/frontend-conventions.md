@@ -15,14 +15,18 @@ feature modules.
 ## State
 
 - Keep transient visual state local to the component that renders it.
-- Keep course/task/resource/exam state at the app workspace boundary. Fetch one
-  complete course workspace from the API and refresh it after mutations until a
-  finer cache is justified.
+- Keep course/task/resource/exam state at the app workspace boundary. Chapter,
+  task, and day status changes update it immediately, including derived progress.
+  Resource and exam status changes also refresh dependent data in the background;
+  structural/content mutations refresh the complete workspace.
 - Derive progress and counts from domain state instead of storing duplicate UI
   counters.
 - Do not mutate API objects in-place.
 - Backend mutations are revision-aware. Send the entity revision returned by the
-  workspace endpoint and surface `409` conflicts instead of hiding them.
+  workspace endpoint and surface `409` conflicts instead of hiding them. Queue
+  rapid writes per entity using each server-confirmed revision. A failed write
+  cancels queued successors and reloads authoritative state. Background workspace
+  loads must preserve pending edits and discard superseded responses.
 
 ## Editors
 

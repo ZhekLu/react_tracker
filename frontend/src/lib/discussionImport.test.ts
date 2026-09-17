@@ -4,14 +4,17 @@ import { describe, expect, it } from "vitest";
 import { discussionEditorExtensions } from "../components/editor/discussionEditorExtensions";
 import {
   canonicalizePastedMarkdown,
-  importPastedMarkdown,
+  importPastedMarkdown as pasteMarkdown,
 } from "./discussionImport";
-import { normalizeDiscussionMarkdown } from "./discussionText";
+import { repairLegacyDiscussionMarkdown as normalizeDiscussionMarkdown } from "./discussionText";
 import day5TutorExpected from "./day5TutorResponse.expected.fixture.md?raw";
 import day5TutorResponse from "./day5TutorResponse.raw.fixture.md?raw";
 import chapter5TutorExpected from "./chapter5TutorResponse.expected.fixture.md?raw";
 import chapter5TutorResponse from "./chapter5TutorResponse.raw.fixture.md?raw";
 import chapter7TutorResponse from "./chapter7TutorResponse.raw.fixture.md?raw";
+
+// Legacy compaction remains opt-in; these historical snapshots exercise it.
+const importPastedMarkdown = (value: string) => pasteMarkdown(value, {compact: true});
 
 const fixture = String.raw`
 # Q-001

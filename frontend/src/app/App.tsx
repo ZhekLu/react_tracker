@@ -1,3 +1,7 @@
+import { buildQuestionIndex } from "../features/discussions/questionSearchModel";
+import { useUsageLog } from "../lib/usageLog";
+import { DebugView } from "../features/debug/DebugView";
+import { applyDayStatus, applyTaskStatus } from "../lib/workspaceProgress";
 import {
   useCallback,
   useEffect,
@@ -10,6 +14,7 @@ import {
   createAnnotation,
   createDiscussion,
   createDiscussionMessage,
+  markDiscussionReviewSource,
   createPromptBatch,
   deleteNote,
   deleteDiscussionAnswer,
@@ -19,6 +24,7 @@ import {
   fetchCourseWorkspace,
   importMaccyImageQuestions,
   importDiscussionAnswers,
+  importTaskTutorReview,
   linkDiscussionQuestion,
   openResource,
   openResourceFile,
@@ -41,6 +47,7 @@ import {
   uploadImageQuestions,
   upsertNote,
 } from "../api/trackerApi";
+import { createRevisionQueue } from "../lib/revisionQueue";
 import { withQuestionAnswerReferences } from "../lib/questionAnswerReferences";
 import {
   canonicalQuestionCaptures,
@@ -60,6 +67,8 @@ import { DrawboardColorPaletteDialog } from "../features/resources/DrawboardColo
 import { PdfImportOverviewDialog } from "../features/resources/PdfImportOverviewDialog";
 import { ResourceReader } from "../features/reader/ResourceReader";
 import { RoadmapView } from "../features/roadmap/RoadmapView";
+import { TaskTutorReviewDialog } from "../features/roadmap/TaskTutorReviewDialog";
+import { taskReviewQuestionIds, type TaskReviewPart } from "../lib/taskReview";
 import { SkillsView } from "../features/skills/SkillsView";
 import { QuestionDialog } from "../features/questions/QuestionDialog";
 import { QuestionExtractionDialog } from "../features/questions/QuestionExtractionDialog";
@@ -79,11 +88,12 @@ import {
   resourceQuestions,
   resourceScopedAnnotations,
   taskQuestions,
+  taskTutorPrompt,
   taskScopedAnnotations,
   type PromptPayload,
 } from "../lib/prompts";
 import { normalizeDiscussionMarkdown } from "../lib/discussionText";
-import { importPastedMarkdown } from "../lib/discussionImport";
+import { importWithDebug } from "../lib/insertDebug";
 import {
   normalizeTutorAnswerInstances,
   responseQuestionIds,
@@ -140,6 +150,7 @@ const trackerViews = new Set<TrackerView>([
   "exams",
   "notes",
   "discussions",
+  "debug",
 ]);
 
 function navigationFromUrl() {
@@ -252,6 +263,7 @@ export function App() {
   const [courseId, setCourseId] = useState(initialNavigation.courseId);
   const [workspace, setWorkspace] = useState<Course | null>(null);
   const [view, setView] = useState<TrackerView>(initialNavigation.view);
+  useUsageLog(courseId, view);
   const [activeDayId, setActiveDayId] = useState(initialNavigation.dayId);
   const [focusedResourceId, setFocusedResourceId] = useState(
     initialNavigation.resourceId,
@@ -269,6 +281,7 @@ export function App() {
     progress: number;
     stage: string;
   } | null>(null);
+  const [taskReviewImport, setTaskReviewImport] = useState<{dayId: string; task: Task; discussion?: Discussion} | null>(null);
   const [taskQaLaunch, setTaskQaLaunch] = useState<{
     discussionId: string;
     label: string;
@@ -278,7 +291,14 @@ export function App() {
     token: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [mutating, setMutating] = useState(false);
+  const [mutationCount, setMutationCount] = useState(0);
+  const mutating = mutationCount > 0;
+  const statusSaveQueue = useRef(createRevisionQueue());
+  const pendingStatusChanges = useRef(new Map<string, {
+    courseId: string; token: symbol;
+    apply: (course: Course, revision?: number) => Course;
+  }>());
+  const workspaceRequestSequence = useRef(0);
   const [questionDraft, setQuestionDraft] = useState<{
     resourceId: string;
     contextLabel: string;
@@ -319,6 +339,8 @@ export function App() {
     () => courseId || courses[0]?.id || "",
     [courseId, courses],
   );
+  const activeCourseIdRef = useRef(activeCourseId);
+  useEffect(() => { activeCourseIdRef.current = activeCourseId; }, [activeCourseId]);
   const activeDay = useMemo(
     () =>
       workspace?.days.find((day) => day.id === activeDayId) ??
@@ -352,6 +374,9 @@ export function App() {
     ],
   );
 
+  const displayedCourses = useMemo(() => courses.map((course) => course.id === workspace?.id
+    ? {...course, stats: workspace.stats} : course), [courses, workspace]);
+
   const loadCourses = useCallback(async () => {
     const nextCourses = await fetchCourses();
     setCourses(nextCourses);
@@ -362,9 +387,15 @@ export function App() {
 
   const loadWorkspace = useCallback(async (nextCourseId: string) => {
     if (!nextCourseId) return;
-    const nextWorkspace = withQuestionAnswerReferences(
-      await fetchCourseWorkspace(nextCourseId),
-    );
+    const sequence = ++workspaceRequestSequence.current;
+    const loaded = await fetchCourseWorkspace(nextCourseId);
+    if (sequence !== workspaceRequestSequence.current || nextCourseId !== activeCourseIdRef.current) return;
+    let nextWorkspace = withQuestionAnswerReferences(loaded);
+    // A background refresh must not undo a chapter click still being saved.
+    for (const pending of pendingStatusChanges.current.values()) {
+      if (pending.courseId !== nextCourseId) continue;
+      nextWorkspace = pending.apply(nextWorkspace);
+    }
     setWorkspace(nextWorkspace);
     setActiveDayId((current) =>
       nextWorkspace.days.some((day) => day.id === current)
@@ -419,6 +450,7 @@ export function App() {
 
   useEffect(() => {
     if (!activeCourseId) return;
+    const sequence = ++workspaceRequestSequence.current;
     let cancelled = false;
     async function refreshForCourse() {
       setLoading(true);
@@ -427,7 +459,7 @@ export function App() {
         const nextWorkspace = withQuestionAnswerReferences(
           await fetchCourseWorkspace(activeCourseId),
         );
-        if (!cancelled) {
+        if (!cancelled && sequence === workspaceRequestSequence.current) {
           setWorkspace(nextWorkspace);
           setActiveDayId((current) =>
             nextWorkspace.days.some((day) => day.id === current)
@@ -562,8 +594,9 @@ export function App() {
         "exams",
         "notes",
         "discussions",
+        "debug",
       ];
-      if (event.altKey && /^[1-6]$/.test(event.key)) {
+      if (event.altKey && /^[1-7]$/.test(event.key)) {
         event.preventDefault();
         navigationIntentRef.current = "push";
         setView(viewShortcuts[Number(event.key) - 1]);
@@ -605,15 +638,14 @@ export function App() {
     action: () => Promise<void>,
     options: { preserveScroll?: boolean } = {},
   ) {
-    if (!workspace) return;
+    if (!workspace) return false;
     const preservedScrollY = options.preserveScroll ? window.scrollY : null;
-    setMutating(true);
+    setMutationCount((count) => count + 1);
     setError(null);
     setActionMessage(null);
     try {
       await action();
-      await loadWorkspace(workspace.id);
-      await loadCourses();
+      await Promise.all([loadWorkspace(workspace.id), loadCourses()]);
       broadcastRef.current?.postMessage({ courseId: workspace.id });
       if (preservedScrollY !== null) {
         window.requestAnimationFrame(() =>
@@ -622,10 +654,12 @@ export function App() {
           ),
         );
       }
+      return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Tracker update failed.");
+      return false;
     } finally {
-      setMutating(false);
+      setMutationCount((count) => count - 1);
     }
   }
 
@@ -633,13 +667,16 @@ export function App() {
     if (!workspace) return;
     const task = findTask(workspace, taskId);
     if (!task) return;
-    void runMutation(async () => {
-      await updateTaskStatus(task.id, status, task.revision);
-    });
+    runStatusMutation(`task:${task.id}`, task.revision,
+      (course, revision) => applyTaskStatus(course, task.id, status, revision),
+      (revision) => updateTaskStatus(task.id, status, revision!),
+    );
   }
 
   function handleCourseChange(nextCourseId: string) {
     navigationIntentRef.current = "push";
+    activeCourseIdRef.current = nextCourseId;
+    ++workspaceRequestSequence.current;
     setError(null);
     setActionMessage(null);
     setFocusedResourceId("");
@@ -889,10 +926,6 @@ export function App() {
       day,
       scopedAnnotations.map((annotation) => annotation.id),
     );
-    if (!discussion) {
-      setError("Create the day discussion first, then copy this task's next questions into it.");
-      return;
-    }
     const nextGroups = queuedTrackedQuestionGroups(scopedAnnotations);
     const nextQuestions = nextGroups.flatMap((group) =>
       canonicalQuestionCaptures(group.annotations),
@@ -909,17 +942,71 @@ export function App() {
     );
     const payload = taskQuestions(workspace, day, task, {
       annotationIds: nextQuestions.map((annotation) => annotation.id),
-      parentDiscussionId: discussion.id,
+      parentDiscussionId: discussion?.id,
       questionLabelStart: labelStart,
       questionLabels,
       unansweredOnly: true,
     });
     const promptBatchId = await savePromptBatch(
       payload,
-      `Next ${nextGroups.length} task question${nextGroups.length === 1 ? "" : "s"} copied into “${discussion.title}”.`,
+      `Next ${nextGroups.length} task question${nextGroups.length === 1 ? "" : "s"} copied ${discussion ? `into “${discussion.title}”` : "for this task"}.`,
       { logicalQuestionCount: nextGroups.length },
     );
-    if (promptBatchId) await loadWorkspace(workspace.id);
+    if (!promptBatchId) return;
+    const saved = await runMutation(async () => {
+      if (!discussion) await createDiscussion({courseId: workspace.id, initialPromptBatchId: promptBatchId, title: `Day ${day.number} · Task questions`});
+    });
+    if (!saved) return;
+    setActionMessage(`${nextGroups.length} task questions copied. Paste the tutor's response using Import review.`);
+  }
+
+  async function handleCopyTask(dayId: string, task: Task) {
+    if (!workspace) return;
+    const day = workspace.days.find(d => d.id === dayId);
+    if (!day) return;
+    const annotations = taskScopedAnnotations(workspace, day, task);
+    const discussion = discussionForTaskQuestions(day, annotations.map(a => a.id));
+    const payload = taskTutorPrompt(workspace, day, task, {
+      parentDiscussionId: discussion?.id,
+      questionLabels: questionLabelsForDiscussion(discussion, annotations),
+    });
+    const batchId = await savePromptBatch(payload, "Task, note, and linked questions copied.", {selectionConfirmed: true});
+    if (!batchId) return;
+    const saved = await runMutation(async () => {
+      if (!discussion) await createDiscussion({courseId: workspace.id, initialPromptBatchId: batchId, title: `Day ${day.number} · Task reviews`});
+    });
+    if (saved) setActionMessage("Task, note, and linked questions copied. Use Import review for the tutor’s response.");
+  }
+
+  function handleInsertTaskReview(dayId: string, task: Task) {
+    if (!workspace) return;
+    const day = workspace.days.find(d => d.id === dayId);
+    if (!day) return;
+    setTaskReviewImport({dayId, task, discussion: discussionForTaskQuestions(day,
+      taskScopedAnnotations(workspace, day, task).map(a => a.id))});
+  }
+
+  async function handleImportTaskReview(review: string, parts: TaskReviewPart[], importId: string) {
+    if (!workspace || !taskReviewImport) throw new Error("The task is no longer open.");
+    const {task, discussion} = taskReviewImport;
+    const answers = parts.map(part => ({markdown: part.markdown, plainText: part.markdown,
+      annotationLinks: part.questionIds.map(annotationId => ({annotationId, relation: "references" as const}))}));
+    let discussionId = discussion?.id;
+    let questionIds = parts.flatMap(part => part.questionIds);
+    if (review) {
+      const result = await importTaskTutorReview(task.id, {importId, discussionId,
+        note: task.notes.find(note => note.kind === "task"), reviewMarkdown: review, answers});
+      discussionId = result.discussion_id;
+      questionIds = [result.question_id, ...questionIds];
+    } else if (discussionId) {
+      await importDiscussionAnswers(discussionId, {answers, importedFromClipboard: true});
+    } else throw new Error("Choose a task review section or copy this task's questions first.");
+    await loadWorkspace(workspace.id);
+    navigationIntentRef.current = "push";
+    setFocusedResourceId(discussionId); setFocusedTaskId(task.id);
+    setTaskQaLaunch({discussionId, questionIds, initialFilter: "all", label: task.title, token: Date.now()});
+    setView("discussions"); resetWorkspaceScroll();
+    setActionMessage(review ? "Tutor review appended to the task note. Q&A is ready." : "Question answers imported.");
   }
 
   async function handleCopyResourceQuestions(
@@ -941,39 +1028,13 @@ export function App() {
       resourceScopedAnnotations(workspace, rootResource),
     );
     if (!queuedGroups.length) {
-      if (discussion) {
-        navigationIntentRef.current = "push";
-        setFocusedResourceId(discussion.id);
-        setFocusedTaskId("");
-        setView("discussions");
-        resetWorkspaceScroll();
-        setActionMessage("Every active question in this resource already has a tutor response.");
-      } else {
-        const emptyPayload = resourceQuestions(workspace, rootResource, {
-          annotationIds: [],
-        });
-        const promptBatchId = await savePromptBatch(
-          emptyPayload,
-          "Resource question workspace prepared; there were no unanswered questions to copy.",
-        );
-        if (!promptBatchId) return;
-        let discussionId = "";
-        await runMutation(async () => {
-          const created = await createDiscussion({
-            courseId: workspace.id,
-            initialPromptBatchId: promptBatchId,
-            sourceResourceId: rootId,
-            title: `${rootResource.title} · Resource questions`,
-          });
-          discussionId = created.id;
-        });
-        if (!discussionId) return;
-        navigationIntentRef.current = "push";
-        setFocusedResourceId(discussionId);
-        setFocusedTaskId("");
-        setView("discussions");
-        resetWorkspaceScroll();
-      }
+      navigationIntentRef.current = "push";
+      setFocusedResourceId(discussion?.id ?? rootId);
+      setFocusedTaskId("");
+      setTaskQaLaunch(null);
+      setView("discussions");
+      resetWorkspaceScroll();
+      setActionMessage("No open questions need a tutor response. Use Find questions & answers to review existing answers.");
       return;
     }
     if (selectedQuestionKeys === undefined && queuedGroups.length > 20) {
@@ -1058,34 +1119,6 @@ export function App() {
     resetWorkspaceScroll();
   }
 
-  async function createResourceQuestionDiscussion(
-    rootResource: Resource,
-  ): Promise<string> {
-    if (!workspace) return "";
-    const seed = resourceQuestions(workspace, rootResource, {
-      annotationIds: [],
-    });
-    const batch = await createPromptBatch({
-      annotationIds: [],
-      courseId: workspace.id,
-      markdown: seed.markdown,
-      sourceResourceId: seed.sourceResourceId,
-      sourceScope: seed.sourceScope,
-      title: seed.title,
-    });
-    let discussionId = "";
-    await runMutation(async () => {
-      const created = await createDiscussion({
-        courseId: workspace.id,
-        initialPromptBatchId: batch.id,
-        sourceResourceId: rootResource.id,
-        title: `${rootResource.title} · Resource questions`,
-      });
-      discussionId = created.id;
-    });
-    return discussionId;
-  }
-
   async function handleOpenResourceQa(resource: Resource) {
     if (!workspace) return;
     const rootId = resource.parentResourceId ?? resource.id;
@@ -1097,21 +1130,6 @@ export function App() {
         candidate.scopeType === "resource" &&
         candidate.sourceResourceIds.includes(rootId),
     );
-    let discussionId = discussion?.id ?? "";
-
-    if (!discussionId) {
-      try {
-        discussionId = await createResourceQuestionDiscussion(rootResource);
-      } catch (caught) {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "The resource question discussion could not be created.",
-        );
-      }
-      if (!discussionId) return;
-    }
-
     const questionIds = resourceScopedAnnotations(workspace, rootResource)
       .filter(
         (annotation) =>
@@ -1121,16 +1139,19 @@ export function App() {
       )
       .map((annotation) => annotation.id);
 
+    const candidate = discussion ?? workspace.discussions.find(d => d.status !== "archived" && d.messages.some(m => m.annotationLinks.some(l => questionIds.includes(l.annotationId))));
+    const discussionId = candidate?.id ?? rootId;
+
     navigationIntentRef.current = "push";
     setFocusedResourceId(discussionId);
     setFocusedTaskId("");
     setView("discussions");
     resetWorkspaceScroll();
 
-    if (!questionIds.length) {
+    if (!questionIds.length || !candidate) {
       setTaskQaLaunch(null);
       setActionMessage(
-        `No tutor answers are mapped to ${rootResource.title} yet. Use Copy next in this resource discussion, ask your tutor, then paste the response here.`,
+        `No tutor answers are mapped to ${rootResource.title} yet. Use Copy next questions on the resource to prepare a tutor prompt.`,
       );
       return;
     }
@@ -1148,15 +1169,16 @@ export function App() {
     if (!workspace) return;
     const day = workspace.days.find((candidate) => candidate.id === dayId);
     if (!day) return;
-    const questionIds = taskScopedAnnotations(workspace, day, task)
+    const questionIds = [...new Set([...taskReviewQuestionIds(workspace.annotations, task), ...taskScopedAnnotations(workspace, day, task)
       .filter(
         (annotation) =>
           isTrackedQuestion(annotation) &&
           annotation.status !== "archived" &&
           (annotation.discussionResponseCount ?? 0) > 0,
       )
-      .map((annotation) => annotation.id);
-    const discussion = discussionForTaskQuestions(day, questionIds);
+      .map((annotation) => annotation.id)])];
+    const discussion = discussionForTaskQuestions(day, questionIds) ?? workspace.discussions.find(d =>
+      d.status !== "archived" && d.messages.some(m => m.annotationLinks.some(l => questionIds.includes(l.annotationId))));
     if (!discussion || !questionIds.length) {
       setActionMessage("No tutor answers are mapped to this task yet.");
       return;
@@ -1168,6 +1190,8 @@ export function App() {
       discussionId: discussion.id,
       label: `Day ${day.number} · ${task.title}`,
       questionIds,
+      initialFilter: "all",
+      scopeKind: "task",
       token: Date.now(),
     });
     setView("discussions");
@@ -1182,13 +1206,14 @@ export function App() {
         ? "completed"
         : "closed"
       : "open";
-    void runMutation(async () => {
-      await updateDayStatus(day.id, status, day.revision);
-    });
+    runStatusMutation(`day:${day.id}`, day.revision,
+      (course, revision) => applyDayStatus(course, day.id, status, revision),
+      (revision) => updateDayStatus(day.id, status, revision!),
+    );
   }
 
   function handleDayNoteSave(day: StudyDay, noteHtml: string) {
-    handleNoteSave({
+    return handleNoteSave({
       entityId: day.id,
       entityType: "day",
       html: noteHtml,
@@ -1201,7 +1226,7 @@ export function App() {
     if (!workspace) return;
     const note = input.note;
     const markdown = normalizeDiscussionMarkdown(input.html);
-    void runMutation(async () => {
+    return runMutation(async () => {
       await upsertNote({
         courseId: workspace.id,
         noteId: note?.id,
@@ -1248,26 +1273,59 @@ export function App() {
     if (!workspace) return;
     const resource = workspace.resources.find((item) => item.id === resourceId);
     if (!resource) return;
-    void runMutation(async () => {
-      await updateResourceStatus(resource.id, status, resource.revision);
-    });
+    runStatusMutation(`resource:${resource.id}`, resource.revision,
+      (course, revision) => ({...course, resources: course.resources.map((item) => item.id === resource.id
+        ? {...item, status, revision: revision ?? item.revision} : item)}),
+      (revision) => updateResourceStatus(resource.id, status, revision!), true,
+    );
+  }
+
+  function runStatusMutation(
+    entityKey: string,
+    revision: number | null | undefined,
+    apply: (course: Course, revision?: number) => Course,
+    save: (revision: number | null | undefined) => Promise<{ revision: number }>,
+    refresh = false,
+  ) {
+    if (!workspace) return;
+    const savingCourseId = workspace.id;
+    const key = `${savingCourseId}:${entityKey}`;
+    const token = Symbol(key);
+    pendingStatusChanges.current.set(key, { courseId: savingCourseId, apply, token });
+    ++workspaceRequestSequence.current;
+    setWorkspace((current) => current?.id === savingCourseId ? apply(current) : current);
+    setMutationCount((count) => count + 1);
+    setError(null);
+    void statusSaveQueue.current.enqueue(key, revision, save).then((savedRevision) => {
+      ++workspaceRequestSequence.current;
+      const latest = pendingStatusChanges.current.get(key);
+      const update = latest?.apply ?? apply;
+      setWorkspace((current) => current?.id === savingCourseId ? update(current, savedRevision) : current);
+      if (latest?.token === token) {
+        pendingStatusChanges.current.delete(key);
+        broadcastRef.current?.postMessage({ courseId: savingCourseId });
+        if (refresh) void loadWorkspace(savingCourseId).catch((caught: unknown) =>
+          setError(caught instanceof Error ? caught.message : "Workspace refresh failed."));
+      }
+    }).catch((caught: unknown) => {
+      if (pendingStatusChanges.current.get(key)?.token !== token) return;
+      pendingStatusChanges.current.delete(key);
+      setError(caught instanceof Error ? caught.message : "Status update failed.");
+      void loadWorkspace(savingCourseId).catch(() => undefined);
+    }).finally(() => setMutationCount((count) => count - 1));
   }
 
   function handleResourceChapterProgressChange(
-    resource: Course["resources"][number],
-    chapter: Course["resources"][number]["chapters"][number],
+    resource: Resource,
+    chapter: Resource["chapters"][number],
     status: ResourceChapterStatus,
   ) {
-    void runMutation(
-      async () => {
-        await updateResourceChapterProgress(
-          resource.id,
-          chapter.number,
-          status,
-          chapter.revision,
-        );
-      },
-      { preserveScroll: true },
+    runStatusMutation(`chapter:${resource.id}:${chapter.number}`, chapter.revision,
+      (course, revision) => ({...course, resources: course.resources.map((item) => item.id === resource.id ? {
+        ...item, chapters: item.chapters.map((entry) => entry.number === chapter.number
+          ? {...entry, status, revision: revision ?? entry.revision} : entry),
+      } : item)}),
+      (revision) => updateResourceChapterProgress(resource.id, chapter.number, status, revision),
     );
   }
 
@@ -1330,9 +1388,13 @@ export function App() {
     question: ExamQuestion,
     status: ExamStatus,
   ) {
-    void runMutation(async () => {
-      await updateExamQuestionStatus(question.id, status, question.revision);
-    });
+    runStatusMutation(`exam:${question.id}`, question.revision,
+      (course, revision) => ({...course, exams: course.exams.map((exam) => ({...exam,
+        questions: exam.questions.map((item) => item.id === question.id
+          ? {...item, solveStatus: status, revision: revision ?? item.revision} : item),
+      }))}),
+      (revision) => updateExamQuestionStatus(question.id, status, revision!), true,
+    );
   }
 
   function resolveDiscussionResourceId(resourceId: string): string {
@@ -1342,7 +1404,7 @@ export function App() {
     return (
       workspace.discussions.find(
         (discussion) =>
-          discussion.scopeType === "resource" &&
+          discussion.status !== "archived" && discussion.scopeType === "resource" &&
           (discussion.resourceId === sourceResourceId ||
             discussion.sourceResourceIds.includes(sourceResourceId)),
       )?.resourceId ?? sourceResourceId
@@ -1351,13 +1413,27 @@ export function App() {
 
   function handleOpenDiscussion(resourceId: string, taskId?: string) {
     navigationIntentRef.current = "push";
+    setTaskQaLaunch(null);
     setFocusedResourceId(resolveDiscussionResourceId(resourceId));
     setFocusedTaskId(taskId ?? "");
     setView("discussions");
   }
 
+  function handleOpenQuestionDiscussion(resourceId: string, questionId?: string) {
+    const entry = questionId && workspace ? buildQuestionIndex(workspace).find(item => item.questions.some(q => q.id === questionId)) : undefined;
+    const answer = entry?.answers.at(-1);
+    if (!entry || !answer) {handleOpenDiscussion(resourceId); return;}
+    navigationIntentRef.current = "push";
+    setFocusedResourceId(answer.discussion.id);
+    setFocusedTaskId("");
+    setTaskQaLaunch({discussionId: answer.discussion.id, questionIds: entry.questions.map(q => q.id), label: entry.label, initialFilter: "all", token: Date.now()});
+    setView("discussions");
+    resetWorkspaceScroll();
+  }
+
   function handleFocusDiscussionResource(resourceId: string) {
     navigationIntentRef.current = "push";
+    setTaskQaLaunch(null);
     setFocusedResourceId(resourceId);
     setFocusedTaskId("");
   }
@@ -1739,12 +1815,14 @@ export function App() {
 
   function handleCreateDiscussion(resourceId: string) {
     if (!workspace) return;
-    setFocusedResourceId(resourceId);
     void runMutation(async () => {
-      await createDiscussion({
+      const created = await createDiscussion({
         courseId: workspace.id,
         sourceResourceId: resourceId,
       });
+      setTaskQaLaunch(null);
+      setFocusedTaskId("");
+      setFocusedResourceId(created.id);
     });
   }
 
@@ -1785,7 +1863,7 @@ export function App() {
           ),
       ),
     ];
-    void runMutation(async () => {
+    return runMutation(async () => {
       if (input.role !== "assistant") {
         await createDiscussionMessage(discussionId, {
           ...input,
@@ -1824,7 +1902,7 @@ export function App() {
     reviewItems: DiscussionReviewItem[] = [],
   ) {
     const markdown = normalizeDiscussionMarkdown(markdownInput);
-    void runMutation(async () => {
+    return runMutation(async () => {
       if (reviewItems.length) {
         await reviewDiscussionMessage(message.id, {
           revision: message.revision,
@@ -1842,6 +1920,15 @@ export function App() {
         });
       }
     });
+  }
+
+  async function handleReviewDiscussionSource(message: DiscussionMessage): Promise<string | null> {
+    let sourceId: string | null = null;
+    const saved = await runMutation(async () => {
+      const result = await markDiscussionReviewSource(message.id);
+      sourceId = result.id;
+    });
+    return saved ? sourceId : null;
   }
 
   function handleDeleteDiscussionMessage(message: DiscussionMessage) {
@@ -1965,16 +2052,12 @@ export function App() {
     setError(null);
     try {
       const clipboard = await navigator.clipboard.readText();
-      const markdown = importPastedMarkdown(clipboard);
+      const markdown = importWithDebug(clipboard);
       if (!markdown) throw new Error("The clipboard does not contain discussion text.");
       await runMutation(async () => {
         if (!workspace) return;
-        const existingDiscussion = workspace.discussions.find(
-          (item) =>
-            item.id === resourceId ||
-            item.resourceId === resourceId ||
-            item.sourceResourceIds.includes(resourceId),
-        );
+        const existingDiscussion = workspace.discussions.find(item => item.id === resourceId) ??
+          workspace.discussions.find(item => item.resourceId === resourceId || item.sourceResourceIds.includes(resourceId));
         const discussion =
           existingDiscussion ??
           (await createDiscussion({
@@ -2085,9 +2168,11 @@ export function App() {
   function handleDeleteDiscussion(discussion: Discussion) {
     const fallbackResourceId = discussion.sourceResourceIds[0] ?? "";
     void (async () => {
-      await runMutation(async () => {
+      const deleted = await runMutation(async () => {
         await deleteDiscussion(discussion.id, discussion.revision);
       });
+      if (!deleted) return;
+      setTaskQaLaunch(null);
       setFocusedResourceId(fallbackResourceId);
       setActionMessage("Discussion deleted.");
     })();
@@ -2164,7 +2249,7 @@ export function App() {
       <AppShell
       activeDayId={activeDayId}
       course={workspace}
-      courses={courses}
+      courses={displayedCourses}
       onBack={() => window.history.back()}
       onCourseChange={handleCourseChange}
       onCopyDayPrompt={(day, includeTutorSolutions) =>
@@ -2229,6 +2314,7 @@ export function App() {
         </div>
       ) : null}
       {mutating ? <div className="savingPill">Saving...</div> : null}
+      {view === "debug" ? <DebugView key={workspace.id} courseId={workspace.id}/> : null}
       {view === "roadmap" ? (
         <RoadmapView
           activeDayId={activeDayId}
@@ -2251,6 +2337,8 @@ export function App() {
             void handleCopyNextTaskQuestions(dayId, task)
           }
           onOpenTaskQa={handleOpenTaskQa}
+          onCopyTask={(dayId, task) => { void handleCopyTask(dayId, task).catch(caught => setError(String(caught))); }}
+          onInsertTaskReview={handleInsertTaskReview}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
           onPrepareExerciseScreenshots={handlePrepareExerciseScreenshots}
           onUploadImageQuestions={handleUploadImageQuestions}
@@ -2345,7 +2433,7 @@ export function App() {
           onDiscussionAttentionChange={handleDiscussionAttentionChange}
           onNoteSave={handleNoteSave}
           onNoteAttentionChange={handleNoteAttentionChange}
-          onOpenDiscussion={handleOpenDiscussion}
+          onOpenDiscussion={handleOpenQuestionDiscussion}
           onOpenDay={handleOpenDay}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
         />
@@ -2360,6 +2448,7 @@ export function App() {
           onAddMessage={handleAddDiscussionMessage}
           onDeleteMessage={handleDeleteDiscussionMessage}
           onUpdateMessage={handleUpdateDiscussionMessage}
+          onReviewSource={handleReviewDiscussionSource}
           onAnnotationChange={handleAnnotationChange}
           onCreateCapture={handleCreateResourceCapture}
           onCreateDiscussion={handleCreateDiscussion}
@@ -2456,6 +2545,10 @@ export function App() {
           resourceTitle={pdfImportOverview.resourceTitle}
         />
       ) : null}
+      {taskReviewImport && workspace ? <TaskTutorReviewDialog
+        annotations={workspace.annotations} discussion={taskReviewImport.discussion}
+        onClose={() => setTaskReviewImport(null)} onImport={handleImportTaskReview} task={taskReviewImport.task}
+      /> : null}
       {promptQuestionSelection ? (
         <PromptQuestionSelectionDialog
           choices={promptQuestionSelection.choices}

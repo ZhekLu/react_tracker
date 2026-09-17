@@ -85,6 +85,14 @@ class Annotation(StrictModel):
     updated_at: str
 
 
+class TodoCounts(StrictModel):
+    total: int = 0
+    done: int = 0
+    open: int = 0
+    later: int = 0
+    skipped: int = 0
+
+
 class Task(StrictModel):
     id: str
     day_id: str
@@ -101,9 +109,11 @@ class Task(StrictModel):
     exam_question_ids: list[str] = Field(default_factory=list)
     skill_ids: list[str] = Field(default_factory=list)
     chapter_numbers: list[int] = Field(default_factory=list)
+    resource_chapter_numbers: dict[str, list[int]] = Field(default_factory=dict)
     rationale: DocumentContent | None = None
     notes: list[Note] = Field(default_factory=list)
     open_question_count: int = 0
+    todo_counts: TodoCounts = Field(default_factory=TodoCounts)
 
 
 class DaySection(StrictModel):
@@ -139,6 +149,7 @@ class StudyDay(StrictModel):
     postponed_question_count: int
     tracked_seconds: int
     progress: DayProgress
+    todo_counts: TodoCounts = Field(default_factory=TodoCounts)
 
 
 class ResourceVersion(StrictModel):
@@ -574,6 +585,23 @@ class DiscussionAnswerImportItem(StrictModel):
 class DiscussionAnswerImportCommand(StrictModel):
     answers: list[DiscussionAnswerImportItem] = Field(min_length=1)
     imported_from_clipboard: bool = False
+
+
+class TaskTutorReviewCommand(StrictModel):
+    import_id: str = Field(min_length=1, max_length=100)
+    discussion_id: str | None = None
+    note_id: str | None = None
+    note_revision: int | None = Field(default=None, ge=1)
+    document_revision: int | None = Field(default=None, ge=1)
+    review_markdown: str = Field(min_length=1)
+    answers: list[DiscussionAnswerImportItem] = Field(default_factory=list)
+
+
+class TaskTutorReviewResponse(StrictModel):
+    discussion_id: str
+    note_id: str
+    message_id: str
+    question_id: str
 
 
 class DiscussionMessageUpdateCommand(RevisionCommand):

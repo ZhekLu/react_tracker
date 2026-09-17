@@ -1,6 +1,4 @@
 import {
-  lazy,
-  Suspense,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -30,7 +28,6 @@ import {
   Link2,
   MessageCircleQuestion,
   MessageSquareText,
-  NotebookPen,
   RotateCcw,
   Sparkles,
   Timer,
@@ -51,6 +48,7 @@ import {
 } from "../../components/annotations/InlineCaptureEditor";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { EntityNoteEditor } from "../../components/notes/EntityNoteEditor";
+import { TodoProgressBadge } from "../../components/TodoProgressBadge";
 import { ProgressBar } from "../../components/ProgressBar";
 import { BookChapterProgress } from "../../components/resources/BookChapterProgress";
 import { BookExerciseProgress } from "../../components/resources/BookExerciseProgress";
@@ -81,6 +79,8 @@ import type {
 } from "../../types/tracker";
 import {
   dayEstimatedMinutes,
+  dayOptionalMinutes,
+  dayVisibleSections,
   dayTasks,
   dayTone,
   dayToneLabel,
@@ -123,7 +123,7 @@ type RoadmapViewProps = {
     status: ResourceChapterStatus,
   ) => void;
   onExerciseReviewChange: (task: Task, progress: ExerciseReviewProgress) => void;
-  onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
+  onDayNoteSave: (day: StudyDay, noteHtml: string) => void | boolean | Promise<void | boolean>;
   onNoteSave: (input: EntityNoteSaveInput) => void;
   onNoteDelete: (note: Task["notes"][number]) => void;
   onNoteAttentionChange: (
@@ -133,6 +133,8 @@ type RoadmapViewProps = {
   onOpenDiscussion: (resourceId: string, taskId?: string) => void;
   onCopyNextQuestions: (dayId: string, task: Task) => void;
   onOpenTaskQa: (dayId: string, task: Task) => void;
+  onCopyTask: (dayId: string, task: Task) => void;
+  onInsertTaskReview: (dayId: string, task: Task) => void;
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: (task: Task) => void;
   onUploadImageQuestions: (
@@ -151,12 +153,6 @@ type RoadmapViewProps = {
     trackedSecondsByTask: Record<string, number>;
   };
 };
-
-const RichNoteEditor = lazy(() =>
-  import("../../components/editor/RichNoteEditor").then((module) => ({
-    default: module.RichNoteEditor,
-  })),
-);
 
 type TaskRowProps = {
   dayId: string;
@@ -177,6 +173,8 @@ type TaskRowProps = {
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onCopyNextQuestions: RoadmapViewProps["onCopyNextQuestions"];
   onOpenTaskQa: RoadmapViewProps["onOpenTaskQa"];
+  onCopyTask: RoadmapViewProps["onCopyTask"];
+  onInsertTaskReview: RoadmapViewProps["onInsertTaskReview"];
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
   onUploadImageQuestions: RoadmapViewProps["onUploadImageQuestions"];
@@ -224,6 +222,8 @@ function TaskRow({
   onOpenDiscussion,
   onCopyNextQuestions,
   onOpenTaskQa,
+  onCopyTask,
+  onInsertTaskReview,
   onOpenResource,
   onPrepareExerciseScreenshots,
   onUploadImageQuestions,
@@ -231,6 +231,7 @@ function TaskRow({
   onToggleTimer,
   timer,
 }: TaskRowProps) {
+  const [noteDirty, setNoteDirty] = useState(false);
   const reward = useCompletionReward();
   const celebrateTask = reward.celebrate;
   const [rationaleOpen, setRationaleOpen] = useState(false);
@@ -265,7 +266,7 @@ function TaskRow({
       return left.annotation.createdAt.localeCompare(right.annotation.createdAt);
     });
   const taskCaptures = captures.filter((capture) =>
-    isCaptureRelevantToTask(capture, dayId, task.chapterNumbers),
+    isCaptureRelevantToTask(capture, dayId, task.resourceChapterNumbers?.[capture.resource.id] ?? task.chapterNumbers),
   );
   const nextTaskQuestions = taskCaptures.filter(
     ({ annotation }) =>
@@ -398,18 +399,29 @@ function TaskRow({
             >
               <Timer size={11} /> {taskTimerText(task, timer.trackedSeconds)}
             </button>
-            {taskOpenQuestionCount ? (
+            <TodoProgressBadge counts={task.todoCounts} compact />
+            {taskOpenQuestionCount - (task.todoCounts?.open ?? 0) > 0 ? (
               <span
                 className="taskMetaBadge question"
                 title="Open questions scoped to this task/chapter"
               >
-                <CircleHelp size={11} /> {taskOpenQuestionCount}
+                <CircleHelp size={11} /> {taskOpenQuestionCount - (task.todoCounts?.open ?? 0)}
               </span>
             ) : null}
+            <button className="taskMetaBadge taskTutorAction" disabled={noteDirty}
+              data-track="task.copy" onClick={() => onCopyTask(dayId, task)}
+              title={noteDirty ? "Save the task note before copying" : "Copy task, info, note, and linked questions"} type="button">
+              <Copy size={11}/> Copy task prompt
+            </button>
+            <button className="taskMetaBadge taskTutorAction" disabled={noteDirty}
+              data-track="task.import" onClick={() => onInsertTaskReview(dayId, task)}
+              title={noteDirty ? "Save the task note before inserting a review" : "Append tutor review and open Q&A"} type="button">
+              <ClipboardPaste size={11}/> Import review
+            </button>
             {nextTaskQuestions.length ? (
               <button
                 className="taskMetaBadge copyNextQuestions"
-                onClick={() => onCopyNextQuestions(dayId, task)}
+                data-track="task.next" onClick={() => onCopyNextQuestions(dayId, task)}
                 title={
                   copiedUnansweredCount
                     ? `Copy unanswered questions again with the same stable IDs (${copiedUnansweredCount} already copied)`
@@ -417,17 +429,17 @@ function TaskRow({
                 }
                 type="button"
               >
-                <Copy size={11} /> Next {nextTaskQuestions.length}
+                <Copy size={11} /> Copy next {nextTaskQuestions.length}
               </button>
             ) : null}
-            {mappedTaskQuestions.length ? (
+            {mappedTaskQuestions.length || taskNote?.document.markdown?.includes("<!-- tutor-review:") ? (
               <button
                 className="taskMetaBadge taskQaLaunch"
-                onClick={() => onOpenTaskQa(dayId, task)}
+                data-track="task.qa" onClick={() => onOpenTaskQa(dayId, task)}
                 title="Review only tutor answers mapped to this task"
                 type="button"
               >
-                <Sparkles size={11} /> QA {mappedTaskQuestions.length}
+                <Sparkles size={11} /> Q&A {mappedTaskQuestions.length || ""}
               </button>
             ) : null}
             {linkedResources
@@ -437,7 +449,7 @@ function TaskRow({
                   compact
                   key={resource.id}
                   onChange={onChapterProgressChange}
-                  preferredChapterNumbers={task.chapterNumbers}
+                  preferredChapterNumbers={task.resourceChapterNumbers?.[resource.id] ?? task.chapterNumbers}
                   resource={resource}
                 />
               ))}
@@ -484,7 +496,7 @@ function TaskRow({
                 title="Review book exercises, paste tutor answers, or add a solution manually"
                 type="button"
               >
-                <Sparkles size={11} /> QA {exerciseStats.requiredReviewed}/{exerciseStats.requiredTotal} required · {exerciseStats.totalReviewed}/{exerciseStats.total} chapter
+                <Sparkles size={11} /> Q&A {exerciseStats.requiredReviewed}/{exerciseStats.requiredTotal} required · {exerciseStats.totalReviewed}/{exerciseStats.total} chapter
               </button>
             ) : null}
             {shouldCompact ? (
@@ -663,6 +675,7 @@ function TaskRow({
           <TaskCapturePanel
             captures={captures}
             chapterNumbers={task.chapterNumbers}
+            resourceChapterNumbers={task.resourceChapterNumbers}
             dayId={dayId}
             onAnnotationChange={onAnnotationChange}
             onNoteSave={onNoteSave}
@@ -737,6 +750,7 @@ function TaskRow({
         <EntityNoteEditor
           key={`${taskNote?.id ?? task.id}:${taskNote?.revision ?? 0}`}
           label="Task note"
+          onDirtyChange={setNoteDirty}
           note={taskNote}
           onAttentionChange={onNoteAttentionChange}
           onSave={(html) =>
@@ -802,6 +816,7 @@ function isCaptureRelevantToTask(
 function TaskCapturePanel({
   captures,
   chapterNumbers,
+  resourceChapterNumbers,
   dayId,
   onAnnotationChange,
   onNoteSave,
@@ -810,6 +825,7 @@ function TaskCapturePanel({
 }: {
   captures: Array<{ annotation: Annotation; resource: Resource }>;
   chapterNumbers: number[];
+  resourceChapterNumbers?: Record<string, number[]>;
   dayId: string;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
   onNoteSave: RoadmapViewProps["onNoteSave"];
@@ -820,7 +836,7 @@ function TaskCapturePanel({
   const isRelevantToTask = (capture: {
     annotation: Annotation;
     resource: Resource;
-  }) => isCaptureRelevantToTask(capture, dayId, chapterNumbers);
+  }) => isCaptureRelevantToTask(capture, dayId, resourceChapterNumbers?.[capture.resource.id] ?? chapterNumbers);
   const taskCaptures = captures.filter(isRelevantToTask);
   const activeQuestions = taskCaptures.filter(
     (capture) =>
@@ -927,11 +943,11 @@ function TaskCapturePanel({
                 );
                 setOpen(true);
               }}
-              title="Show only open questions and expand them"
+              title="Show open questions and to-dos"
               type="button"
             >
               <CircleHelp size={12} />
-              {activeQuestionCount} active question
+              {activeQuestionCount} open item
               {activeQuestionCount === 1 ? "" : "s"}
             </button>
           ) : null}
@@ -1042,7 +1058,7 @@ function TaskCapturePanel({
                 initiallyExpandCaptures={showingQuestionsOnly || showingPostponedOnly}
                 initiallyOpenAll={showingQuestionsOnly || showingPostponedOnly}
                 preferredChapterNumbers={
-                  resource.kind === "book" ? chapterNumbers : []
+                  resource.kind === "book" ? resourceChapterNumbers?.[resource.id] ?? chapterNumbers : []
                 }
                 onAnnotationChange={onAnnotationChange}
                 onDiscuss={() => onOpenDiscussion(resource.id)}
@@ -1122,13 +1138,15 @@ type DayCardProps = {
   onImportMaccyImages: RoadmapViewProps["onImportMaccyImages"];
   onExerciseProgressChange: RoadmapViewProps["onExerciseProgressChange"];
   onExerciseReviewChange: RoadmapViewProps["onExerciseReviewChange"];
-  onDayNoteSave: (day: StudyDay, noteHtml: string) => void;
+  onDayNoteSave: RoadmapViewProps["onDayNoteSave"];
   onEntityNoteSave: (input: EntityNoteSaveInput) => void;
   onNoteDelete: RoadmapViewProps["onNoteDelete"];
   onNoteAttentionChange: RoadmapViewProps["onNoteAttentionChange"];
   onOpenDiscussion: RoadmapViewProps["onOpenDiscussion"];
   onCopyNextQuestions: RoadmapViewProps["onCopyNextQuestions"];
   onOpenTaskQa: RoadmapViewProps["onOpenTaskQa"];
+  onCopyTask: RoadmapViewProps["onCopyTask"];
+  onInsertTaskReview: RoadmapViewProps["onInsertTaskReview"];
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
   onUploadImageQuestions: RoadmapViewProps["onUploadImageQuestions"];
@@ -1159,6 +1177,8 @@ function DayCard({
   onOpenDiscussion,
   onCopyNextQuestions,
   onOpenTaskQa,
+  onCopyTask,
+  onInsertTaskReview,
   onOpenResource,
   onPrepareExerciseScreenshots,
   onUploadImageQuestions,
@@ -1170,6 +1190,7 @@ function DayCard({
   const reward = useCompletionReward();
   const tasks = dayTasks(day);
   const plannedMinutes = dayEstimatedMinutes(day);
+  const optionalMinutes = dayOptionalMinutes(day);
   const trackedMinutes = day.trackedSeconds / 60;
   const timeRatio = plannedMinutes ? trackedMinutes / plannedMinutes : 0;
   const isClosed = isDayClosed(day);
@@ -1231,7 +1252,8 @@ function DayCard({
       <ProgressBar accent={accent} label={`${day.title} progress`} value={day.progress.ratio} />
       <div className="daySummary">
         <span><Check size={14} /> {day.progress.done}/{day.progress.required} core</span>
-        <span><CircleHelp size={14} /> {day.openQuestionCount} questions</span>
+        <span><CircleHelp size={14} /> {Math.max(0, day.openQuestionCount - (day.todoCounts?.open ?? 0))} questions</span>
+        <TodoProgressBadge counts={day.todoCounts} />
         <span>
           <Clock3 size={14} /> {tasks.filter((task) => task.status === "later").length + day.postponedQuestionCount} later
         </span>
@@ -1239,11 +1261,12 @@ function DayCard({
           <span
             className={`dayTimeBudget ${timeRatio >= 1 ? "complete" : ""}`}
             style={{ "--time-progress": `${Math.min(100, Math.round(timeRatio * 100))}%` } as React.CSSProperties}
-            title={`${Math.round(timeRatio * 100)}% of the planned study time tracked`}
+            title={`${formatPlannedTime(plannedMinutes - optionalMinutes) || "0m"} core + ${formatPlannedTime(optionalMinutes) || "0m"} optional. Skipped tasks excluded.`}
           >
             <Timer size={14} />
             <b>{formatTrackedTime(day.trackedSeconds) || "0m"}</b>
             <em>/ {formatPlannedTime(plannedMinutes)} planned</em>
+            {optionalMinutes ? <small>incl. {formatPlannedTime(optionalMinutes)} optional</small> : null}
             <i aria-hidden="true"><i /></i>
           </span>
         ) : day.trackedSeconds ? (
@@ -1263,7 +1286,7 @@ function DayCard({
       {showDetails ? (
         <div className="dayBody">
         <div className="taskList">
-          {day.sections.map((section) => {
+          {dayVisibleSections(day).map((section) => {
             const taskRows = section.tasks.map((task) => (
               <TaskRow
                 dayId={day.id}
@@ -1284,6 +1307,8 @@ function DayCard({
                 onOpenDiscussion={onOpenDiscussion}
                 onCopyNextQuestions={onCopyNextQuestions}
                 onOpenTaskQa={onOpenTaskQa}
+                onCopyTask={onCopyTask}
+                onInsertTaskReview={onInsertTaskReview}
                 onOpenResource={onOpenResource}
                 onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
                 onUploadImageQuestions={onUploadImageQuestions}
@@ -1345,51 +1370,17 @@ function DayCard({
         </div>
       ) : null}
       {showDetails ? (
-        <DayNotes
-          content={day.notes[0]?.document.markdown ?? ""}
-          dayTitle={day.title}
-          onSave={(noteHtml) => onDayNoteSave(day, noteHtml)}
-        />
-      ) : null}
-    </article>
-  );
-}
-
-function DayNotes({
-  content,
-  dayTitle,
-  onSave,
-}: {
-  content: string;
-  dayTitle: string;
-  onSave: (noteHtml: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(content);
-
-  function saveDraft() {
-    onSave(draft);
-  }
-
-  return (
-    <details className="dayNotes" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>
-        <NotebookPen size={16} />
-        <span>Day notes</span>
-      </summary>
-      {open ? (
-        <div className="dayNotesBody">
-          <Suspense fallback={<div className="editorLoading">Loading editor...</div>}>
-            <RichNoteEditor initialContent={draft} onChange={setDraft} placeholder={`Notes for ${dayTitle}`} />
-          </Suspense>
-          <div className="noteActions">
-            <button className="commandButton subtle" onClick={saveDraft} type="button">
-              Save notes
-            </button>
-          </div>
+        <div className="dayNotes">
+          <EntityNoteEditor
+            key={day.id}
+            label="Day notes"
+            note={day.notes[0]}
+            placeholder={`Notes for ${day.title}`}
+            onSave={(markdown) => onDayNoteSave(day, markdown)}
+          />
         </div>
       ) : null}
-    </details>
+    </article>
   );
 }
 
@@ -1412,6 +1403,8 @@ export function RoadmapView({
   onOpenDiscussion,
   onCopyNextQuestions,
   onOpenTaskQa,
+  onCopyTask,
+  onInsertTaskReview,
   onOpenResource,
   onPrepareExerciseScreenshots,
   onUploadImageQuestions,
@@ -1526,6 +1519,8 @@ export function RoadmapView({
           onOpenDiscussion={onOpenDiscussion}
           onCopyNextQuestions={onCopyNextQuestions}
           onOpenTaskQa={onOpenTaskQa}
+                onCopyTask={onCopyTask}
+                onInsertTaskReview={onInsertTaskReview}
           onOpenResource={onOpenResource}
           onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
           onUploadImageQuestions={onUploadImageQuestions}

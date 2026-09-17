@@ -4,7 +4,8 @@ import hashlib
 import re
 import shlex
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import date
 from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import unquote, urlparse
@@ -84,6 +85,8 @@ class TaskSpec:
     rationale: str = ""
     resource_keys: tuple[str, ...] = ()
     skill_keys: tuple[str, ...] = ()
+    note_markdown: str | None = None
+    fields_present: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,7 @@ class SectionSpec:
     order_index: int
     default_collapsed: bool
     tasks: tuple[TaskSpec, ...]
+    fields_present: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,7 @@ class DaySpec:
     purpose: str | None = None
     skill_keys: tuple[str, ...] = ()
     sections: tuple[SectionSpec, ...] = ()
+    fields_present: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -206,6 +211,12 @@ def _parse_attributes(
 ) -> tuple[str, dict[str, str | bool]]:
     block = _attribute_block(value)
     if block is None:
+        if "{#" in value:
+            diagnostics.append(
+                PlanDiagnostic(
+                    "error", "invalid_attributes", "Unclosed or malformed attribute block.", line
+                )
+            )
         return value.strip(), {}
     start, body = block
     try:
@@ -214,15 +225,39 @@ def _parse_attributes(
         diagnostics.append(PlanDiagnostic("error", "invalid_attributes", str(error), line))
         return value[:start].strip(), {}
     attributes: dict[str, str | bool] = {}
+    parsed_value: str | bool
     for token in tokens:
         if token.startswith("#"):
-            attributes["id"] = token[1:]
+            key, parsed_value = "id", token[1:]
         elif "=" in token:
             key, raw_value = token.split("=", 1)
-            attributes[key.replace("-", "_")] = raw_value
+            key, parsed_value = key.replace("-", "_"), raw_value
         else:
-            attributes[token.replace("-", "_")] = True
+            key, parsed_value = token.replace("-", "_"), True
+        if key in attributes:
+            diagnostics.append(
+                PlanDiagnostic("error", "duplicate_attribute", f"Repeated attribute {key!r}.", line)
+            )
+        attributes[key] = parsed_value
     return value[:start].strip(), attributes
+
+
+def _check_attributes(
+    attributes: dict[str, str | bool],
+    allowed: set[str],
+    *,
+    line: int,
+    diagnostics: list[PlanDiagnostic],
+) -> None:
+    diagnostics.extend(
+        PlanDiagnostic("error", "unknown_attribute", f"Unknown attribute {key!r}.", line)
+        for key in attributes.keys() - allowed
+    )
+    diagnostics.extend(
+        PlanDiagnostic("error", "invalid_boolean", f"{key} must be true or false.", line)
+        for key in {"optional", "collapsed"} & attributes.keys()
+        if attributes[key] not in {True, "true", "false"}
+    )
 
 
 def _validate_key(
@@ -308,6 +343,9 @@ def _parse_day_heading(
         line=line,
         diagnostics=diagnostics,
     )
+    _check_attributes(
+        attributes, {"id", "date", "topic", "order", "skills"}, line=line, diagnostics=diagnostics
+    )
     explicit_number = re.match(
         r"^(?:Day\s+)?(?P<number>\d+)\s*:\s*(?P<title>.+)$",
         title_with_attributes,
@@ -321,6 +359,22 @@ def _parse_day_heading(
         explicit_number.group("title").strip() if explicit_number else title_with_attributes.strip()
     )
     date_value = _string(attributes.get("date")) or (date_match.group(1) if date_match else None)
+    if date_value:
+        try:
+            date.fromisoformat(date_value)
+        except ValueError:
+            diagnostics.append(
+                PlanDiagnostic("error", "invalid_date", f"Invalid day date {date_value!r}.", line)
+            )
+    try:
+        order_index = int(_string(attributes.get("order")) or number)
+    except ValueError:
+        diagnostics.append(
+            PlanDiagnostic(
+                "error", "invalid_integer_attribute", "Day order must be an integer.", line
+            )
+        )
+        order_index = number
     topic = _string(attributes.get("topic"))
     if topic is None:
         topic = title.split(" - ", 1)[1].strip() if " - " in title else title
@@ -339,7 +393,7 @@ def _parse_day_heading(
         {
             "key": key,
             "number": number,
-            "order_index": int(_string(attributes.get("order")) or number),
+            "order_index": order_index,
             "title": title,
             "date": date_value,
             "topic": topic,
@@ -347,6 +401,7 @@ def _parse_day_heading(
             "skills": _string_list(attributes.get("skills")),
             "line": line,
             "sections": [],
+            "fields_present": frozenset(attributes),
         },
         explicit_key,
     )
@@ -599,6 +654,76 @@ class _SourceLine:
     text: str
 
 
+def _extract_task_notes(
+    body: str, line_offset: int, diagnostics: list[PlanDiagnostic]
+) -> tuple[str, dict[str, str]]:
+    """Remove literal blocks before scanning headings/tasks; retain note bytes."""
+    output: list[str] = []
+    notes: dict[str, str] = {}
+    note_key: str | None = None
+    note_line = 0
+    note_lines: list[str] = []
+    fence: tuple[str, int] | None = None
+    for index, line in enumerate(body.splitlines(keepends=True), start=line_offset + 1):
+        stripped = line.rstrip("\r\n")
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", stripped)
+        was_fenced = fence is not None
+        if marker:
+            if fence is None:
+                fence = (marker[1][0], len(marker[1]))
+            elif re.fullmatch(rf" {{0,3}}{re.escape(fence[0])}{{{fence[1]},}}\s*", stripped):
+                fence = None
+        if note_key is not None:
+            output.append("\n")
+            if not was_fenced and not marker and re.fullmatch(r" {0,3}:::\s*", stripped):
+                notes[note_key] = "".join(note_lines).strip("\r\n")
+                note_key = None
+                note_lines = []
+            else:
+                note_lines.append(line)
+            continue
+        if was_fenced or marker:
+            output.append("\n")
+            continue
+        if re.match(r"^ {0,3}:::\s*task-note\b", stripped):
+            opening = re.fullmatch(r" {0,3}:::\s+task-note\s+\{#([^}\s]+)\}\s*", stripped)
+            note_key = opening[1] if opening else "__invalid_note__"
+            note_line = index
+            if opening is None:
+                diagnostics.append(
+                    PlanDiagnostic(
+                        "error",
+                        "invalid_task_note",
+                        "Use ::: task-note {#task-id} and close it with :::.",
+                        index,
+                    )
+                )
+            else:
+                _validate_key(note_key, entity="task note", line=index, diagnostics=diagnostics)
+                if note_key in notes:
+                    diagnostics.append(
+                        PlanDiagnostic(
+                            "error",
+                            "duplicate_task_note",
+                            f"Repeated note for {note_key!r}.",
+                            index,
+                        )
+                    )
+            output.append("\n")
+        else:
+            output.append(line)
+    if note_key is not None:
+        diagnostics.append(
+            PlanDiagnostic(
+                "error",
+                "unclosed_task_note",
+                f"Task note {note_key!r} is missing its closing :::.",
+                note_line,
+            )
+        )
+    return "".join(output), notes
+
+
 class _CourseBodyParser:
     def __init__(
         self,
@@ -690,6 +815,7 @@ class _CourseBodyParser:
                 order_index=int(section["order_index"]),
                 default_collapsed=bool(section["default_collapsed"]),
                 tasks=tuple(cast(list[TaskSpec], section["tasks"])),
+                fields_present=frozenset(section.get("fields_present", ())),
             )
             for section in sorted(
                 cast(list[dict[str, Any]], raw_day["sections"]),
@@ -708,6 +834,7 @@ class _CourseBodyParser:
             purpose=cast(str | None, raw_day["purpose"]),
             skill_keys=cast(tuple[str, ...], raw_day["skills"]),
             sections=sections,
+            fields_present=cast(frozenset[str], raw_day["fields_present"]),
         )
 
     def parse_task(
@@ -732,6 +859,23 @@ class _CourseBodyParser:
             return None
         task_body, attributes = _parse_attributes(
             task_body,
+            line=line.number,
+            diagnostics=self.diagnostics,
+        )
+        _check_attributes(
+            attributes,
+            {
+                "id",
+                "type",
+                "minutes",
+                "order",
+                "resources",
+                "skills",
+                "status",
+                "optional",
+                "why",
+                "info",
+            },
             line=line.number,
             diagnostics=self.diagnostics,
         )
@@ -789,8 +933,12 @@ class _CourseBodyParser:
             task_type=_string(attributes.get("type"))
             or _infer_task_type(str(section["title"]), title),
             is_optional=bool(
-                attributes.get("optional") is True
-                or str(section["title"]).lower() in {"optional", "additional", "skip"}
+                attributes.get("optional") in {True, "true"}
+                or (
+                    "optional" not in attributes
+                    and str(section["title"]).lower()
+                    in {"optional", "additional", "skip", "cancelled", "canceled"}
+                )
             ),
             estimated_minutes=self._optional_integer_attribute(
                 attributes,
@@ -801,6 +949,7 @@ class _CourseBodyParser:
             rationale=rationale,
             resource_keys=resource_keys,
             skill_keys=_string_list(attributes.get("skills")),
+            fields_present=frozenset(attributes),
         )
 
     def _parse_section_heading(
@@ -818,10 +967,22 @@ class _CourseBodyParser:
             line=line.number,
             diagnostics=self.diagnostics,
         )
+        _check_attributes(
+            attributes, {"id", "collapsed", "order"}, line=line.number, diagnostics=self.diagnostics
+        )
         cleaned_title = _clean_markdown(section_title)
         section = self._ensure_section(raw_day, cleaned_title)
-        if attributes.get("collapsed") is True:
-            section["default_collapsed"] = True
+        section["fields_present"] = frozenset(attributes)
+        if "id" in attributes:
+            section["key"] = str(attributes["id"])
+            _validate_key(
+                str(section["key"]),
+                entity="section",
+                line=line.number,
+                diagnostics=self.diagnostics,
+            )
+        if "collapsed" in attributes:
+            section["default_collapsed"] = attributes["collapsed"] in {True, "true"}
         if _string(attributes.get("order")):
             section["order_index"] = self._integer_attribute(
                 attributes,
@@ -969,6 +1130,62 @@ def _validate_structure(
     mode: PlanMode,
     diagnostics: list[PlanDiagnostic],
 ) -> None:
+    def unique(values: list[object], code: str, label: str) -> None:
+        if len(values) != len(set(values)):
+            diagnostics.append(PlanDiagnostic("error", code, f"Duplicate {label}."))
+
+    unique([day.number for day in days], "duplicate_day_number", "day number")
+    unique([day.order_index for day in days], "duplicate_day_order", "day order")
+    for day in days:
+        if day.number < 1 or day.order_index < 1:
+            diagnostics.append(
+                PlanDiagnostic(
+                    "error", "invalid_day_order", "Day number/order must be positive.", day.line
+                )
+            )
+        unique(
+            [section.key for section in day.sections],
+            "duplicate_section_id",
+            f"section id in {day.key}",
+        )
+        unique(
+            [section.order_index for section in day.sections],
+            "duplicate_section_order",
+            f"section order in {day.key}",
+        )
+        for section in day.sections:
+            if section.order_index < 1:
+                diagnostics.append(
+                    PlanDiagnostic(
+                        "error",
+                        "invalid_section_order",
+                        f"Section {section.key!r} order must be positive.",
+                    )
+                )
+            unique(
+                [task.order_index for task in section.tasks],
+                "duplicate_task_order",
+                f"task order in {day.key}/{section.key}",
+            )
+            for task in section.tasks:
+                if not 1 <= task.order_index <= 999:
+                    diagnostics.append(
+                        PlanDiagnostic(
+                            "error",
+                            "invalid_task_order",
+                            "Task order must be between 1 and 999.",
+                            task.line,
+                        )
+                    )
+                if task.estimated_minutes is not None and task.estimated_minutes < 0:
+                    diagnostics.append(
+                        PlanDiagnostic(
+                            "error",
+                            "invalid_minutes",
+                            "Task minutes cannot be negative.",
+                            task.line,
+                        )
+                    )
     if mode == "full":
         for day in days:
             if not day.explicit_key:
@@ -999,6 +1216,10 @@ def _validate_structure(
                             )
                         )
     if mode == "patch":
+        if not days:
+            diagnostics.append(
+                PlanDiagnostic("error", "empty_patch", "A patch must name at least one day.")
+            )
         for day in days:
             if not day.explicit_key:
                 diagnostics.append(
@@ -1085,6 +1306,7 @@ def parse_study_plan(path: Path) -> PlanParseResult:
     mode = cast(PlanMode, raw_mode)
     body = source[frontmatter_match.end() :]
     body_line_offset = source[: frontmatter_match.end()].count("\n")
+    body, task_notes = _extract_task_notes(body, body_line_offset, diagnostics)
     heading_title = next(
         (
             _clean_markdown(line.removeprefix("# "))
@@ -1107,6 +1329,31 @@ def parse_study_plan(path: Path) -> PlanParseResult:
         resources=resources,
         diagnostics=diagnostics,
     ).parse_course(body, line_offset=body_line_offset)
+    task_keys = {task.key for day in days for section in day.sections for task in section.tasks}
+    diagnostics.extend(
+        PlanDiagnostic(
+            "error",
+            "unknown_task_note",
+            f"Task note targets {missing!r}, which is not declared in this file.",
+        )
+        for missing in task_notes.keys() - task_keys
+    )
+    days = tuple(
+        replace(
+            day,
+            sections=tuple(
+                replace(
+                    section,
+                    tasks=tuple(
+                        replace(task, note_markdown=task_notes.get(task.key))
+                        for task in section.tasks
+                    ),
+                )
+                for section in day.sections
+            ),
+        )
+        for day in days
+    )
     _validate_references(days, resources, skills, diagnostics)
     _validate_structure(days, mode, diagnostics)
     plan = StudyPlanSpec(

@@ -174,6 +174,9 @@ function looksLikeDisplayMath(value: string): boolean {
 
 function normalizeDisplayBody(value: string): string {
   const lines = value
+    .replace(/([A-Za-z])'\*\{([^}\n]+)\}/g, "$1'_{$2}")
+    .replace(/([A-Za-z])\*\{([^}\n]+)\}/g, "$1_{$2}")
+    .replace(/([A-Za-z])'\*([A-Za-z]|\\[A-Za-z]+)/g, "$1'_$2")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
@@ -383,39 +386,37 @@ function restoreDegradedInlineMath(value: string): string {
   );
 }
 
+function protectLinks(value: string): ProtectedMarkdown {
+  const links: string[] = [];
+  const markdown = value.replace(/!?\[[^\]\n]*\]\((?:\\.|[^()\n]|\([^()\n]*\))*\)|https?:\/\/[^\s<>]+/g, link => {
+    links.push(link);
+    return `TRACKERPASTEDLINK${links.length - 1}TOKEN`;
+  });
+  return {markdown, restore: value => links.reduce((result, link, index) =>
+    result.replace(`TRACKERPASTEDLINK${index}TOKEN`, () => link), value)};
+}
+
 function canonicalizeExternalMarkdown(value: string): string {
-  const normalizedExportTags = inlineReferenceLinks(value).replace(
-    /&lt;(\/?)((?:[A-Za-z0-9]+)(?:\\?_[A-Za-z0-9]+)+)&gt;/gi,
-    (_match, closing: string, tag: string) =>
-      `<${closing}${tag.replaceAll("\\_", "_")}>`,
-  );
-  const protectedCode = protectFencedCode(
-    restoreHeadingCorruptedDisplayOpenings(normalizedExportTags),
-  );
+  const protectedCode = protectFencedCode(value);
   const protectedInline = protectInlineCode(protectedCode.markdown);
-  const normalized = protectedInline.markdown
+  const protectedLinks = protectLinks(inlineReferenceLinks(protectedInline.markdown));
+  const normalized = protectedLinks.markdown
+    .replace(/&lt;(\/?)((?:[A-Za-z0-9]+)(?:\\?_[A-Za-z0-9]+)+)&gt;/gi,
+      (_match, closing: string, tag: string) => `<${closing}${tag.replaceAll("\\_", "_")}>`)
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
     .replace(/\u00a0/g, " ")
     .replace(/&(?:amp;)*(?:nbsp|#0*160|#x0*a0);/gi, " ")
-    .replace(/([A-Za-z])'\*\{([^}\n]+)\}/g, "$1'_{$2}")
-    .replace(/([A-Za-z])\*\{([^}\n]+)\}/g, "$1_{$2}")
-    .replace(/([A-Za-z])'\*([A-Za-z]|\\[A-Za-z]+)/g, "$1'_$2")
-    .replace(/^ {0,3}#{1,6}\s+(\[|\])\s*$/gm, "$1")
     .replace(/^•\s+/gm, "- ");
-  const existingMath = protectDisplayMath(normalized);
+  const existingMath = protectDisplayMath(normalized.replace(
+    /\\\(([^\n]*?)\\\)/g, (_match, body: string) => `$${body.trim()}$`,
+  ));
   const displays = existingMath.restore(
-    restoreBracketDisplayMath(existingMath.markdown),
+    restoreBracketDisplayMath(restoreHeadingCorruptedDisplayOpenings(existingMath.markdown)),
   );
   const normalizedMath = normalizeMathMarkdown(displays);
   const protectedDisplays = protectDisplayMath(normalizedMath);
-  const inline = protectedDisplays.restore(
-    restoreDegradedInlineMath(protectedDisplays.markdown),
-  );
-  return protectedCode
-    .restore(protectedInline.restore(inline))
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const inline = protectedDisplays.restore(restoreDegradedInlineMath(protectedDisplays.markdown));
+  return protectedCode.restore(protectedInline.restore(protectedLinks.restore(inline))).trim();
 }
 
 function nodeText(node: Content): string {
@@ -559,12 +560,18 @@ function compactChildren(children: BlockContent[]): BlockContent[] {
   return compacted;
 }
 
-export function importPastedMarkdown(value: string): string {
+export function importPastedMarkdown(
+  value: string,
+  options: { compact?: boolean } = {},
+): string {
   const canonical = canonicalizeExternalMarkdown(value);
   if (!canonical) return "";
+  // A normal paste has already been canonicalized. Re-stringifying it with
+  // remark erases custom highlights and escapes otherwise valid source.
+  if (!options.compact) return canonical;
   const protectedExports = protectDiscussionExportTags(canonical);
   const tree = parser.parse(protectedExports.markdown) as Root;
-  tree.children = compactChildren(tree.children as BlockContent[]);
+  if (options.compact) tree.children = compactChildren(tree.children as BlockContent[]);
   return protectedExports.restore(String(serializer.stringify(tree))).trim();
 }
 

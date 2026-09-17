@@ -433,7 +433,7 @@ def test_handwriting_image_contains_nearby_ink_and_highlights(
         scale=2,
         stroke_width=2,
     )
-    output = tmp_path / "annotation-images" / "resource-1" / "target.png"
+    output = next((tmp_path / "annotation-images" / "resource-1").glob("target-snapshot-*.png"))
     pixmap = pymupdf.Pixmap(output)
     pixels = [
         tuple(pixmap.samples[index : index + pixmap.n])
@@ -475,7 +475,9 @@ def test_invalid_handwriting_crop_does_not_abort_other_images(
 
     assert "outside-page" not in urls
     assert "valid" in urls
-    assert (tmp_path / "annotation-images" / "resource-1" / "valid.png").is_file()
+    assert (
+        next((tmp_path / "annotation-images" / "resource-1").glob("valid-snapshot-*.png"))
+    ).is_file()
     get_settings.cache_clear()
 
 
@@ -521,7 +523,9 @@ def test_complete_annotated_page_preserves_highlight_and_ink(
     )
 
     assert 1 in urls
-    output = tmp_path / "annotation-images" / "resource-1" / "drawboard-page-1.png"
+    output = next(
+        (tmp_path / "annotation-images" / "resource-1").glob("drawboard-page-1-snapshot-*.png")
+    )
     assert output.is_file()
     pixmap = pymupdf.Pixmap(output)
     pixels = [
@@ -571,7 +575,9 @@ def test_multiline_highlight_does_not_fill_between_its_quads(
         captures=[highlight],
         scale=2,
     )
-    output = tmp_path / "annotation-images" / "resource-1" / "drawboard-page-1.png"
+    output = next(
+        (tmp_path / "annotation-images" / "resource-1").glob("drawboard-page-1-snapshot-*.png")
+    )
     pixmap = pymupdf.Pixmap(output)
 
     def pixel(x: int, y: int) -> tuple[int, int, int]:
@@ -580,4 +586,44 @@ def test_multiline_highlight_does_not_fill_between_its_quads(
 
     assert pixel(40, 50)[2] > pixel(40, 50)[0]
     assert all(channel > 245 for channel in pixel(100, 50))
+    get_settings.cache_clear()
+
+
+def test_snapshot_cache_ignores_edits_outside_crop_and_keeps_old_pixels(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from tracker_api.services import pdf_ink_image_service as images
+
+    source = tmp_path / "source.pdf"
+    doc = pymupdf.open()
+    doc.new_page(width=200, height=250)
+    doc.save(source)
+    doc.close()
+    monkeypatch.setenv("TRACKER_ANNOTATION_IMAGE_DIR", str(tmp_path / "images"))
+    get_settings.cache_clear()
+    target = _ink("target", [10, 20, 40, 60])
+    outside = _ink("outside", [10, 180, 40, 210], color="blue", rgb=[0, 0, 1])
+    first = render_ink_context_images(
+        source, "resource", [target], page_inks=[target, outside], scale=1
+    )
+    output = images.annotation_image_path("resource", first["target"].rsplit("/", 1)[1])
+    before, mtime = output.read_bytes(), output.stat().st_mtime_ns
+    changed_outside = replace(outside, source_revision="2", rgb=[0, 1, 0])
+    second = render_ink_context_images(
+        source, "resource", [target], page_inks=[target, changed_outside], scale=1
+    )
+    assert first == second
+    assert output.stat().st_mtime_ns == mtime
+    nearby = replace(
+        changed_outside, rect=[50, 30, 90, 50], ink_vertex_sets=([[50, 30], [90, 50]],)
+    )
+    third = render_ink_context_images(
+        source, "resource", [target], page_inks=[target, nearby], scale=1
+    )
+    assert third != first
+    assert output.read_bytes() == before
+    # Rendering settings are also part of the cache key.
+    fourth = render_ink_context_images(
+        source, "resource", [target], page_inks=[target, nearby], scale=2
+    )
+    assert fourth != third
     get_settings.cache_clear()

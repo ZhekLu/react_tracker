@@ -1,0 +1,178 @@
+# Tracker feature and maintenance log
+
+Keep a concise record of behavior, special handling, known gaps, and validation.
+Repository rule: [AGENTS.md](../AGENTS.md).
+
+## September 2026 — editor and discussions (delivered)
+
+- Shared rich Markdown editor for task/day notes and discussions; source mode,
+  tables, images, headings, direct section editing/deletion, recoverable drafts,
+  and visible save failures. Preserve math, adjacent spaces, and numbered lists.
+- Tutor import handles standalone notes and protects math/code from question
+  parsing. Standalone tutor messages can become Q&A review sources with follow-ups.
+- Validation: 135 frontend tests; 42 focused backend tests; frontend typecheck,
+  lint, and production build. Full backend mypy has preexisting PDF-service errors.
+- Details and remaining editor limitations: [editor audit](editor-audit-2026-09.md).
+
+## 2026-09-15 — daily plan patches
+
+- Exclude skipped tasks from planned time; show active optional time separately.
+  Resumed/completed tasks in a Cancelled section appear in expanded Restored work.
+- `::: task-note {#task-id}` blocks supply full Markdown to the normal task note.
+  Omitted/unchanged source preserves editor work; conflicting edits reject the patch.
+- Strict parsing, transaction rollback, schema checks, safe ordering, automatic
+  CLI backups, and a rollback-only preview. Preserve progress on patch replay.
+- Omitted dates/metadata survive patches; partial day skills merge; typoed day
+  IDs cannot alias an existing day. Explicit order swaps work; occupied slots
+  fail. Inspection is read-only and prints all task statuses accurately.
+- Backups reserve filenames atomically and never overwrite another backup.
+  The convenience runner previews before applying, keeps Downloads originals,
+  rejects conflicting destination files, and requires a named patch.
+- Day 10/11 live transaction previews passed without applying either patch.
+  Day 10's older crash patch includes two example Markdown task-note blocks;
+  it was not reapplied over the user's newer cleanup plan.
+- Known database quirk: legacy external-content FTS tables cannot be queried with
+  `SELECT *` for snapshots; integrity tests snapshot physical tables instead.
+
+## 2026-09-15 — task tutor review
+
+- Copy task title/info, full note, and linked questions, including answered
+  questions and directly attached note/review follow-ups. Stable labels retained.
+- Insert review previews heading choices; checked sections append to the task
+  note, other sections need an exact mapped Q label. Unknown sections stay visible.
+- Tagged reviews synchronize edits/deletes between note and Q&A in one transaction.
+  Stale revisions, invalid boundaries, and reused import IDs fail safely; retries
+  of the same import do not duplicate it. No filesystem exports during task import.
+- Q&A shows a fixed original-work snapshot at left and editable feedback at right;
+  narrow windows stack panes. Existing highlighting, Ask, and review status apply.
+- Copy/Insert/Q&A survive compact completed-task styling; unsaved note edits
+  disable Copy/Insert. Import supports keyboard focus containment and Escape.
+- Resource-free task notes can create `??`/`todo!` captures under Task notes.
+  Direct task questions/reviews and follow-ups count toward the owning task/day.
+- Known limits: manually pasted older reviews remain ordinary note content;
+  snapshots are taken at insertion; question-only imports use their existing
+  endpoint; external rich-text apps may drop review-boundary comments.
+- Validation: 141 frontend tests; 76 focused backend tests; frontend lint/typecheck/
+  build; targeted backend Ruff/mypy. Browser tested Day 11 import and Q&A using an
+  isolated database copy. Build retains the existing large-chunk advisory.
+- Full syntax, semantics, guarantees, and TODOs:
+  [daily patches and task tutor reviews](plan-patches-and-task-reviews.md).
+
+## 2026-09-16 — insert diagnostics and historical editor repairs
+
+- Debug tab (Option–7): daily paste/save records, original/import/save/reopen
+  comparison, automatic formatting/formula checks, issue flags, and feedback.
+  Navigation icons keep accessible labels and tooltips when the sidebar is collapsed.
+- Review keeps only an explicit minimal regression fixture and deletes the full
+  record. Seven-day expiry, 500-record/20-MB cap, separate storage outside study
+  backups, secure deletion. Exported fixtures run in the real-editor test suite.
+- Replaced inline serialization and fixed ordered/loose-list parsing, custom
+  highlight imports, and inconsistent preview rendering.
+- Audited 670 current documents and repaired 24 in place, preserving revision
+  history and links. Backed up and guarded the batch against concurrent edits.
+- Fixed SQLite backup handling for WAL sources with missing sidecar files.
+- Validation: 161 frontend tests, frontend lint/typecheck/build, focused backend
+  tests (55) and Ruff/mypy, real-browser checks on an isolated database.
+- Workflow, retention, repair details, and limits:
+  [insert diagnostics and repair audit](editor-debug-and-repairs.md).
+
+## 2026-09-16 — discussion discovery, deletion integrity, and temporary usage capture
+
+- Course-wide question/answer finder, status/source filters, previews with math,
+  logical-question grouping, historical aliases, and direct Q&A or message opening.
+  Search includes unread responses and retained unlinked answers.
+- Fixed final-answer empty shells, full-conversation cleanup, shared-answer and
+  archived-question status preservation, stale-revision protection, dead “Go to
+  answer,” new-thread focus, and false deletion-success UI.
+- Migration 0025 retires only unequivocally empty, unlinked historical messages;
+  source documents and revision history are preserved.
+- Read-only Q&A no longer creates conversations; cross-scope task/resource answers
+  are reachable; Notes opens the selected question; task prompt/import labels are
+  explicit; first Copy next prepares its thread and empty queues create nothing.
+- Debug → Usage & friction records three days of local content-free action metadata,
+  expires events after seven days, supports stop/delete/export, and summarizes view
+  time, searches, repeats, sequences, and request failures/latency.
+- Validation: 166 frontend tests and 56 focused backend tests; frontend lint,
+  typecheck/build; changed backend Ruff and usage-service/route mypy. Browser checked
+  finder → matching Q&A → retained search, empty results, math previews, conversation
+  filtering, no blank cards, and usage summary. Existing build chunk-size advisory remains.
+- Deployed to the local service. Migration retired 16 empty shells, left all 12 active
+  threads intact, and passed foreign-key validation. Backup:
+  `data/backups/tracker_v2-20260916-134439-361267.db`; metadata-only audit:
+  `data/discussions-audit-2026-09-16.json`.
+- Details, entry-point map, privacy boundaries, and known limits:
+  [Discussions audit](discussions-ux-audit-2026-09.md).
+
+
+## 2026-09-16 — formula display, Q&A navigation, and readable note workspaces
+
+- Fixed duplicate formula/symbol display on cold note loads: KaTeX CSS now loads
+  with the app instead of depending on the lazy Markdown reader. The reviewed
+  insert's stored Markdown was intact; no note-content rewrite was needed.
+- Debug now checks for an exposed formula accessibility layer as well as text,
+  marks, structure, and math round trips. Retained only a minimal synthetic paste
+  fixture after resolving the reviewed report; full reviewed payload is deleted.
+- Q&A group buttons use book sections, resource titles for mixed lecture sources,
+  and page numbers within a single lecture. Counts still merge logical captures
+  and inherit follow-up locations. Clicking a completed group switches to All
+  answers when necessary. Group clicks enter the existing content-free usage log.
+- Day and task notes share reading/writing controls: 18px default text, 16–22px
+  browser-local size preference, heading navigation, bounded reading width, and
+  More space without remounting an active editor or losing undo. Day notes open
+  in reading mode; Edit note is available at the top. Existing note content and
+  progress are preserved. Lecture slide-outline inference remains out of scope.
+- Validation: 173 frontend tests, lint/typecheck/production build; three usage-log
+  backend tests and Ruff. Isolated-browser checks covered cold-load CSS, direct
+  paste/save/reload with bold and formulas, Day 11 heading jumps, mixed-resource
+  Q&A navigation, completed-group filter switching, and lecture page labels.
+  The existing production chunk-size advisory remains.
+
+## 2026-09-17 — repeat reading, understanding progress, and visible to-dos
+
+- Lecture reading and Q&A now have fresh per-opening reading passes, animated bars,
+  quarter milestones, remaining counts, and New pass. Saved reading/review history,
+  understood statuses, and note drafts remain intact. Pass counters are local to
+  the open reader and reset on reopening; they are not durable study records.
+- PDF passes count distinct loaded slides after a short viewing interval, so
+  revisiting one slide or jumping to the last does not complete the whole pass.
+  Saved lifetime progress still retains its high-water mark.
+- Q&A separately tracks the questions open at the start of the understanding pass.
+  Credit follows confirmed workspace status changes; skipped/later questions do
+  not prevent completion. An empty queue offers Read all answers again. Reading
+  totals stay stable when understanding a question removes it from the Open filter.
+- Day/task summaries retain to-do done/total and open/later/skipped counts, including
+  closed days and completed tasks. Questions and to-dos have distinct labels.
+  Day-note to-dos also count without a resource or task link. Escaped `!!todo!!`
+  markers are recognized without rewriting the authored note.
+- Unspecified book tasks inherit explicit chapters from non-skipped tasks of the
+  same day and book. Explicit scopes win; per-resource chapter maps prevent a
+  chapter from leaking into another book. Day 11 Hand derivation resolves to 13.
+- Deployed to the local service. Restored the two confirmed missed note to-dos,
+  including Day 11's Berkeley revisit; original note contents and revisions are
+  unchanged, and foreign-key checks pass. Backup:
+  `data/backups/tracker_v2-20260917-113643-716573.db`. Live API verification reports
+  one open Day 11 to-do and Chapter 13 for Hand derivation.
+- Validation: all 176 frontend tests and 161 backend tests, frontend lint and
+  production build, backend Ruff and full mypy (48 files). Isolated browser checks
+  covered a second lecture pass, repeated slide visits, fresh Q&A passes, completed
+  queues, confirmed +1 understanding progress, closed-day to-do visibility, and
+  Day 11 source scope. Existing Vite
+  large-chunk and dependency deprecation advisories remain.
+
+## 2026-09-17 — pending-change audit and integration
+
+- Traced the pending editor/discussion work against the neighboring tracker tasks
+  “Audit discussion editor and parsing,” “Optimize annotation parsing and QA,” and
+  “Finish tracker web app,” and the latest committed PDF/frame fixes. The pending
+  stack includes the plan-patch/task-review workflow, annotation performance and
+  immutable captures, editor repairs/diagnostics, discussion search/deletion,
+  temporary usage logging, note workspaces, and the progress/to-do changes above.
+- Retained all pending tracker source, tests, fixtures, documentation, dependency
+  locks, and helper scripts. Machine-local databases, credentials, diagnostics,
+  backups, dependencies, and build outputs remain ignored. Credential-pattern
+  scanning found no matches in pending files. Raw paste fixtures retain original
+  trailing spaces (including Markdown hard breaks); a scoped Git whitespace
+  attribute preserves these test inputs. The remaining diff passes whitespace checks.
+- Resolved 12 older PDF type-check failures without disabling strict checking:
+  narrowly annotated untyped library calls, removed a duplicate declaration, and
+  made a validated four-coordinate crop tuple explicit.

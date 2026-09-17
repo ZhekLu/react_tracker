@@ -160,12 +160,12 @@ def test_red_ink_context_image_uses_full_page_width(
         tmp_path
         / "annotation-images"
         / "resource-1"
-        / "drawboard-document-red-ink.png"
+        / (urls[ink.fingerprint].rsplit("/", 1)[1] + ".png")
     )
     pixmap = pymupdf.Pixmap(output)
 
     assert urls[ink.fingerprint].startswith(
-        "/api/resources/resource-1/annotation-images/drawboard-document-red-ink?v="
+        "/api/resources/resource-1/annotation-images/drawboard-document-red-ink-snapshot-"
     )
     assert output.read_bytes().startswith(b"\x89PNG")
     assert pixmap.width == round(page_width * 5)

@@ -30,9 +30,7 @@ from tracker_api.services.pdf_context_service import PdfAnnotationContext
 from tracker_api.services.resource_open_service import open_resource
 from tracker_api.services.study_plan_service import sync_study_plan
 
-SHARE_URL = (
-    "https://pdf.drawboard.com/documents/links/8759d0a6458b42499fc13babc9e3f81d/consume"
-)
+SHARE_URL = "https://pdf.drawboard.com/documents/links/8759d0a6458b42499fc13babc9e3f81d/consume"
 DOCUMENT_ID = "9a15ffc69d824f14a52dff1b7ea35163"
 
 
@@ -425,12 +423,10 @@ def test_cloud_collection_is_idempotent_and_refreshes_source_edits(
     assert row["id"] == first_identity["id"]
     assert row["readable_label"] == first_identity["readable_label"]
     assert '"sourceRevision":"2"' in row["selector_json"]
-    # Drawboard is a mutable source, but the tracker is the durable question
-    # record. Removing or recolouring a source mark must never erase a question
-    # (or its identity, status, notes, answers, and follow-ups) from the tracker.
-    assert removed.removed_count == 0
-    assert active_after_removal == 1
-    assert revived.existing_count == 1
+    # Source deletion hides the record, but identity and history remain recoverable.
+    assert removed.removed_count == 1
+    assert active_after_removal == 0
+    assert revived.updated_count == 1
     assert active_count == 1
 
 
@@ -1035,3 +1031,164 @@ def test_cloud_resource_open_uses_native_document_before_local_copy(
             "Drawboard PDF cloud",
         )
     ]
+
+
+def test_collection_freezes_answered_images_and_reuses_open_images(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+    from dataclasses import replace
+    import pymupdf
+    from tracker_api.services import pdf_ink_image_service as images
+
+    resource_id = _seed_cloud_resource(tmp_path)
+    doc = pymupdf.open()
+    doc.new_page(width=200, height=250)
+    doc.save(tmp_path / "book.pdf")
+    doc.close()
+    first = DrawboardInk(
+        fingerprint=f"drawboard-{DOCUMENT_ID}-first",
+        source_revision="1",
+        page=1,
+        color="red",
+        rgb=[1, 0, 0],
+        created_at="2026-09-01T12:00:00Z",
+        rect=[10, 20, 12, 70],
+        ink_vertex_sets=([[10, 20], [12, 70]],),
+        member_fingerprints=(f"drawboard-{DOCUMENT_ID}-first",),
+    )
+    second = replace(
+        first,
+        fingerprint=f"drawboard-{DOCUMENT_ID}-second",
+        rect=[10, 150, 12, 200],
+        ink_vertex_sets=([[10, 150], [12, 200]],),
+        member_fingerprints=(f"drawboard-{DOCUMENT_ID}-second",),
+    )
+    current = DrawboardExtraction(SHARE_URL, DOCUMENT_ID, [], [first, second], {}, [first, second])
+    monkeypatch.setattr(pdf_annotation_service, "extract_drawboard_annotations", lambda _: current)
+    calls = []
+    original = images._render_ink
+
+    def render(*args, **kwargs):
+        calls.append(args[1].fingerprint)
+        kwargs["scale"] = 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(images, "_render_ink", render)
+    with transaction() as connection:
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection, resource_id, {"#FF0000": "question", "#0000FF": "regular"}
+        )
+        collect_resource_pdf_annotations(connection, resource_id)
+        saved = (
+            connection.execute(text("SELECT id, source_fingerprint FROM annotations"))
+            .mappings()
+            .all()
+        )
+        first_id = next(r["id"] for r in saved if r["source_fingerprint"] == first.fingerprint)
+        connection.execute(
+            text("UPDATE annotations SET status='answered' WHERE id=:id"), {"id": first_id}
+        )
+        before = connection.execute(
+            text("SELECT selector_json FROM annotation_anchors WHERE annotation_id=:id"),
+            {"id": first_id},
+        ).scalar_one()
+    before_metadata = json.loads(before)
+    old_url = before_metadata["contextImageUrl"]
+    old_file = images.annotation_image_path(resource_id, old_url.rsplit("/", 1)[1])
+    old_bytes = old_file.read_bytes()
+    assert len(calls) == 2
+    calls.clear()
+    with transaction() as connection:
+        unchanged = collect_resource_pdf_annotations(connection, resource_id)
+    assert calls == []
+    assert unchanged.updated_count == 0
+
+    blue_first = replace(first, color="blue", rgb=[0, 0, 1], source_revision="2")
+    changed_second = replace(second, rect=[10, 150, 15, 210], source_revision="2")
+    current = replace(current, all_ink=[blue_first, changed_second], red_ink=[changed_second])
+    with transaction() as connection:
+        collect_resource_pdf_annotations(connection, resource_id)
+        row = (
+            connection.execute(
+                text("""SELECT a.kind, a.status, aa.selector_json
+            FROM annotations a JOIN annotation_anchors aa ON aa.annotation_id=a.id
+            WHERE a.id=:id"""),
+                {"id": first_id},
+            )
+            .mappings()
+            .one()
+        )
+    after_metadata = json.loads(row["selector_json"])
+    assert calls == [second.fingerprint]
+    assert row["kind"] == "question" and row["status"] == "answered"
+    for key in ("contextImageUrl", "annotatedPageImageUrl", "annotatedPageImageUrls"):
+        assert after_metadata[key] == before_metadata[key]
+    assert old_file.read_bytes() == old_bytes
+
+    current = replace(current, all_ink=[changed_second])
+    with transaction() as connection:
+        removed = collect_resource_pdf_annotations(connection, resource_id)
+        assert removed.removed_count == 1
+        assert connection.execute(
+            text("SELECT deleted_at FROM annotations WHERE id=:id"), {"id": first_id}
+        ).scalar_one()
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM annotation_question_identities WHERE annotation_id=:id"),
+                {"id": first_id},
+            ).scalar_one()
+            == 1
+        )
+
+
+def test_color_palette_confirmation_reuses_the_complete_download(tmp_path, monkeypatch):
+    resource_id = _seed_cloud_resource(tmp_path)
+    calls = []
+
+    def extract(_):
+        calls.append(True)
+        return _cloud_extraction("Why?", "1")
+
+    monkeypatch.setattr(pdf_annotation_service, "extract_drawboard_annotations", extract)
+    with transaction() as connection:
+        first = collect_resource_pdf_annotations(connection, resource_id)
+        assert first.requires_color_roles
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection, resource_id, {"#FF0000": "question"}
+        )
+        second = collect_resource_pdf_annotations(connection, resource_id)
+        assert second.created_count == 1
+        assert len(calls) == 1
+        collect_resource_pdf_annotations(connection, resource_id)
+        assert (
+            len(calls) == 2
+        )  # Ordinary subsequent collections always fetch fresh source presence.
+
+
+def test_drawboard_transport_handles_compression_and_source_errors(monkeypatch):
+    import gzip
+    import httpx
+
+    def handle(request):
+        assert request.headers["Authorization"] == "Bearer test-token"
+        if request.url.path == "/fail":
+            return httpx.Response(503)
+        return httpx.Response(
+            200, headers={"Content-Encoding": "gzip"}, content=gzip.compress(b'{"annotations":[]}')
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        monkeypatch.setattr(drawboard_service, "_http_client", lambda: client)
+        assert drawboard_service._request_json(
+            "https://example.com/test", access_token="test-token"
+        ) == {"annotations": []}
+        with pytest.raises(drawboard_service.DrawboardError, match="503"):
+            drawboard_service._request_json("https://example.com/fail", access_token="test-token")
+
+
+def test_incomplete_batch_cannot_be_treated_as_deletions(monkeypatch):
+    monkeypatch.setattr(drawboard_service, "_request_json", lambda *args, **kwargs: {})
+    with pytest.raises(drawboard_service.DrawboardError, match="incomplete"):
+        drawboard_service._annotation_batches(DOCUMENT_ID, "test-token")

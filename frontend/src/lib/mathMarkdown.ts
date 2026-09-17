@@ -6,7 +6,7 @@ type ProtectedMarkdown = {
 function protectMarkdownCode(value: string): ProtectedMarkdown {
   const blocks: string[] = [];
   const protectedValue = value.replace(
-    /(^|\n)(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\2(?=\n|$)|`+[^`\n]*`+/g,
+    /(^|\n)([ \t]*)(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\2\3(?=\n|$)|`+[^`\n]*`+/g,
     (block) => {
       const token = `@@MATH_MARKDOWN_CODE_${blocks.length}@@`;
       blocks.push(block);
@@ -98,15 +98,7 @@ function restoreBracketDisplays(value: string): string {
   return output.join("\n");
 }
 
-function normalizeInlineMath(value: string): string {
-  return value.replace(
-    /(?<!\\)\$(?!\$)([^$\n]+)(?<!\\)\$(?!\$)/g,
-    (block, body: string) =>
-      looksLikeLatex(body) ? `$${normalizeLatexBody(body)}$` : block,
-  );
-}
-
-export function normalizeMathMarkdown(value: string): string {
+export function normalizeMathMarkdown(value: string, options: { repairLegacy?: boolean } = {}): string {
   const protectedCode = protectMarkdownCode(value.replace(/\r\n?/g, "\n"));
   const existingDisplays: string[] = [];
   const withoutExistingDisplays = protectedCode.value.replace(
@@ -117,31 +109,37 @@ export function normalizeMathMarkdown(value: string): string {
       return token;
     },
   );
-  const bracketDisplays = restoreBracketDisplays(
-    withoutExistingDisplays.replace(
+  const explicitDisplays = withoutExistingDisplays
+    .replace(
+      /^([ \t]*)\\\[[ \t]*\n([\s\S]*?)\n[ \t]*\\\][ \t]*(?=\n|$)/gm,
+      (_block, indent: string, body: string) => `${indent}$$\n${body}\n${indent}$$`,
+    )
+    .replace(
       /\\\[\s*([\s\S]*?)\s*\\\]/g,
-      (_block, body: string) => `$$\n${normalizeLatexBody(body)}\n$$`,
-    ),
-  );
+      (_block, body: string) => `$$\n${body.trim()}\n$$`,
+    );
+  const bracketDisplays = options.repairLegacy === false
+    ? explicitDisplays
+    : restoreBracketDisplays(explicitDisplays);
   const restoredExistingDisplays = existingDisplays.reduce(
     (markdown, block, index) =>
       markdown.replace(`@@MATH_MARKDOWN_EXISTING_${index}@@`, () => block),
     bracketDisplays,
   );
+  // Existing $/$$ formulas are source text. Reformatting them here strips
+  // list indentation and can change valid LaTeX row separators.
   const displayBlocks: string[] = [];
   const protectedDisplays = restoredExistingDisplays.replace(
-    /\$\$([\s\S]*?)\$\$/g,
-    (_block, body: string) => {
+    /\$\$[\s\S]*?\$\$/g,
+    (block) => {
       const token = `@@MATH_MARKDOWN_DISPLAY_${displayBlocks.length}@@`;
-      displayBlocks.push(`$$\n${normalizeLatexBody(body)}\n$$`);
+      displayBlocks.push(block);
       return token;
     },
   );
-  const normalizedInline = normalizeInlineMath(
-    protectedDisplays.replace(
-      /\\\(([^\n]*?)\\\)/g,
-      (_block, body: string) => `$${normalizeLatexBody(body)}$`,
-    ),
+  const normalizedInline = protectedDisplays.replace(
+    /\\\(([^\n]*?)\\\)/g,
+    (_block, body: string) => `$${body.trim()}$`,
   );
   const restoredDisplays = displayBlocks.reduce(
     (markdown, block, index) =>

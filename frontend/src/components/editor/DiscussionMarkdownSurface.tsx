@@ -1,5 +1,4 @@
 import { lazy, Suspense } from "react";
-import { MarkdownMath } from "../content/MarkdownMath";
 import type { DiscussionReviewItemInput } from "../../api/trackerApi";
 
 export type DiscussionReviewItem = DiscussionReviewItemInput;
@@ -12,9 +11,10 @@ export type DiscussionMarkdownSurfaceProps = {
   onCancel?: () => void;
   onChange?: (markdown: string) => void;
   onReviewItemsChange?: (items: DiscussionReviewItem[]) => void;
-  onSave?: (markdown: string, reviewItems: DiscussionReviewItem[]) => void;
+  onSave?: (markdown: string, reviewItems: DiscussionReviewItem[]) => void | boolean | Promise<void | boolean>;
   placeholder?: string;
   reviewMode?: boolean;
+  initialReviewItems?: DiscussionReviewItem[];
   showActions?: boolean;
 };
 
@@ -30,20 +30,7 @@ export function DiscussionMarkdownSurface(
   return (
     <Suspense
       fallback={
-        props.editable ? (
-          <div className="editorLoading">Loading discussion editor...</div>
-        ) : (
-          props.contentType === "html" ? (
-            <div
-              className={`markdownMath ${props.className ?? ""}`.trim()}
-              dangerouslySetInnerHTML={{ __html: props.markdown }}
-            />
-          ) : (
-            <MarkdownMath className={props.className}>
-              {props.markdown}
-            </MarkdownMath>
-          )
-        )
+        <div className="editorLoading">{props.editable ? "Loading editor…" : "Loading note…"}</div>
       }
     >
       <DiscussionMarkdownSurfaceImpl {...props} />

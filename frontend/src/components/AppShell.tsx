@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Bug,
   CalendarDays,
   FileQuestion,
   MessageSquareText,
@@ -60,6 +61,7 @@ const viewMeta = {
   exams: { label: "Exams", icon: FileQuestion },
   notes: { label: "Notes", icon: StickyNote },
   discussions: { label: "Discussions", icon: MessageSquareText },
+  debug: { label: "Debug", icon: Bug },
 } satisfies Record<TrackerView, { label: string; icon: typeof CalendarDays }>;
 
 export function AppShell({

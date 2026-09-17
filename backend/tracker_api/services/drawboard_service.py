@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+
+import httpx
 
 from ..config import get_settings
 
@@ -27,6 +30,7 @@ INK_VERTICAL_GUIDE_ASPECT_RATIO = 3.0
 INK_GROUP_CONTAINMENT_THRESHOLD = 0.9
 INK_GROUP_VERTICAL_DUPLICATE_THRESHOLD = 0.82
 _STATE_LOCK = threading.Lock()
+logger = logging.getLogger("uvicorn.error")
 
 
 class DrawboardError(RuntimeError):
@@ -90,6 +94,7 @@ class DrawboardExtraction:
     red_ink: list[DrawboardInk]
     ignored: dict[str, int]
     all_ink: list[DrawboardInk] = field(default_factory=list)
+    source_fingerprints: set[str] | None = None
 
 
 def is_drawboard_cloud_url(value: str | None) -> bool:
@@ -128,6 +133,12 @@ def drawboard_deep_link(document_id: str) -> str:
     return f"com.drawboard.drawboardpdf://open/documents/{document_id}"
 
 
+@lru_cache(maxsize=1)
+def _http_client() -> httpx.Client:
+    # A book can need dozens of batches. Reuse TLS connections between them.
+    return httpx.Client(timeout=60, follow_redirects=True)
+
+
 def _request_json(
     url: str,
     *,
@@ -135,34 +146,29 @@ def _request_json(
     payload: dict[str, Any] | None = None,
     access_token: str | None = None,
 ) -> dict[str, Any]:
-    body = (
-        json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        if payload is not None
-        else None
-    )
     headers = {
         "Accept": "application/json",
         "User-Agent": "StudyTracker/1.0 DrawboardCloudCompatibility",
     }
-    if body is not None:
-        headers["Content-Type"] = "application/json"
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
-    request = Request(url, data=body, headers=headers, method=method)
+    started = time.perf_counter()
     try:
-        with urlopen(request, timeout=60) as response:
-            raw = response.read().decode("utf-8")
-    except HTTPError as error:
-        detail = error.read().decode("utf-8", errors="replace").strip()
-        suffix = f": {detail[:300]}" if detail else ""
-        raise DrawboardError(
-            f"Drawboard request failed ({error.code}){suffix}"
-        ) from error
-    except (TimeoutError, URLError, OSError) as error:
+        response = _http_client().request(method, url, json=payload, headers=headers)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        raise DrawboardError(f"Drawboard request failed ({error.response.status_code})") from error
+    except httpx.RequestError as error:
         raise DrawboardError(f"Could not reach Drawboard: {error}") from error
+    logger.debug(
+        "Drawboard response operation=%s decoded_bytes=%d duration_ms=%.1f",
+        url.rsplit("/", 1)[-1],
+        len(response.content),
+        (time.perf_counter() - started) * 1000,
+    )
     try:
-        result = json.loads(raw)
-    except json.JSONDecodeError as error:
+        result = response.json()
+    except ValueError as error:
         raise DrawboardError("Drawboard returned an unreadable response.") from error
     if not isinstance(result, dict):
         raise DrawboardError("Drawboard returned an unexpected response.")
@@ -322,11 +328,7 @@ def _annotation_batches(
     resume_on_page_id: str | None = None
     seen_resume_ids: set[str] = set()
     while True:
-        body = (
-            {"resumeOnPageId": resume_on_page_id}
-            if resume_on_page_id is not None
-            else {}
-        )
+        body = {"resumeOnPageId": resume_on_page_id} if resume_on_page_id is not None else {}
         result = _request_json(
             url,
             method="POST",
@@ -334,6 +336,8 @@ def _annotation_batches(
             access_token=access_token,
         )
         batch = result.get("annotations")
+        if not isinstance(batch, list) or any(not isinstance(item, dict) for item in batch):
+            raise DrawboardError("Drawboard returned an incomplete annotation batch.")
         if isinstance(batch, list):
             annotations.extend(
                 cast(dict[str, Any], item) for item in batch if isinstance(item, dict)
@@ -961,13 +965,16 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
     red_ink: list[DrawboardInk] = []
     all_ink: list[DrawboardInk] = []
     ignored: dict[str, int] = {}
+    source_fingerprints: set[str] = set()
     for item in raw_annotations:
         raw_annotation = item.get("annotation")
         annotation = (
-            cast(dict[str, Any], raw_annotation)
-            if isinstance(raw_annotation, dict)
-            else item
+            cast(dict[str, Any], raw_annotation) if isinstance(raw_annotation, dict) else item
         )
+        annotation_id = str(annotation.get("annotationId") or item.get("id") or "")
+        if not annotation_id:
+            raise DrawboardError("Drawboard returned an annotation without an identity.")
+        source_fingerprints.add(f"drawboard-{credentials.document_id}-{annotation_id}")
         annotation_kind = str(annotation.get("type") or "Unknown")
         if annotation_kind == "Ink":
             ink = _ink_capture(item, credentials.document_id, pages)
@@ -999,4 +1006,5 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
         red_ink=red_ink,
         ignored=ignored,
         all_ink=all_ink,
+        source_fingerprints=source_fingerprints,
     )
