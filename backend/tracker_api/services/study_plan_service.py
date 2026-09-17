@@ -944,7 +944,49 @@ def _task_id(
         ).scalar_one_or_none()
         if owner != course_id:
             raise StudyPlanSyncError(f"Task binding {task.key!r} does not belong to this course.")
-    return bound or stable_id("task", course_id, task.key)
+    task_id = bound or stable_id("task", course_id, task.key)
+    removed = connection.execute(text(
+        "SELECT removed_at FROM task_admin_state WHERE task_id=:id"
+    ), {"id": task_id}).scalar_one_or_none()
+    if removed:
+        raise StudyPlanSyncError(
+            f"Task {task.key!r} was deleted in Administration. "
+            "Omit it from the patch or restore it in Administration first."
+        )
+    return task_id
+
+
+def _check_admin_protection(
+    connection: Connection, task_id: str, task: TaskSpec,
+    *, resource_ids: dict[str, str], full: bool, apply_status: bool,
+) -> None:
+    row = _row(connection, """
+        SELECT t.*, a.protected_fields_json FROM tasks t
+        JOIN task_admin_state a ON a.task_id=t.id WHERE t.id=:id
+    """, {"id": task_id})
+    if not row:
+        return
+    incoming: dict[str, object] = {"title": task.title}
+    if apply_status:
+        incoming["status"] = task.status
+    if task.estimated_minutes is not None:
+        incoming["estimated_minutes"] = task.estimated_minutes
+    if full or "optional" in task.fields_present or task.section.lower() in {
+        "optional", "additional", "skip", "cancelled", "canceled"
+    }:
+        incoming["is_optional"] = task.is_optional
+    if full or "resources" in task.fields_present or task.resource_keys:
+        incoming["resource_ids"] = sorted(resource_ids[key] for key in task.resource_keys)
+        row["resource_ids"] = sorted(connection.execute(text(
+            "SELECT DISTINCT resource_id FROM task_resources WHERE task_id=:id"
+        ), {"id": task_id}).scalars())
+    for field_name in json.loads(str(row["protected_fields_json"])):
+        if field_name in incoming and incoming[field_name] != row[field_name]:
+            raise StudyPlanSyncError(
+                f"Task {task.key!r}: {field_name} was edited in Administration. "
+                "Use its current value, omit that field, or choose Allow patch edits "
+                "in Administration before intentionally replacing it. Nothing was applied."
+            )
 
 
 def _sync_task(
@@ -1310,6 +1352,10 @@ def _sync_days_and_tasks(
                 if original and original["status"] == task.status:
                     apply_status = False
                 seen_task_ids.add(task_id)
+                _check_admin_protection(
+                    connection, task_id, task, resource_ids=resource_ids,
+                    full=plan.mode == "full", apply_status=apply_status,
+                )
                 created_task = _sync_task(
                     connection,
                     course_id=course_id,
@@ -1611,6 +1657,18 @@ def _sync_study_plan(
             counts=counts,
         )
         if plan.mode == "full":
+            protected = active_connection.execute(text("""
+                SELECT t.id,t.title FROM tasks t JOIN study_days d ON d.id=t.day_id
+                JOIN task_admin_state a ON a.task_id=t.id
+                WHERE d.course_id=:course AND t.deleted_at IS NULL
+                  AND a.protected_fields_json <> '[]'
+            """), {"course": course_id}).mappings()
+            for task_row in protected:
+                if task_row["id"] not in seen_task_ids:
+                    raise StudyPlanSyncError(
+                        f"Full plan would remove manually edited task {task_row['title']!r}. "
+                        "Keep it in the plan or choose Allow patch edits in Administration."
+                    )
             _soft_delete_missing_structure(
                 active_connection,
                 course_id=course_id,

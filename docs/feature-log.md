@@ -1,5 +1,21 @@
 # Tracker feature and maintenance log
 
+## 2026-09-17 — task administration data safety
+
+- Added revision-checked task edit, removal, restore, and patch-protection release
+  endpoints. Each real change requires a successful SQLite backup and records a
+  local before/after receipt in the same transaction. Retried request IDs are
+  idempotent; stale edits and cross-course resource links fail without changes.
+- Removing a task hides it from normal tracker views while keeping its notes,
+  tutor history, resource data, and time records. Restore preserves its identity;
+  a running timer prevents removal/cancellation. Cancelling uses skipped status.
+- Patches reject attempts to revive an administratively removed task or overwrite
+  protected edited fields. Full plans also reject removal of protected tasks.
+  The UI is still in progress; these endpoints are not yet deployed.
+- Validation: administration and patch-integrity regression tests, backend Ruff
+  and strict mypy. Includes backups, rollback after failed writes, stale edits,
+  idempotency, resource ownership, timer guards, restoration and patch conflicts.
+
 ## 2026-09-17 — local agent instructions
 
 - Moved agent-only operating instructions to an ignored local folder and removed

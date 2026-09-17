@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .api.insert_debug_routes import router as insert_debug_router
 from .api.routes import router
+from .api.task_admin_routes import router as task_admin_router
 from .api.usage_log_routes import router as usage_log_router
 from .config import get_settings
 from .migrations.runner import run_migrations
@@ -109,6 +110,7 @@ def create_app() -> FastAPI:
         return response
 
     app.include_router(router)
+    app.include_router(task_admin_router)
     app.include_router(insert_debug_router)
     app.include_router(usage_log_router)
     if settings.frontend_dist_path.is_dir():
