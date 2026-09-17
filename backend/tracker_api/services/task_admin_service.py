@@ -206,6 +206,10 @@ def apply(
                        "relation": "exercise" if before["task_type"] == "solve" else "reading",
                        "required": not before["is_optional"],
                        "ord": len(before["resource_ids"]) + index + 1, "now": now})
+        if "is_optional" in changed:
+            connection.execute(text(
+                "UPDATE task_resources SET is_required=:required WHERE task_id=:id"
+            ), {"id": task_id, "required": not command.is_optional})
     connection.execute(text("""
         UPDATE tasks SET updated_at=:now,revision=revision+1 WHERE id=:id
     """), {"id": task_id, "now": now})

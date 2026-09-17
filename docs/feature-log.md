@@ -1,5 +1,11 @@
 # Tracker feature and maintenance log
 
+## 2026-09-17 — keep optional resource links consistent
+
+- Administration optional/core changes now update attached resources' required
+  flags in the same transaction, including resources attached in that edit.
+- Validation: regression test toggling optional/core, backend Ruff and mypy.
+
 ## 2026-09-17 — canonical patch reference and exported identities
 
 - Added [the complete patch reference](plan-patching.md), served read-only by the

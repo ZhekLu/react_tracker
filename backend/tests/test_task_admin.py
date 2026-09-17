@@ -277,3 +277,13 @@ def test_patch_preserves_detached_resource_and_rejects_reattachment(tmp_path):
 def test_non_edit_actions_reject_hidden_field_changes(action):
     with pytest.raises(ValidationError, match="Only edit"):
         admin.TaskAdminCommand(request_id=uuid4(), revision=1, action=action, title="Hidden change")
+
+
+def test_optional_change_updates_resource_requirement(tmp_path):
+    seed(tmp_path)
+    id = task_id()
+    for optional in [True, False]:
+        perform(id, is_optional=optional)
+        with transaction() as db:
+            assert db.execute(text("SELECT is_required FROM task_resources WHERE task_id=:id"),
+                              {"id": id}).scalar_one() == int(not optional)
