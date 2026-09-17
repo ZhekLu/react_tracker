@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import Connection, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -31,6 +32,8 @@ from .study_plan_parser import (
     TaskSpec,
     parse_study_plan,
 )
+from .task_admin_service import TaskAdminCommand
+from .task_admin_service import apply as apply_task_admin
 
 
 class StudyPlanSyncError(ValueError):
@@ -948,7 +951,7 @@ def _task_id(
     removed = connection.execute(text(
         "SELECT removed_at FROM task_admin_state WHERE task_id=:id"
     ), {"id": task_id}).scalar_one_or_none()
-    if removed:
+    if removed and not task.delete:
         raise StudyPlanSyncError(
             f"Task {task.key!r} was deleted in Administration. "
             "Omit it from the patch or restore it in Administration first."
@@ -1171,6 +1174,7 @@ def _sync_days_and_tasks(
     skill_ids: dict[str, str],
     timestamp: str,
     counts: dict[str, int],
+    backup_path: str | None = None,
 ) -> tuple[set[str], set[str], set[str]]:
     seen_day_ids: set[str] = set()
     seen_task_ids: set[str] = set()
@@ -1255,7 +1259,8 @@ def _sync_days_and_tasks(
         original_tasks = {
             task.key: _row(
                 connection,
-                "SELECT day_id, section_id, order_index, status FROM tasks WHERE id=:id",
+                "SELECT day_id, section_id, order_index, status, revision, deleted_at "
+                "FROM tasks WHERE id=:id",
                 {"id": task_ids[task.key]},
             )
             for task in planned_tasks
@@ -1272,7 +1277,7 @@ def _sync_days_and_tasks(
                     )
             for index, task in enumerate(planned_tasks, start=1):
                 original = original_tasks[task.key]
-                if original:
+                if original and not task.delete:
                     maximum = connection.execute(
                         text("SELECT COALESCE(MAX(order_index),0) FROM tasks WHERE day_id=:id"),
                         {"id": original["day_id"]},
@@ -1327,6 +1332,24 @@ def _sync_days_and_tasks(
             for task in section.tasks:
                 task_id = task_ids[task.key]
                 original = original_tasks[task.key]
+                if task.delete:
+                    if not original or original["day_id"] != day_id:
+                        raise StudyPlanSyncError(
+                            f"Deletion must name an existing task in this day: {task.key!r}."
+                        )
+                    if not original["deleted_at"]:
+                        try:
+                            apply_task_admin(
+                                connection, task_id, TaskAdminCommand(
+                                    request_id=uuid4(), revision=int(original["revision"]),
+                                    action="delete",
+                                ), transaction_ready=True,
+                                existing_backup=backup_path or "Preview (rolled back)",
+                            )
+                        except ValueError as error:
+                            raise StudyPlanSyncError(str(error)) from error
+                        counts["tasks_deleted"] += 1
+                    continue
                 task_order = section_order * 1000 + task.order_index
                 if plan.mode == "patch" and "order" not in task.fields_present:
                     task_order = (
@@ -1392,7 +1415,7 @@ def _sync_days_and_tasks(
                     counts=counts,
                 )
                 day_skill_keys.update(task.skill_keys)
-                if plan.mode == "full" or task.resource_keys:
+                if plan.mode == "full" or task.resource_keys or "resources" in task.fields_present:
                     effective_task = (
                         connection.execute(
                             text("SELECT is_optional,task_type FROM tasks WHERE id=:id"),
@@ -1581,6 +1604,7 @@ def _sync_study_plan(
         "sections": 0,
         "tasks_created": 0,
         "tasks_updated": 0,
+        "tasks_deleted": 0,
         "resources_created": 0,
         "resources_updated": 0,
         "skills_created": 0,
@@ -1611,7 +1635,9 @@ def _sync_study_plan(
             raise StudyPlanSyncError(
                 f"Patch targets unknown plan {plan.plan_id!r}; sync a full plan first."
             )
-        if backup and not dry_run:
+        has_deletions = any(task.delete for day in plan.days
+                            for section in day.sections for task in section.tasks)
+        if (backup or has_deletions) and not dry_run:
             backup_path = str(backup_database())
         course_id = _upsert_course(active_connection, plan, timestamp=timestamp)
         import_run_id = _start_import_run(
@@ -1655,6 +1681,7 @@ def _sync_study_plan(
             skill_ids=skill_ids,
             timestamp=timestamp,
             counts=counts,
+            backup_path=backup_path,
         )
         if plan.mode == "full":
             protected = active_connection.execute(text("""

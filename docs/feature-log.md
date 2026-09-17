@@ -1,5 +1,18 @@
 # Tracker feature and maintenance log
 
+## 2026-09-17 — explicit patch deletion and resource detachment
+
+- Patches accept `- [ ] Duplicate {#existing-task-id delete=true}`. Deletion is
+  distinct from cancellation, preserves study content, and uses administration
+  history/restore. It requires an existing task in the declared day and cannot
+  combine deletion with note or metadata changes. Full-plan deletion directives
+  are rejected. Replaying deletion is harmless; ordinary patches cannot revive it.
+- Real deletion patches always make a backup, including direct service calls.
+  Preview rolls back task removal and audit records without creating a backup.
+- Explicit `resources=""` now detaches resources from a task; omitted resources
+  preserve links. Shared resources and their annotations/progress are retained.
+- Validation: 58 administration/patch tests, backend Ruff and full strict mypy.
+
 ## 2026-09-17 — task administration data safety
 
 - Added revision-checked task edit, removal, restore, and patch-protection release

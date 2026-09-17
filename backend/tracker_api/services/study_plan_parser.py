@@ -87,6 +87,7 @@ class TaskSpec:
     skill_keys: tuple[str, ...] = ()
     note_markdown: str | None = None
     fields_present: frozenset[str] = frozenset()
+    delete: bool = False
 
 
 @dataclass(frozen=True)
@@ -875,6 +876,7 @@ class _CourseBodyParser:
                 "optional",
                 "why",
                 "info",
+                "delete",
             },
             line=line.number,
             diagnostics=self.diagnostics,
@@ -910,6 +912,10 @@ class _CourseBodyParser:
             dict.fromkeys((*_string_list(attributes.get("resources")), *link_resource_keys))
         )
         status = self._task_status(attributes, state, line.number)
+        if "delete" in attributes and attributes["delete"] not in {True, "true", "false"}:
+            self.diagnostics.append(PlanDiagnostic(
+                "error", "invalid_delete", "delete must be true or false.", line.number,
+            ))
         rationale = "\n\n".join(
             part
             for part in (
@@ -950,6 +956,7 @@ class _CourseBodyParser:
             resource_keys=resource_keys,
             skill_keys=_string_list(attributes.get("skills")),
             fields_present=frozenset(attributes),
+            delete=attributes.get("delete") in {True, "true"},
         )
 
     def _parse_section_heading(
@@ -1215,6 +1222,19 @@ def _validate_structure(
                                 task.line,
                             )
                         )
+    for day in days:
+        for section in day.sections:
+            for task in section.tasks:
+                if task.delete and (
+                    mode != "patch" or not task.explicit_key
+                    or task.fields_present - {"id", "delete"}
+                    or task.note_markdown is not None or task.resource_keys
+                ):
+                    diagnostics.append(PlanDiagnostic(  # noqa: PERF401
+                        "error", "unsafe_task_delete",
+                        "Deletion requires a patch task with only {#existing-id delete=true}; "
+                        "do not combine it with notes or other task edits.", task.line,
+                    ))
     if mode == "patch":
         if not days:
             diagnostics.append(

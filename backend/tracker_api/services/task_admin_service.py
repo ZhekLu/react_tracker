@@ -102,9 +102,13 @@ def overview(connection: Connection, course_id: str) -> dict[str, Any]:
     ]}
 
 
-def apply(connection: Connection, task_id: str, command: TaskAdminCommand) -> dict[str, Any]:
+def apply(
+    connection: Connection, task_id: str, command: TaskAdminCommand,
+    *, transaction_ready: bool = False, existing_backup: str | None = None,
+) -> dict[str, Any]:
     # Acquire the write reservation before reading revisions, validating or backing up.
-    connection.exec_driver_sql("BEGIN IMMEDIATE")
+    if not transaction_ready:
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
     request_json = command.model_dump_json(exclude_unset=True)
     receipt = connection.execute(text(
         "SELECT * FROM task_admin_events WHERE id=:id"
@@ -138,7 +142,8 @@ def apply(connection: Connection, task_id: str, command: TaskAdminCommand) -> di
     ) != before[key]}
     if command.action == "edit" and not changed:
         return {"task": before, "backup_path": None, "event_id": None}
-    backup_path = str(backup_database())  # Failure aborts before any study-data write.
+    # Plan patches already hold the write lock and share one pre-patch backup.
+    backup_path = existing_backup or str(backup_database())
     now = datetime.now(UTC).isoformat()
     protection = set(before["protected_fields"])
     connection.execute(text("INSERT OR IGNORE INTO task_admin_state(task_id) VALUES (:id)"),
