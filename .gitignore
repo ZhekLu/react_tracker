@@ -35,3 +35,6 @@ data/
 *.secrets.*
 *.local.json
 
+# Local instructions for coding agents; developer/product references stay in docs/.
+/.agent-instructions/
+/AGENTS.md

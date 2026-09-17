@@ -1,5 +1,12 @@
 # Tracker feature and maintenance log
 
+## 2026-09-17 — local agent instructions
+
+- Moved agent-only operating instructions to an ignored local folder and removed
+  them from tracked files. An ignored root link preserves automatic discovery.
+  Developer documentation and product references remain in `docs/`.
+- Validation: checked the local link, Git ignore rules, and staged paths.
+
 ## 2026-09-17 — commit completed changes promptly
 
 - Repository instructions now require a focused commit for each completed change,
