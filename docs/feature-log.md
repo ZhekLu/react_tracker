@@ -1,5 +1,17 @@
 # Tracker feature and maintenance log
 
+## 2026-09-17 — canonical patch reference and exported identities
+
+- Added [the complete patch reference](plan-patching.md), served read-only by the
+  API for the forthcoming administration UI. Covers additions, edits, deletion,
+  cancellation, notes, resources, moves, order, status replay, backups and recovery.
+- Patches accept exported task/day/resource UUIDs and section UUIDs, with ownership
+  validation. Renaming a section using its exported ID preserves the same section;
+  exported IDs no longer accidentally become new tasks or unknown day aliases.
+- Validation: 42 focused administration/deletion/reference tests, including complete
+  guide examples and UUID edits without duplicate rows; backend Ruff and mypy.
+  UI navigation/copy controls are in progress.
+
 ## 2026-09-17 — explicit patch deletion and resource detachment
 
 - Patches accept `- [ ] Duplicate {#existing-task-id delete=true}`. Deletion is

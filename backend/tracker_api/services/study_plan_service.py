@@ -304,7 +304,16 @@ def _bound_entity_id(
             "plan_source_id": plan_source_id,
         },
     ).scalar_one_or_none()
-    return str(value) if value is not None else None
+    if value is not None:
+        return str(value)
+    # Inspection/UI exports may use the real UUID when no source key exists.
+    # Callers still validate course ownership before using the returned identity.
+    tables = {"task": "tasks", "day": "study_days", "resource": "resources"}
+    if entity_type in tables and connection.execute(text(
+        f"SELECT id FROM {tables[entity_type]} WHERE id=:id"
+    ), {"id": key}).scalar_one_or_none():
+        return key
+    return None
 
 
 def _bind(
@@ -1163,6 +1172,15 @@ def _reserve_day_order_indices(
         )
 
 
+def _section_id(connection: Connection, course_id: str, day_id: str, key: str) -> str:
+    existing = _row(connection, "SELECT day_id FROM day_sections WHERE id=:id", {"id": key})
+    if existing:
+        if existing["day_id"] != day_id:
+            raise StudyPlanSyncError("A section ID must belong to the declared day.")
+        return key
+    return stable_id("section", course_id, day_id, key)
+
+
 def _sync_days_and_tasks(
     connection: Connection,
     *,
@@ -1269,7 +1287,7 @@ def _sync_days_and_tasks(
             # Free only the rows named by this patch, so swaps are atomic and
             # unmentioned rows retain their order. Collisions with them fail.
             for index, section in enumerate(day.sections, start=1):
-                section_id = stable_id("section", course_id, day_id, section.key)
+                section_id = _section_id(connection, course_id, day_id, section.key)
                 if section_id in original_sections:
                     connection.execute(
                         text("UPDATE day_sections SET order_index=:order WHERE id=:id"),
@@ -1288,7 +1306,7 @@ def _sync_days_and_tasks(
                     )
         day_skill_keys = set(day.skill_keys)
         for section_index, section in enumerate(day.sections, start=1):
-            section_id = stable_id("section", course_id, day_id, section.key)
+            section_id = _section_id(connection, course_id, day_id, section.key)
             existing_section = original_sections.get(section_id)
             section_order = section.order_index
             if plan.mode == "patch" and "order" not in section.fields_present:

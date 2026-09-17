@@ -1,5 +1,8 @@
 # Daily patches and task tutor reviews
 
+For the complete patch syntax, operation recipes, task administration, deletion,
+resource attachment and recovery, start with the [Plan patching reference](plan-patching.md).
+
 ## A task-to-tutor round
 
 1. Write and **Save** your task note.

@@ -212,6 +212,8 @@ def test_api_errors_and_history_are_scoped(tmp_path):
         assert client.post("/api/tasks/missing/admin", json=command).status_code == 404
         assert client.get("/api/courses/missing/task-admin").status_code == 404
         result = client.get(f"/api/courses/{course}/task-admin").json()
+        assert result["plan_id"] == "native_course"
+        assert "delete=true" in client.get("/api/plan-patching-guide").json()["markdown"]
         assert len(result["history"]) == 1
         assert result["history"][0]["after"]["title"] == "API"
         assert "markdown" not in json.dumps(result["history"])

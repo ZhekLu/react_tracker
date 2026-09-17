@@ -1,5 +1,8 @@
 # React Study Tracker
 
+Plan maintenance: [complete patching reference](docs/plan-patching.md), including
+task administration, stable IDs, deletion, resources and safe recovery.
+
 For the keyboard-first study loop and current interaction conventions, see
 [UI_WORKFLOWS.md](UI_WORKFLOWS.md).
 For the immutable question-ID and discussion-mapping contract, see

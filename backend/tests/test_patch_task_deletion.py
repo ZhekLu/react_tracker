@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import pytest
 from sqlalchemy import text
@@ -72,3 +73,38 @@ def test_empty_resource_attribute_detaches_without_deleting_resource(tmp_path):
     with transaction() as db:
         assert db.execute(text("SELECT deleted_at FROM resources WHERE id=:id"),
                           {"id": resource}).scalar_one() is None
+
+
+def test_real_ids_from_ui_update_existing_structure_without_duplicates(tmp_path):
+    seed(tmp_path)
+    id = task_id()
+    task = state(id)
+    path = tmp_path / "ids.md"
+    path.write_text(f'''+++
+format = "study-plan/v1"
+id = "native_course"
+mode = "patch"
++++
+### Day 1: Foundations {{#{task['day_id']}}}
+#### New section title {{#{task['section_id']}}}
+- [ ] New task title {{#{id}}}
+''')
+    with transaction() as db:
+        counts = [db.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+                  for table in ["tasks", "study_days", "day_sections"]]
+    sync_study_plan(path)
+    assert state(id)["title"] == "New task title"
+    assert state(id)["section_title"] == "New section title"
+    with transaction() as db:
+        assert counts == [db.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+                          for table in ["tasks", "study_days", "day_sections"]]
+
+
+def test_complete_reference_examples_parse(tmp_path):
+    guide = Path(__file__).resolve().parents[2] / "docs" / "plan-patching.md"
+    examples = re.findall(r"```md\n(\+\+\+\n.*?)(?=\n```)", guide.read_text(), re.S)
+    assert len(examples) == 2
+    for index, example in enumerate(examples):
+        path = tmp_path / f"example-{index}.md"
+        path.write_text(example)
+        assert not parse_study_plan(path).errors

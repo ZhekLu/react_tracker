@@ -80,10 +80,12 @@ def _snapshot(connection: Connection, task_id: str) -> dict[str, Any]:
 
 
 def overview(connection: Connection, course_id: str) -> dict[str, Any]:
-    if not connection.execute(text(
-        "SELECT 1 FROM courses WHERE id=:id AND deleted_at IS NULL"
-    ), {"id": course_id}).scalar_one_or_none():
+    course = connection.execute(text(
+        "SELECT settings_json FROM courses WHERE id=:id AND deleted_at IS NULL"
+    ), {"id": course_id}).mappings().one_or_none()
+    if course is None:
         raise EntityNotFoundError("Course not found.")
+    settings = json.loads(course["settings_json"] or "{}")
     ids = connection.execute(text("""
         SELECT t.id FROM tasks t JOIN study_days d ON d.id=t.day_id
         LEFT JOIN task_admin_state a ON a.task_id=t.id
@@ -95,7 +97,8 @@ def overview(connection: Connection, course_id: str) -> dict[str, Any]:
         SELECT id,task_id,action,before_json,after_json,backup_path,created_at
         FROM task_admin_events WHERE course_id=:id ORDER BY created_at DESC LIMIT 100
     """), {"id": course_id}).mappings()
-    return {"tasks": [_snapshot(connection, str(id)) for id in ids], "history": [
+    return {"plan_id": settings.get("plan_id") or settings.get("legacy_plan_id") or course_id,
+            "tasks": [_snapshot(connection, str(id)) for id in ids], "history": [
         {**dict(row), "before": json.loads(row["before_json"]),
          "after": json.loads(row["after_json"]), "before_json": None, "after_json": None}
         for row in history

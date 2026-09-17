@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +10,12 @@ from .deps import db_connection
 
 router = APIRouter(prefix="/api")
 Database = Annotated[Connection, Depends(db_connection)]
+
+
+@router.get("/plan-patching-guide")
+def patching_guide() -> dict[str, str]:
+    path = Path(__file__).resolve().parents[3] / "docs" / "plan-patching.md"
+    return {"markdown": path.read_text(encoding="utf-8")}
 
 
 @router.get("/courses/{course_id}/task-admin")
