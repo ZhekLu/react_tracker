@@ -1,5 +1,6 @@
 import { measuredFetch } from "../lib/usageLog";
 import { recordSavedInsert } from "../lib/insertDebug";
+import type { AdminCommand, AdminOverview, AdminResult } from "../lib/taskAdmin";
 import type {
   Annotation,
   AnnotationAnchor,
@@ -1011,6 +1012,16 @@ export async function fetchCourses(): Promise<CourseSummary[]> {
 
 export async function fetchCourseWorkspace(courseId: string): Promise<Course> {
   return workspace(await requestJson<ApiCourseWorkspace>(`/courses/${courseId}/workspace`));
+}
+
+export function fetchTaskAdministration(courseId: string): Promise<AdminOverview> {
+  return requestJson(`/courses/${courseId}/task-admin`);
+}
+export function changeAdminTask(taskId: string, command: AdminCommand): Promise<AdminResult> {
+  return requestJson(`/tasks/${taskId}/admin`, { method: "POST", body: JSON.stringify(command) });
+}
+export function fetchPatchingGuide(): Promise<{ markdown: string }> {
+  return requestJson("/plan-patching-guide");
 }
 
 export async function updateTaskStatus(

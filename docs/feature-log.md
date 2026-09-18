@@ -1,5 +1,24 @@
 # Tracker feature and maintenance log
 
+## 2026-09-18 — task administration UI and patch handoff
+
+- Roadmap has a separate Manage tasks mode and a per-day maintenance button.
+  Search all tasks (including cancelled duplicates), rename, change status/time,
+  attach or detach library resources, toggle optional work, delete and restore.
+  Every mutation is previewed and uses the backed-up administration API.
+- Added change history, visible before/after details, backup receipts, and the
+  canonical Patch guide with copy controls. Copy day context exports stable IDs
+  and metadata without study content, including days with no remaining tasks.
+- Unsaved changes require an explicit discard; failed saves retain drafts and
+  reuse the same request ID. Refresh failure after a successful save does not
+  resubmit it. Running timers block cancellation/deletion. Protected manual
+  edits can be released explicitly for future patches.
+- Validation: 204 backend tests, 187 frontend tests (11 administration tests),
+  Ruff, strict mypy, frontend lint/typecheck/build. Browser checks on a copied
+  database covered rename/resource attachment, duplicate deletion and restore,
+  unsaved changes, history, guide, and 390px layout. Study content and foreign
+  keys remained intact; no live task cleanup was performed.
+
 ## 2026-09-17 — keep optional resource links consistent
 
 - Administration optional/core changes now update attached resources' required
@@ -16,7 +35,7 @@
   exported IDs no longer accidentally become new tasks or unknown day aliases.
 - Validation: 42 focused administration/deletion/reference tests, including complete
   guide examples and UUID edits without duplicate rows; backend Ruff and mypy.
-  UI navigation/copy controls are in progress.
+  UI navigation/copy controls were delivered on September 18.
 
 ## 2026-09-17 — explicit patch deletion and resource detachment
 
@@ -42,7 +61,7 @@
   a running timer prevents removal/cancellation. Cancelling uses skipped status.
 - Patches reject attempts to revive an administratively removed task or overwrite
   protected edited fields. Full plans also reject removal of protected tasks.
-  The UI is still in progress; these endpoints are not yet deployed.
+  The corresponding administration UI was delivered on September 18.
 - Validation: administration and patch-integrity regression tests, backend Ruff
   and strict mypy. Includes backups, rollback after failed writes, stale edits,
   idempotency, resource ownership, timer guards, restoration and patch conflicts.
@@ -61,7 +80,6 @@
   local data and build artifacts out of commits. Validation: documentation diff.
 
 Keep a concise record of behavior, special handling, known gaps, and validation.
-Repository rule: [AGENTS.md](../AGENTS.md).
 
 ## September 2026 — editor and discussions (delivered)
 

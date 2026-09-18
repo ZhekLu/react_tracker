@@ -30,6 +30,7 @@ import {
   MessageSquareText,
   RotateCcw,
   Sparkles,
+  Settings2,
   Timer,
   X,
 } from "lucide-react";
@@ -90,8 +91,10 @@ import {
   isDayFullyComplete,
 } from "./dayPresentation";
 import { ExerciseQaReview } from "./ExerciseQaReview";
+import { TaskAdministration } from "./TaskAdministration";
 
 type RoadmapViewProps = {
+  onPlanChanged: () => Promise<void>;
   activeDayId: string;
   course: Course;
   onActiveDayChange: (dayId: string) => void;
@@ -1125,6 +1128,7 @@ function ResourceQuestionShelf({
 }
 
 type DayCardProps = {
+  onManageTasks: () => void;
   accent: string;
   day: StudyDay;
   discussionQuestionIds: Set<string>;
@@ -1157,6 +1161,7 @@ type DayCardProps = {
 };
 
 function DayCard({
+  onManageTasks,
   accent,
   day,
   discussionQuestionIds,
@@ -1236,6 +1241,7 @@ function DayCard({
           </div>
         </div>
         <div className="dayHeaderActions">
+          <button className="commandButton subtle" type="button" onClick={onManageTasks} aria-label={`Manage tasks for Day ${day.number}`} title="Manage tasks"><Settings2 size={16}/></button>
           <span className={`dayStatePill tone-${tone}`}>
             {tone === "complete" ? <CheckCircle2 size={14} /> : null}
             {tone === "question" ? <CircleHelp size={14} /> : null}
@@ -1385,6 +1391,7 @@ function DayCard({
 }
 
 export function RoadmapView({
+  onPlanChanged,
   activeDayId,
   course,
   onActiveDayChange,
@@ -1412,6 +1419,7 @@ export function RoadmapView({
   onToggleTaskTimer,
   taskTimer,
 }: RoadmapViewProps) {
+  const [administrationDay, setAdministrationDay] = useState("");
   const initialCourseAnchorRef = useRef("");
   const resourceById = useMemo(
     () => new Map(course.resources.map((resource) => [resource.id, resource])),
@@ -1497,8 +1505,11 @@ export function RoadmapView({
 
   return (
     <section className="dayStack">
+      <div className="roadmapAdministration"><button className="commandButton subtle" type="button" onClick={() => setAdministrationDay(activeDayId || course.days[0]?.id || "")}>Manage tasks</button></div>
+      {administrationDay && <TaskAdministration course={course} initialDayId={administrationDay} onChanged={onPlanChanged} onClose={() => setAdministrationDay("")}/>}
       {course.days.map((day) => (
         <DayCard
+          onManageTasks={() => setAdministrationDay(day.id)}
           accent={course.accent}
           day={day}
           discussionQuestionIds={discussionQuestionIds}

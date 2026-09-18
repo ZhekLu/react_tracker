@@ -2317,6 +2317,7 @@ export function App() {
       {view === "debug" ? <DebugView key={workspace.id} courseId={workspace.id}/> : null}
       {view === "roadmap" ? (
         <RoadmapView
+          onPlanChanged={() => loadWorkspace(workspace.id)}
           activeDayId={activeDayId}
           course={workspaceWithLiveTime ?? workspace}
           onActiveDayChange={setActiveDayId}
