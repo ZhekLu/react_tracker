@@ -3028,6 +3028,8 @@ def adopt_local_pdf_identity(
     connection: Connection,
     command: AnnotationCreateCommand,
     legacy_fingerprint: str | None,
+    *,
+    previous_source_fingerprint: str | None = None,
 ) -> None:
     """Upgrade content-derived fingerprints without replacing saved annotations."""
     if not legacy_fingerprint or command.anchor is None:
@@ -3039,11 +3041,21 @@ def adopt_local_pdf_identity(
         SELECT a.id, a.source_fingerprint, aa.page_number, aa.rect_json, aa.annotation_kind
         FROM annotations a JOIN annotation_anchors aa ON aa.annotation_id = a.id
         WHERE a.resource_id = :resource_id AND a.origin = 'pdf_import'
-          AND a.source_fingerprint NOT LIKE 'pdf-source-%' AND a.deleted_at IS NULL
+          AND (a.source_fingerprint NOT LIKE 'pdf-source-%'
+               OR a.source_fingerprint = :previous_source_fingerprint)
+          AND a.deleted_at IS NULL
         """,
-        {"resource_id": command.resource_id},
+        {
+            "resource_id": command.resource_id,
+            "previous_source_fingerprint": previous_source_fingerprint,
+        },
     )
-    exact = [row for row in candidates if row["source_fingerprint"] == legacy_fingerprint]
+    exact = [
+        row
+        for row in candidates
+        if row["source_fingerprint"] in {legacy_fingerprint, previous_source_fingerprint}
+        and row["page_number"] == anchor.page_number
+    ]
     matching = exact or [
         row
         for row in candidates

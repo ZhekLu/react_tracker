@@ -8,6 +8,7 @@ import type {
 import { CompactAnnotationCard } from "./CompactAnnotationCard";
 import {
   annotationParagraphPageRange,
+  annotationIsScreenshot,
   annotationParagraphText,
   annotationRgbCss,
   metadataBoolean,
@@ -193,9 +194,7 @@ export function ParagraphAnnotationGroupCard({
 }: ParagraphAnnotationGroupCardProps) {
   const first = annotations[0];
   const paragraph = annotationParagraphText(first);
-  const screenshotsOnly = annotations.every(
-    (annotation) => annotation.origin === "drawboard_cloud_ink",
-  );
+  const screenshotsOnly = annotations.every(annotationIsScreenshot);
   const pageRange = annotationParagraphPageRange(first);
   const contextImages = [
     ...new Set(

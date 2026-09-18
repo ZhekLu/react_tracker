@@ -1,5 +1,23 @@
 # Tracker feature and maintenance log
 
+## 2026-09-18 — import embedded local/iCloud handwriting
+
+- Local PDF collection now imports handwriting and visual marks as native PDF
+  screenshots, groups pen strokes using guides, and keeps highlight comments as
+  well as quotes. Red ink becomes questions; other ink remains available as notes.
+  Local screenshots use the same review presentation as cloud screenshots.
+- Reimports preserve answers, manual notes and historical closed-question images.
+  Page-scoped IDs prevent repeated PDF annotation names from overwriting captures
+  on other pages; old IDs upgrade in place. Concurrent file changes and preview
+  failures abort collection before reconciliation. Source PDFs remain untouched.
+- Validation: local/cloud regression tests, native rendered pixels at all four
+  page rotations, immutable image caching, recolouring, guide removal, source
+  deletion, repeated IDs and legacy migration. 220 backend and 209 frontend tests
+  passed, plus Ruff, strict mypy, frontend lint and a typechecked production build.
+- Actual PPO-file verification remains blocked by macOS read permission. Its
+  supplied iCloud link opens a shared folder requiring Apple Account sign-in,
+  rather than an anonymous PDF download. No live annotations have been imported.
+
 ## 2026-09-18 — allow the linked iCloud papers directory
 
 - Added explicit `resource_file_roots` in `course_files.json`, including the
@@ -9,8 +27,8 @@
 - Validation: 51 resource/local integration/workspace tests, Ruff and strict
   mypy; added coverage for spaces, PDF rendering/extraction, relative/home roots,
   malformed configuration and three escape attempts.
-- Local handwriting import is a separate follow-up; macOS denied direct iCloud
-  reads from the agent process, so actual-file validation remains pending.
+- Local handwriting support is covered above; actual-file validation remains
+  pending because macOS denies reads from the tracker process.
 
 ## 2026-09-18 — meaningful sidebar progress and course map
 

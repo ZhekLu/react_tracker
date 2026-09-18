@@ -49,6 +49,11 @@ export function annotationDisplayText(annotation: Annotation): string {
   );
 }
 
+export function annotationIsScreenshot(annotation: Annotation): boolean {
+  return annotation.origin === "drawboard_cloud_ink" ||
+    metadataBoolean(annotation, "sourceVisual");
+}
+
 export function annotationChapter(annotation: Annotation): string {
   return (
     metadataText(annotation, "chapterTitle") ||

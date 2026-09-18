@@ -17,6 +17,7 @@ import type {
 import {
   annotationDisplayText,
   annotationHasExtendedContext,
+  annotationIsScreenshot,
   annotationRgbCss,
   annotationSubchapter,
   metadataText,
@@ -48,7 +49,7 @@ export function CompactAnnotationCard({
   initiallyExpanded = false,
 }: CompactAnnotationCardProps) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
-  const isScreenshot = annotation.origin === "drawboard_cloud_ink";
+  const isScreenshot = annotationIsScreenshot(annotation);
   const color = annotation.anchor?.color || "none";
   const rgb = annotationRgbCss(annotation);
   const sectionTitle = annotationSubchapter(annotation);

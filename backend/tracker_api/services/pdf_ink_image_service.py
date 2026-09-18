@@ -686,6 +686,64 @@ def render_annotated_page_images(
     return urls
 
 
+def render_local_annotation_images(
+    source_path: Path,
+    resource_id: str,
+    captures: Iterable[tuple[str, int, list[float]]],
+    *,
+    page_numbers: Iterable[int] = (),
+) -> tuple[dict[str, str], dict[int, str]]:
+    """Snapshot embedded PDF appearances, without cloud overlays or OCR."""
+
+    crops: dict[str, str] = {}
+    pages: dict[int, str] = {}
+    items = list(captures)
+    snapshot_pages = set(page_numbers) | {item[1] for item in items}
+    if not snapshot_pages:
+        return crops, pages
+    with pymupdf.open(source_path) as document:  # type: ignore[no-untyped-call]
+        for page_number in sorted(snapshot_pages):
+            page = document[page_number - 1]
+            image_id = _snapshot_id(source_path, f"pdf-page-{page_number}", ["native-v1"])
+            output = annotation_image_path(resource_id, image_id)
+            if not output.is_file():
+                pixmap = page.get_pixmap(
+                    matrix=pymupdf.Matrix(2, 2),  # type: ignore[no-untyped-call]
+                    alpha=False,
+                    annots=True,
+                )
+                output.parent.mkdir(parents=True, exist_ok=True)
+                _save_snapshot(pixmap, output)
+            pages[page_number] = annotation_image_url(resource_id, image_id)
+        for fingerprint, page_number, rect in items:
+            page = document[page_number - 1]
+            bounds = pymupdf.Rect(rect) * page.rotation_matrix  # type: ignore[no-untyped-call]
+            clip = (
+                pymupdf.Rect(  # type: ignore[no-untyped-call]
+                    page.rect.x0,
+                    bounds.y0 - 36,
+                    page.rect.x1,
+                    bounds.y1 + 36,
+                )
+                & page.rect
+            )
+            if clip.is_empty or clip.is_infinite:
+                raise PdfInkImageError(f"Invalid local annotation bounds on page {page_number}.")
+            image_id = _snapshot_id(source_path, fingerprint, ["native-v1", page_number, rect])
+            output = annotation_image_path(resource_id, image_id)
+            if not output.is_file():
+                pixmap = page.get_pixmap(
+                    matrix=pymupdf.Matrix(3, 3),  # type: ignore[no-untyped-call]
+                    clip=clip,
+                    alpha=False,
+                    annots=True,
+                )
+                output.parent.mkdir(parents=True, exist_ok=True)
+                _save_snapshot(pixmap, output)
+            crops[fingerprint] = annotation_image_url(resource_id, image_id)
+    return crops, pages
+
+
 def render_ink_context_images(
     source_path: Path,
     resource_id: str,

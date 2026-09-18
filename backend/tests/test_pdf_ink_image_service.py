@@ -627,3 +627,48 @@ def test_snapshot_cache_ignores_edits_outside_crop_and_keeps_old_pixels(tmp_path
     )
     assert fourth != third
     get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_local_pdf_snapshots_keep_embedded_ink_and_rotation(tmp_path, monkeypatch, rotation):
+    from tracker_api.services.pdf_ink_image_service import render_local_annotation_images
+
+    monkeypatch.setenv("TRACKER_ANNOTATION_IMAGE_DIR", str(tmp_path / "images"))
+    get_settings.cache_clear()
+    path = tmp_path / "iCloud paper.pdf"
+    with pymupdf.open() as doc:
+        page = doc.new_page(width=250, height=320)
+        ink = page.add_ink_annot([[(35, 120), (180, 130), (40, 145)]])
+        ink.set_colors(stroke=(1, 0, 0))
+        ink.set_border(width=3)
+        ink.update()
+        rect = list(ink.rect)
+        page.set_rotation(rotation)
+        doc.save(path)
+    try:
+        crops, pages = render_local_annotation_images(path, "resource", [("ink", 1, rect)])
+        image = tmp_path / "images" / "resource" / (crops["ink"].rsplit("/", 1)[1] + ".png")
+        before = image.read_bytes()
+        pix = pymupdf.Pixmap(str(image))
+        pixels = pix.samples
+        red_pixels = sum(
+            r > 180 and g < 80 and b < 80
+            for r, g, b in zip(pixels[::3], pixels[1::3], pixels[2::3], strict=True)
+        )
+        assert red_pixels > 300
+        assert pages[1] != crops["ink"]
+        assert render_local_annotation_images(path, "resource", [("ink", 1, rect)]) == (
+            crops,
+            pages,
+        )
+        with pymupdf.open(path) as doc:
+            page = doc[0]
+            ink = page.first_annot
+            ink.set_colors(stroke=(0, 0, 1))
+            ink.update()
+            doc.saveIncr()
+        updated, _ = render_local_annotation_images(path, "resource", [("ink", 1, rect)])
+        assert updated["ink"] != crops["ink"]
+        assert image.read_bytes() == before
+    finally:
+        get_settings.cache_clear()

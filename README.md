@@ -308,6 +308,26 @@ matches each quote to its containing sentence plus one sentence on either side.
 The compact list shows the containing sentence; opening a capture reveals the
 exact marked text and surrounding context.
 
+### Local and iCloud PDF annotations
+
+Resources without a Drawboard Cloud URL collect directly from their configured
+local `path`, including iCloud Drive files edited in Drawboard on iPad. Let iCloud
+finish syncing before collecting. No Drawboard Cloud account or upload is used.
+The PDF must contain editable annotation objects; flattened pen marks are page
+artwork and cannot be recovered as individual annotations by this importer.
+
+- Embedded highlights retain both the marked text and any attached comment.
+- Handwriting, shapes and stamps retain their native PDF appearance in screenshots.
+  Nearby handwriting is grouped using vertical guides; red groups are questions,
+  and other ink becomes notes. Typed `??` and `todo!` also flag questions.
+- Recollection preserves saved question identities, answers and user-authored
+  notes. Closed questions keep their original screenshots; open ones refresh.
+  Source deletions soft-delete imported captures without deleting their documents.
+- IDs are scoped to PDF pages, including a safe upgrade of older imported IDs.
+  A PDF changing during collection aborts before source reconciliation.
+- Opening a PDF in Drawboard and parsing its bytes are separate permissions.
+  The app hosting the tracker process needs macOS access to the local iCloud files.
+
 Red cloud ink is treated as a question. Drawboard's bottom-origin ink
 coordinates are converted to the PDF's top-origin page geometry before the
 tracker renders a full-width crop, overlays the cloud stroke in its exact RGB
