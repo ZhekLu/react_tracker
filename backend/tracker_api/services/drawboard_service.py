@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..config import get_settings
+from .annotation_color_service import annotation_color_name
 
 DRAWBOARD_API_BASE = "https://us-prod-prod.dbpdf.drawboard.com/api/v1"
 DRAWBOARD_IDENTITY_BASE = "https://sso.drawboard.com/api/v1"
@@ -411,24 +412,7 @@ def _annotation_appearance(
     if len(raw) != 6 or not re.fullmatch(r"[a-fA-F0-9]{6}", raw):
         return "", [], opacity, str(annotation.get("blendMode") or "Normal")
     rgb = [int(raw[index : index + 2], 16) / 255 for index in (0, 2, 4)]
-    red, green, blue = rgb
-    color = "custom"
-    # Drawboard's current dark-red pen is #AF0001 (before alpha), while its
-    # older red/pink presets are much brighter. Hue dominance is stable across
-    # those palette changes; an absolute red >= .75 threshold is not. Keep the
-    # separation deliberately wide enough that grey and blue handwriting can
-    # never become questions merely because their red channel is non-zero.
-    if red >= 0.45 and red - green >= 0.25 and red - blue >= 0.20:
-        color = "red"
-    elif red >= 0.85 and green >= 0.75 and blue <= 0.55:
-        color = "yellow"
-    elif red <= 0.35 and green >= 0.75 and blue >= 0.75:
-        color = "cyan"
-    elif green >= 0.55 and red <= 0.55:
-        color = "green"
-    elif blue >= 0.55 and red <= 0.55:
-        color = "blue"
-    return color, rgb, opacity, str(annotation.get("blendMode") or "Normal")
+    return annotation_color_name(rgb), rgb, opacity, str(annotation.get("blendMode") or "Normal")
 
 
 def _annotation_color(annotation: dict[str, Any]) -> tuple[str, list[float]]:

@@ -1,5 +1,15 @@
 # Tracker feature and maintenance log
 
+## 2026-09-18 — share pen-colour rules between local and cloud PDFs
+
+- Real PPO-file preview exposed a local-only bug: Drawboard's dark-red pen was
+  classified as a note. Both import paths now share the cloud importer's hue
+  rules, including dark red and pink while excluding neutral and blue ink.
+- Validation: 38 local/cloud tests, including five matching-palette cases and
+  a dark-red guide/handwriting group; Ruff and strict mypy. The real preview
+  parsed 49 captures with nothing ignored and left annotations, documents and
+  question identities identical to the backup. Final recollection pending reload.
+
 ## 2026-09-18 — preview PDF collection without changing study data
 
 - `POST /api/resources/{id}/pdf-annotations/collect?dry_run=true` runs the full

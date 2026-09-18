@@ -22,6 +22,7 @@ from ..schemas.workspace import (
     AnnotationCreateCommand,
     AnnotationKind,
 )
+from .annotation_color_service import annotation_color_name
 from .chapter_scope_service import referenced_chapter_numbers
 from .drawboard_service import (
     DrawboardCapture,
@@ -441,18 +442,7 @@ def _annotation_color(annotation: Any) -> tuple[str, list[float]]:
     if len(raw_rgb) < 3:
         return "", []
     rgb = [float(part) for part in raw_rgb[:3]]
-    red, green, blue = rgb
-    if red >= 0.85 and green <= 0.55 and blue <= 0.65:
-        return "red", rgb
-    if red >= 0.85 and green >= 0.75 and blue <= 0.55:
-        return "yellow", rgb
-    if red <= 0.35 and green >= 0.75 and blue >= 0.75:
-        return "cyan", rgb
-    if green >= 0.55 and red <= 0.55:
-        return "green", rgb
-    if blue >= 0.55 and red <= 0.55:
-        return "blue", rgb
-    return "custom", rgb
+    return annotation_color_name(rgb), rgb
 
 
 def _fingerprint(

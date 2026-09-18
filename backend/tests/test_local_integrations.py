@@ -580,3 +580,52 @@ def test_failed_collection_preview_rolls_back_partial_writes(tmp_path, monkeypat
         with pytest.raises(HTTPException):
             routes.collect_resource_annotations(resource_id, connection, dry_run=True)
         assert connection.execute(text("SELECT id,title FROM resources")).all() == before
+
+
+@pytest.mark.parametrize(
+    "hex_color,expected",
+    [
+        ("AF0001", "red"),
+        ("D42222", "red"),
+        ("FF5468", "red"),
+        ("575761", "custom"),
+        ("3366CC", "blue"),
+    ],
+)
+def test_embedded_and_cloud_pen_colors_have_identical_classification(hex_color, expected):
+    from types import SimpleNamespace
+
+    from tracker_api.services.drawboard_service import _annotation_color as cloud_color
+    from tracker_api.services.pdf_annotation_service import _annotation_color as pdf_color
+
+    rgb = [int(hex_color[n : n + 2], 16) / 255 for n in (0, 2, 4)]
+    embedded = pdf_color(SimpleNamespace(colors={"stroke": rgb}))
+    cloud = cloud_color({"strokeColor": hex_color})
+    assert embedded == cloud
+    assert embedded[0] == expected
+
+
+def test_dark_red_local_guide_and_handwriting_are_one_question(tmp_path):
+    resource_id = _seed_pdf_resource(tmp_path)
+    path = tmp_path / "annotated.pdf"
+    _add_local_marks(path)
+    with pymupdf.open(path) as doc:
+        page = doc[0]
+        for annotation in page.annots():
+            if annotation.type[1] == "Ink" and annotation.rect.y0 < 200:
+                annotation.set_colors(stroke=(175 / 255, 0, 1 / 255))
+                annotation.update()
+        doc.saveIncr()
+    with transaction() as connection:
+        result = collect_resource_pdf_annotations(connection, resource_id)
+        assert result.kind_counts == {"question": 2, "note": 3}
+        assert (
+            len(
+                [
+                    row
+                    for row in _local_rows(connection)
+                    if row["annotation_kind"] == "Ink" and row["kind"] == "question"
+                ]
+            )
+            == 1
+        )
