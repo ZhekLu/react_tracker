@@ -355,6 +355,7 @@ class PdfAnnotationCollectionItemResponse(StrictModel):
 
 
 class PdfAnnotationCollectionResponse(StrictModel):
+    dry_run: bool = False
     resource_id: str
     path: str
     extracted_count: int

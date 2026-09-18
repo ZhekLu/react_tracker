@@ -328,6 +328,12 @@ artwork and cannot be recovered as individual annotations by this importer.
 - Opening a PDF in Drawboard and parsing its bytes are separate permissions.
   The app hosting the tracker process needs macOS access to the local iCloud files.
 
+For diagnostics, `POST /api/resources/{id}/pdf-annotations/collect?dry_run=true`
+returns the full import report with `dry_run: true` and rolls back all database
+changes. Preview image files can still be cached. Omitting `dry_run` saves the
+collection normally. Check that the response contains `dry_run: true` when using
+this API against a running server, and restart it after updating the backend.
+
 Red cloud ink is treated as a question. Drawboard's bottom-origin ink
 coordinates are converted to the PDF's top-origin page geometry before the
 tracker renders a full-width crop, overlays the cloud stroke in its exact RGB

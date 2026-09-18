@@ -113,17 +113,21 @@ def test_pdf_collection_persists_and_reports_existing_captures(
         first = collect_resource_pdf_annotations(connection, resource_id)
     with transaction() as connection:
         second = collect_resource_pdf_annotations(connection, resource_id)
-        row = connection.execute(
-            text(
-                """
+        row = (
+            connection.execute(
+                text(
+                    """
                 SELECT a.kind, aa.page_number, aa.quote, aa.color
                 FROM annotations a
                 JOIN annotation_anchors aa ON aa.annotation_id = a.id
                 WHERE a.resource_id = :resource_id
                 """
-            ),
-            {"resource_id": resource_id},
-        ).mappings().one()
+                ),
+                {"resource_id": resource_id},
+            )
+            .mappings()
+            .one()
+        )
 
     assert first.extracted_count == 1
     assert first.created_count == 1
@@ -506,16 +510,73 @@ def test_denied_local_file_read_reports_permission_before_import(tmp_path, monke
     from tracker_api.services.pdf_annotation_service import PdfAnnotationError
 
     resource_id = _seed_pdf_resource(tmp_path)
-    path = tmp_path / 'annotated.pdf'
+    path = tmp_path / "annotated.pdf"
     original_open = Path.open
 
     def restricted_open(self, *args, **kwargs):
         if self == path:
-            raise PermissionError('Operation not permitted')
+            raise PermissionError("Operation not permitted")
         return original_open(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, 'open', restricted_open)
+    monkeypatch.setattr(Path, "open", restricted_open)
     with transaction() as connection:
-        with pytest.raises(PdfAnnotationError, match='permission denied'):
+        with pytest.raises(PdfAnnotationError, match="permission denied"):
             collect_resource_pdf_annotations(connection, resource_id)
-        assert connection.execute(text('SELECT COUNT(*) FROM annotations')).scalar_one() == 0
+        assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 0
+
+
+def test_collection_preview_rolls_back_all_study_data_then_normal_import_persists(tmp_path):
+    from tracker_api.api.routes import collect_resource_annotations
+
+    resource_id = _seed_pdf_resource(tmp_path)
+    _add_local_marks(tmp_path / "annotated.pdf")
+    with transaction() as connection:
+        tables = (
+            connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND sql NOT LIKE 'CREATE VIRTUAL%'"
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        def snapshot():
+            return {
+                table: connection.execute(text(f'SELECT * FROM "{table}"')).all()
+                for table in tables
+            }
+
+        before = snapshot()
+        preview = collect_resource_annotations(resource_id, connection, dry_run=True)
+        assert preview.dry_run is True
+        assert preview.created_count == 5
+        assert snapshot() == before
+    with transaction() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 0
+        saved = collect_resource_annotations(resource_id, connection)
+        assert saved.dry_run is False
+        assert saved.created_count == 5
+    with transaction() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 5
+
+
+def test_failed_collection_preview_rolls_back_partial_writes(tmp_path, monkeypatch):
+    from fastapi import HTTPException
+
+    from tracker_api.api import routes
+    from tracker_api.services.pdf_annotation_service import PdfAnnotationError
+
+    resource_id = _seed_pdf_resource(tmp_path)
+
+    def broken_import(connection, _resource_id, **_kwargs):
+        connection.execute(text("UPDATE resources SET title='preview mutation'"))
+        raise PdfAnnotationError("Simulated partial import failure")
+
+    monkeypatch.setattr(routes, "collect_resource_pdf_annotations", broken_import)
+    with transaction() as connection:
+        before = connection.execute(text("SELECT id,title FROM resources")).all()
+        with pytest.raises(HTTPException):
+            routes.collect_resource_annotations(resource_id, connection, dry_run=True)
+        assert connection.execute(text("SELECT id,title FROM resources")).all() == before

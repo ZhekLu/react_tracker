@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -406,14 +407,24 @@ def collect_resource_annotations(
     resource_id: str,
     connection: Database,
     source_day_id: str | None = None,
+    dry_run: bool = False,
 ) -> PdfAnnotationCollectionResponse:
     try:
-        result = collect_resource_pdf_annotations(
-            connection,
-            resource_id,
-            source_day_id=source_day_id,
-        )
+        preview = connection.begin_nested() if dry_run else None
+        try:
+            result = collect_resource_pdf_annotations(
+                connection,
+                resource_id,
+                source_day_id=source_day_id,
+            )
+        finally:
+            if preview is not None:
+                preview.rollback()
+                logging.getLogger("uvicorn.error").info(
+                    "PDF annotation preview rolled back resource_id=%s", resource_id
+                )
         return PdfAnnotationCollectionResponse(
+            dry_run=dry_run,
             resource_id=result.resource_id,
             path=str(result.path),
             extracted_count=result.extracted_count,

@@ -1,5 +1,15 @@
 # Tracker feature and maintenance log
 
+## 2026-09-18 — preview PDF collection without changing study data
+
+- `POST /api/resources/{id}/pdf-annotations/collect?dry_run=true` runs the full
+  importer in a rolled-back savepoint and returns `dry_run: true`. Generated
+  preview images may be cached, but captures, identities, notes and deletions are
+  rolled back, including on errors. Logs explicitly identify the rolled-back run.
+- Validation: 13 local integration tests, including snapshots of all ordinary
+  database tables before/after preview, partial-failure rollback and a subsequent
+  normal import; Ruff and strict mypy.
+
 ## 2026-09-18 — distinguish PDF permissions from parsing failures
 
 - PDF reading and local annotation import now probe file-content access and show
