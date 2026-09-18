@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -98,6 +99,16 @@ export function ResourceReader({
   const scrollRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const readerRef = useRef<HTMLElement>(null);
+  const quickInputRef = useRef<HTMLTextAreaElement>(null);
+  const quickEditorOpen = quickDraft !== null;
+
+  useLayoutEffect(() => {
+    if (!quickEditorOpen) return;
+    const input = quickInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, [quickEditorOpen]);
   const localPath =
     resource.version?.localPath ??
     resource.localFiles.find((file) => file.isPrimary)?.localPath ??
@@ -247,13 +258,13 @@ export function ResourceReader({
       event.preventDefault();
       if (event.key === "?") {
         setQuickKind("question");
-        setQuickDraft("");
+        setQuickDraft("/screen ");
       } else if (event.key === "!") {
         setQuickKind("todo");
-        setQuickDraft("");
+        setQuickDraft("/screen ");
       } else {
         setQuickKind("note");
-        setQuickDraft(event.key);
+        setQuickDraft(`/screen ${event.key}`);
       }
     }
   }
@@ -444,7 +455,8 @@ export function ResourceReader({
               ))}
             </div>
             <textarea
-              autoFocus
+              aria-label="Slide note"
+              ref={quickInputRef}
               onChange={(event) => setQuickDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {
@@ -457,12 +469,12 @@ export function ResourceReader({
                   saveQuickAnnotation();
                 }
               }}
-              placeholder="Type the thought; add /screen to send this slide to the tutor."
+              placeholder="Type your thought. /screen attaches this slide; remove it for text only."
               value={quickDraft}
             />
             <button
               className="commandButton"
-              disabled={!quickDraft.trim()}
+              disabled={!prepareReaderCapture(quickDraft, quickKind).markdown}
               onClick={saveQuickAnnotation}
               type="button"
             >

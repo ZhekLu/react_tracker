@@ -1,5 +1,15 @@
 # Tracker feature and maintenance log
 
+## 2026-09-18 — slide capture template and stable caret
+
+- New PDF reader captures begin with `/screen ` so slide questions include their
+  source image by default. Remove the tag for text only. A bare template cannot
+  be saved. Question/to-do shortcuts and questions inferred from `??` retain it.
+- Focus and selection are initialized once after the textarea receives its value;
+  the first typed letter stays before the caret and later edits keep their position.
+- Validation: 8 reader/capture/progress tests, including caret position, first
+  character, repeated captures, template-only drafts and screenshot opt-out; lint.
+
 ## 2026-09-18 — copy only unanswered follow-ups
 
 - Follow-up copying now uses the shared question queue: an existing mapped tutor
