@@ -96,8 +96,9 @@ export function dayToneLabel(day: StudyDay): string {
 export function formatTrackedTime(totalSeconds: number): string {
   if (totalSeconds <= 0) return "";
   if (totalSeconds < 60) return "<1m";
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.round((totalSeconds % 3600) / 60);
+  const totalMinutes = Math.round(totalSeconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
   if (hours === 0) return `${minutes}m`;
   if (minutes === 0) return `${hours}h`;
   return `${hours}h ${minutes}m`;

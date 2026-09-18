@@ -2248,7 +2248,7 @@ export function App() {
     <>
       <AppShell
       activeDayId={activeDayId}
-      course={workspace}
+      course={workspaceWithLiveTime ?? workspace}
       courses={displayedCourses}
       onBack={() => window.history.back()}
       onCourseChange={handleCourseChange}

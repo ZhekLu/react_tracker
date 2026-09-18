@@ -1,0 +1,59 @@
+.workspaceSidebar .studyMomentumPanel { padding: 12px; border: 1px solid #ffffff20; border-radius: 13px; background: linear-gradient(145deg,#ffffff0c,#b6dfcd06); }
+.studyMomentumPanel > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: #e1ece5; }
+.studyMomentumPanel > header span { display: flex; gap: 6px; align-items: center; font-weight: 700; }
+.studyMomentumPanel > header small { color: #bacdc3; font-size: 10px; }
+.journeyInvestment { display: flex; align-items: baseline; gap: 7px; margin: 9px 0 12px; }
+.journeyInvestment strong { color: #ffe0a3; font-size: 18px; font-variant-numeric: tabular-nums; }
+.journeyInvestment > span { color: #b9ccc2; font-size: 10px; }
+.studyActivityGrid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 4px; }
+.studyActivityGrid > button { min-width: 0; height: 25px; border: 1px solid #ffffff20; border-radius: 5px; background: #ffffff08; color: #b5c7bd; font: inherit; font-size: 10px; font-weight: 600; position: relative; cursor: pointer; transition: background .25s, box-shadow .25s; }
+.studyActivityGrid > button > svg { position: absolute; right: 1px; top: 1px; }
+.studyActivityGrid > button.activityLevel-1 { background: #355d4e; color: #e1f6eb; }
+.studyActivityGrid > button.activityLevel-2 { background: #497e65; color: white; }
+.studyActivityGrid > button.activityLevel-3 { background: #7bb095; color: #12291e; }
+.studyActivityGrid > button.activityLevel-4 { background: #b0dac0; color: #12291e; }
+.studyActivityGrid > button[aria-current="step"] { outline: 2px solid #e5c590; outline-offset: 1px; box-shadow: 0 0 10px #e5c59030; }
+.studyActivityGrid > button:hover { filter: brightness(1.25); }
+.workspaceSidebar :is(.studyActivityGrid button,.journeySelected,.sidebarAchievement,.sidebarMoreProgress button,.sidebarMoreProgress summary):focus-visible { outline: 2px solid #e5c590; outline-offset: 2px; }
+.journeyLegend { display: flex; justify-content: space-between; gap: 5px; margin-top: 9px; color: #bbcec2; font-size: 9px; }
+.journeyLegend > span { display: inline-flex; align-items: center; gap: 4px; }
+.journeyLegend i { width: 7px; height: 7px; border-radius: 2px; background: #ffffff12; border: 1px solid #ffffff20; }
+.journeyLegend > span:nth-child(2) i { background: #497e65; }
+.journeySelected { display: flex; width: 100%; gap: 7px; align-items: center; border: 0; border-top: 1px solid #ffffff15; margin-top: 10px; padding: 10px 0 0; background: transparent; color: #e2eee6; text-align: left; font: inherit; cursor: pointer; }
+.journeySelected > svg { flex-shrink: 0; color: #e5c590; }
+.journeySelected > span { display: grid; gap: 4px; }
+.journeySelected strong { font-size: 11px; }
+.journeySelected small { font-size: 10px; color: #bbcec2; }
+.journeyCaption { margin: 8px 0 0; font-size: 9px; color: #a9c1b3; }
+.workspaceSidebar .sidebarMetrics { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 0 0 12px; border-top: 0; }
+.sidebarProgressTabs { display: flex; gap: 4px; border-radius: 9px; padding: 3px; background: #0002; }
+.sidebarProgressTabs button { flex: 1; border: 1px solid transparent; border-radius: 7px; padding: 7px; background: transparent; color: #bfd1c6; cursor: pointer; font: inherit; font-size: 11px; }
+.sidebarProgressTabs button[aria-pressed=true] { background: #ffffff10; border-color: #ffffff20; color: #f2fff6; }
+.sidebarProgressTabs button:focus-visible { outline: 2px solid #e5c590; outline-offset: 1px; }
+@media (min-width: 901px) { .workspaceSidebar.collapsed .sidebarProgressTabs { display: none; } }
+@media (max-width: 900px) {
+  .workspaceSidebar :is(.sidebarProgressTabs,.sidebarMetrics,.studyMomentumPanel) { grid-column: 1 / -1; }
+}
+@media (min-width: 641px) and (max-width: 900px) {
+  .workspaceSidebar .sidebarMetrics { grid-template-columns: repeat(3,minmax(0,1fr)); column-gap: 18px; }
+  .sidebarMetrics > :is(header,.sidebarMilestone,.sidebarMoreProgress) { grid-column: 1 / -1; }
+}
+.sidebarMetrics > header { display: flex; gap: 6px; align-items: center; font-size: 12px; color: #edf6f0; }
+.sidebarMetrics > header > small { margin-left: auto; font-size: 9px; font-weight: 500; color: #b8cbbf; }
+.sidebarMilestone { display: grid; gap: 5px; padding: 11px; border-radius: 10px; background: #e6c78d12; border: 1px solid #e6c78d25; }
+.sidebarMilestone strong { font-size: 17px; color: #ffe0a3; font-variant-numeric: tabular-nums; }
+.sidebarMilestone span { color: #d3dacf; font-size: 10px; line-height: 1.5; }
+.sidebarAchievement { display: grid; width: 100%; gap: 6px; background: none; border: 0; padding: 0; text-align: left; font: inherit; cursor: pointer; }
+.sidebarAchievement > span { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #d4e5da; }
+.sidebarAchievement strong { margin-left: auto; font-size: 14px; color: #f2fff6; font-variant-numeric: tabular-nums; }
+.sidebarAchievement strong small { color: #a1bca9; font-size: 10px; font-weight: 500; }
+.sidebarAchievement > small { color: #b8cbbf; font-size: 10px; line-height: 1.4; }
+.sidebarAchievement:hover > span { color: #fff; }
+.sidebarAchievement .progressBar { height: 5px; background: #ffffff14; border: 0; }
+.sidebarMoreProgress { border-top: 1px solid #ffffff15; padding-top: 9px; }
+.sidebarMoreProgress summary { cursor: pointer; font-size: 10px; color: #bfd1c6; }
+.sidebarMoreProgress button { width: 100%; padding: 10px 0 0; border: 0; background: transparent; text-align: left; color: #d4e5da; font: inherit; font-size: 11px; display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.sidebarMoreProgress button > span { display: grid; gap: 4px; }
+.sidebarMoreProgress button small { font-size: 10px; color: #afc5b7; }
+.sidebarMoreProgress button strong { margin-left: auto; color: #f2fff6; font-size: 11px; }
+@media (prefers-reduced-motion: reduce) { .studyActivityGrid > button { transition: none; } }

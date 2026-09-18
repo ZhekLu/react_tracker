@@ -23,8 +23,9 @@ import {
   isDayClosed,
 } from "../features/roadmap/dayPresentation";
 import type { Course, CourseSummary, TrackerView } from "../types/tracker";
-import { MetricBar } from "./MetricBar";
+import { SidebarProgressPanel } from "./rewards/SidebarProgressPanel";
 import { StudyMomentumPanel } from "./rewards/StudyMomentumPanel";
+import { courseAchievements } from "../lib/studyActivity";
 
 type WorkspaceSidebarProps = {
   activeDayId: string;
@@ -72,18 +73,10 @@ export function WorkspaceSidebar({
   const [collapsed, setCollapsed] = useState(
     () => window.localStorage.getItem("tracker.sidebar.collapsed") === "true",
   );
-  const libraryResources = course.resources.filter(
-    (resource) => !["discussion", "exam_question"].includes(resource.kind),
-  );
-  const readResources = libraryResources.filter((resource) =>
-    ["read", "review"].includes(resource.status),
-  ).length;
-  const allQuestions = course.exams.flatMap((exam) => exam.questions);
-  const solvedQuestions = allQuestions.filter((question) =>
-    ["solved", "review"].includes(question.solveStatus),
-  ).length;
+  const [summary, setSummary] = useState(() =>
+    window.localStorage.getItem("tracker.sidebar.summary") === "journey" ? "journey" : "progress");
   const completedDays = course.days.filter(isDayClosed).length;
-  const coveredSkills = course.skills.filter((skill) => skill.covered).length;
+  const achievements = courseAchievements(course);
   const today = course.days.find((day) => day.date === localDateKey());
   const nextOpen = course.days.find((day) => !isDayClosed(day));
 
@@ -136,10 +129,15 @@ export function WorkspaceSidebar({
         </select>
       </label>
 
-      <StudyMomentumPanel
-        course={course}
-        trackedSecondsByDay={trackedSecondsByDay}
-      />
+      <div className="sidebarProgressTabs" role="group" aria-label="Sidebar summary">
+        {(["progress", "journey"] as const).map(value => <button type="button" key={value}
+          aria-pressed={summary === value} onClick={() => {
+            setSummary(value); window.localStorage.setItem("tracker.sidebar.summary", value);
+          }}>{value === "progress" ? "Progress" : "Course map"}</button>)}
+      </div>
+      {summary === "journey" ? <StudyMomentumPanel course={course} activeDayId={activeDayId}
+        onOpenDay={onOpenDay} trackedSecondsByDay={trackedSecondsByDay}/>
+        : <SidebarProgressPanel course={course} onViewChange={onViewChange}/>}
 
       <nav className="workspaceNav" aria-label="Main navigation">
         {navItems.map((item) => {
@@ -160,31 +158,6 @@ export function WorkspaceSidebar({
           );
         })}
       </nav>
-
-      <section className="sidebarMetrics" aria-label="Course statistics">
-        <MetricBar accent={course.accent} label="Days" total={course.days.length} value={completedDays} />
-        <MetricBar
-          accent={course.accent}
-          label="Core tasks"
-          total={course.stats.taskCount}
-          value={course.stats.completedTaskCount}
-        />
-        <MetricBar
-          accent={course.accent}
-          label="Resources"
-          total={libraryResources.length}
-          value={readResources}
-        />
-        <MetricBar accent={course.accent} label="Skills" total={course.skills.length} value={coveredSkills} />
-        {allQuestions.length ? (
-          <MetricBar
-            accent={course.accent}
-            label="Exam questions"
-            total={allQuestions.length}
-            value={solvedQuestions}
-          />
-        ) : null}
-      </section>
 
       {view === "roadmap" ? (
         <>
@@ -270,10 +243,10 @@ export function WorkspaceSidebar({
             </strong>
             <span>
               {view === "resources"
-                ? `${libraryResources.length} source files`
+                ? `${achievements.resourceTotal} source files`
                 : null}
-              {view === "skills" ? `${coveredSkills}/${course.skills.length} covered` : null}
-              {view === "exams" ? `${allQuestions.length} mapped questions` : null}
+              {view === "skills" ? `${achievements.skillDone}/${course.skills.length} covered` : null}
+              {view === "exams" ? `${achievements.examTotal} mapped questions` : null}
               {view === "notes" ? `${course.notes.length} editable notes` : null}
               {view === "discussions" ? `${course.discussions.length} linked threads` : null}
             </span>

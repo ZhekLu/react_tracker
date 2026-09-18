@@ -1,80 +1,37 @@
-import { Flame } from "lucide-react";
-import type { CSSProperties } from "react";
+import { Check, Map, Sparkles } from "lucide-react";
 import type { Course } from "../../types/tracker";
-import {
-  formatTrackedTime,
-  isDayFullyComplete,
-  localDateKey,
-} from "../../features/roadmap/dayPresentation";
-import { studyActivityLevel } from "../../lib/studyActivity";
+import { dayDisplayTopic, formatTrackedTime } from "../../features/roadmap/dayPresentation";
+import { dayAchievements } from "../../lib/studyActivity";
 
 type StudyMomentumPanelProps = {
   course: Course;
   trackedSecondsByDay: Record<string, number>;
+  activeDayId: string;
+  onOpenDay: (id: string) => void;
 };
 
-export function StudyMomentumPanel({
-  course,
-  trackedSecondsByDay,
-}: StudyMomentumPanelProps) {
-  const activity = course.days.map((day) => {
-    const trackedSeconds = Math.max(
-      day.trackedSeconds,
-      trackedSecondsByDay[day.id] ?? 0,
-    );
-    return {
-      day,
-      level: studyActivityLevel(
-        day.progress.ratio,
-        trackedSeconds,
-      ),
-      trackedSeconds,
-    };
-  });
-  let lastActiveIndex = -1;
-  for (let index = activity.length - 1; index >= 0; index -= 1) {
-    if (activity[index].level > 0) {
-      lastActiveIndex = index;
-      break;
-    }
-  }
-  let streak = 0;
-  for (let index = lastActiveIndex; index >= 0; index -= 1) {
-    if (activity[index].level === 0) break;
-    streak += 1;
-  }
-  const focusedDays = activity.filter((item) => item.level > 0).length;
-  const today = localDateKey();
-  const firstCatchUpDayId = activity.find(
-    ({ day }) => Boolean(day.date && day.date < today) && !isDayFullyComplete(day),
-  )?.day.id;
-
-  return (
-    <section className="studyMomentumPanel" aria-label="Study activity">
-      <header>
-        <span>
-          <Flame size={13} />
-          <strong>{streak}</strong> day streak
-        </span>
-        <small>{focusedDays} active</small>
-      </header>
-      <div className="studyActivityGrid">
-        {activity.map(({ day, level, trackedSeconds }) => {
-          const plannedByNow = Boolean(day.date && day.date <= today);
-          const catchUpTarget = day.id === firstCatchUpDayId;
-          return (
-          <span
-            aria-label={`Day ${day.number}: activity level ${level} of 4${catchUpTarget ? ", current catch-up target" : ""}`}
-            className={`activityLevel-${level} ${plannedByNow ? "plannedByNow" : ""} ${catchUpTarget ? "catchUpTarget" : ""}`}
-            key={day.id}
-            style={{ "--activity-level": level } as CSSProperties}
-            title={`Day ${day.number} · ${Math.round(
-              day.progress.ratio * 100,
-            )}% · ${formatTrackedTime(trackedSeconds) || "no tracked time"}`}
-          />
-          );
-        })}
-      </div>
-    </section>
-  );
+export function StudyMomentumPanel({course, trackedSecondsByDay, activeDayId, onOpenDay}: StudyMomentumPanelProps) {
+  const activity = course.days.map(day => dayAchievements(day, trackedSecondsByDay[day.id]));
+  const explored = activity.filter(item => item.started).length;
+  const seconds = activity.reduce((sum, item) => sum + item.trackedSeconds, 0);
+  const selected = activity.find(item => item.day.id === activeDayId);
+  return <section className="studyMomentumPanel" aria-label="Course journey">
+    <header><span><Map size={14}/> Course journey</span><small>{explored}/{activity.length} explored</small></header>
+    <div className="journeyInvestment"><strong>{formatTrackedTime(seconds) || "Your first step"}</strong><span>{seconds ? "invested in learning" : "Every step counts"}</span></div>
+    <div className="studyActivityGrid" aria-label="Progress by course day">
+      {activity.map(({day, level, done, coreDone, coreTotal, todoDone, trackedSeconds, complete}) => {
+        const detail = `Day ${day.number}: ${dayDisplayTopic(day)}. ${done} tasks completed; ${coreDone} of ${coreTotal} core; ${todoDone} to-dos completed; ${formatTrackedTime(trackedSeconds) || "no tracked time"}.`;
+        return <button type="button" key={day.id} className={`activityLevel-${level}${complete ? " coreComplete" : ""}`}
+          aria-label={detail} aria-current={day.id === activeDayId ? "step" : undefined}
+          title={detail} onClick={() => onOpenDay(day.id)}><span>{day.number}</span>{complete && <Check size={8}/>}</button>;
+      })}
+    </div>
+    <div className="journeyLegend"><span><i/> Not started</span><span><i/> Started</span><span><Check size={11}/> Core done</span></div>
+    {selected && <button className="journeySelected" type="button" onClick={() => onOpenDay(selected.day.id)}>
+      <Sparkles size={14}/><span><strong>Day {selected.day.number} · {selected.done} tasks done</strong>
+      <small>{selected.complete ? "Core work complete" : selected.coreTotal ? `${selected.coreDone}/${selected.coreTotal} core tasks` : "An open space in your plan"}
+        {selected.todoDone > 0 ? ` · ${selected.todoDone} to-dos done` : ""}</small></span>
+    </button>}
+    <p className="journeyCaption">Course days · click a tile to jump in</p>
+  </section>;
 }

@@ -1,5 +1,25 @@
 # Tracker feature and maintenance log
 
+## 2026-09-18 — meaningful sidebar progress and course map
+
+- Progress and Course map are separate remembered sidebar summaries. Progress
+  shows completed core work, optional wins, understood questions, mapped answers
+  ready to review and completed to-dos, plus a reachable next task milestone.
+  Reading/skills/exam totals remain available under an expandable summary.
+- Counts come from current task and logical-question state: cancelled work is
+  excluded from targets, optional work is separate, companion captures count once,
+  and mapped responses do not become understanding until marked answered.
+- Replaced the misleading course-index "day streak" with a labeled course-day
+  map: readable numbered tiles, click-to-navigate, current-day outline, core
+  completion checks, study-time investment and clear activity colors. Empty/rest
+  days do not invent activity from stale ratios or planned dates.
+- Sidebar time now follows the same current per-day data as Roadmap. Fixed rounded
+  values such as `1h 60m`. No new action/content logging or data migration needed.
+- Validation: 206 frontend tests, lint and typechecked production build; browser
+  checks on a data copy for summary switching, map navigation, reader template
+  and caret, desktop layout and tablet layout. Includes 12 new achievement/model
+  tests for cancellation, duplicate captures, to-dos, milestones and saved updates.
+
 ## 2026-09-18 — slide capture template and stable caret
 
 - New PDF reader captures begin with `/screen ` so slide questions include their
