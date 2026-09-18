@@ -45,7 +45,11 @@ from .pdf_ink_image_service import (
     render_ink_context_images,
     render_local_annotation_images,
 )
-from .resource_open_service import ResourceOpenError, safe_local_resource_path
+from .resource_open_service import (
+    ResourceOpenError,
+    readable_local_resource_path,
+    safe_local_resource_path,
+)
 
 MARKUP_KINDS = {"Highlight", "Underline", "Squiggly", "StrikeOut"}
 VISUAL_KINDS = {"Ink", "Square", "Circle", "Line", "PolyLine", "Polygon", "Stamp", "Caret"}
@@ -1223,7 +1227,7 @@ def _collect_resource_pdf_annotations(
     if not local_path:
         raise PdfAnnotationError("This resource has no local PDF path.")
     try:
-        safe_path = safe_local_resource_path(local_path)
+        safe_path = readable_local_resource_path(local_path)
     except ResourceOpenError as error:
         raise PdfAnnotationError(str(error)) from error
     source_stat = safe_path.stat()

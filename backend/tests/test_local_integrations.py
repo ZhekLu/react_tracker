@@ -500,3 +500,22 @@ def test_pdf_sync_during_collection_cannot_reconcile_a_partial_snapshot(tmp_path
         ):
             collect_resource_pdf_annotations(connection, resource_id)
         assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 0
+
+
+def test_denied_local_file_read_reports_permission_before_import(tmp_path, monkeypatch):
+    from tracker_api.services.pdf_annotation_service import PdfAnnotationError
+
+    resource_id = _seed_pdf_resource(tmp_path)
+    path = tmp_path / 'annotated.pdf'
+    original_open = Path.open
+
+    def restricted_open(self, *args, **kwargs):
+        if self == path:
+            raise PermissionError('Operation not permitted')
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'open', restricted_open)
+    with transaction() as connection:
+        with pytest.raises(PdfAnnotationError, match='permission denied'):
+            collect_resource_pdf_annotations(connection, resource_id)
+        assert connection.execute(text('SELECT COUNT(*) FROM annotations')).scalar_one() == 0

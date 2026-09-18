@@ -1,5 +1,14 @@
 # Tracker feature and maintenance log
 
+## 2026-09-18 — distinguish PDF permissions from parsing failures
+
+- PDF reading and local annotation import now probe file-content access and show
+  an actionable permission/download error instead of a generic parsing error.
+  Opening in the external PDF app remains independent, since Drawboard may have
+  access while the tracker process does not. Failed reads do not import anything.
+- Validation: 59 targeted resource, import and workspace tests; Ruff and strict
+  mypy. Tests explicitly cover external open succeeding while parsing is denied.
+
 ## 2026-09-18 — import embedded local/iCloud handwriting
 
 - Local PDF collection now imports handwriting and visual marks as native PDF

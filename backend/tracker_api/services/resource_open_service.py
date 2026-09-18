@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,31 @@ def safe_local_resource_path(local_path: str) -> Path:
         raise ResourceOpenError(
             f"Refusing to access a file outside configured tracker roots: {target}"
         )
+    return target
+
+
+def readable_local_resource_path(local_path: str) -> Path:
+    """Check the service can read bytes, independently of the external PDF app."""
+
+    target = safe_local_resource_path(local_path)
+    try:
+        with target.open("rb") as stream:
+            stream.read(1)
+    except PermissionError as error:
+        help_text = (
+            "In macOS System Settings > Privacy & Security > Files & Folders, "
+            "allow access for the app running the tracker, then restart the tracker. "
+            "Drawboard's permission to open the file does not grant the tracker access."
+            if sys.platform == "darwin" else "Grant the tracker process read access and retry."
+        )
+        raise ResourceOpenError(
+            f"The tracker cannot read {target.name}: permission denied. {help_text}"
+        ) from error
+    except OSError as error:
+        raise ResourceOpenError(
+            f"The tracker cannot read {target.name}: {error.strerror or str(error)}. "
+            "For an iCloud file, download it locally and let syncing finish before retrying."
+        ) from error
     return target
 
 

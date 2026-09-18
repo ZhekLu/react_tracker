@@ -91,3 +91,26 @@ def test_invalid_config_fails_closed(resource_root):
     path.touch()
     with pytest.raises(resource_open_service.ResourceOpenError, match="list of directory paths"):
         resource_open_service.safe_local_resource_path(str(path))
+
+
+def test_pdf_read_permission_error_is_actionable_but_external_open_still_works(
+    resource_root, monkeypatch
+):
+    from tracker_api.services.pdf_reader_service import PdfReaderError
+
+    path = resource_root / "read restricted.pdf"
+    path.write_bytes(b"%PDF")
+    original_open = Path.open
+
+    def restricted_open(self, *args, **kwargs):
+        if self == path:
+            raise PermissionError("Operation not permitted")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", restricted_open)
+    monkeypatch.setattr(resource_open_service.subprocess, "run", Mock())
+    assert resource_open_service.open_resource(local_path=str(path), source_url=None)[0] == str(
+        path
+    )
+    with pytest.raises(PdfReaderError, match="permission denied"):
+        pdf_metadata(str(path))

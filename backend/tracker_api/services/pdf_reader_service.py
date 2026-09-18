@@ -7,7 +7,7 @@ from typing import cast
 
 import pymupdf
 
-from .resource_open_service import ResourceOpenError, safe_local_resource_path
+from .resource_open_service import ResourceOpenError, readable_local_resource_path
 
 
 class PdfReaderError(RuntimeError):
@@ -31,7 +31,7 @@ def _pdf_path(local_path: str | None) -> Path:
     if not local_path:
         raise PdfReaderError("This resource has no local PDF file.")
     try:
-        path = safe_local_resource_path(local_path)
+        path = readable_local_resource_path(local_path)
     except ResourceOpenError as error:
         raise PdfReaderError(str(error)) from error
     if path.suffix.lower() != ".pdf":
