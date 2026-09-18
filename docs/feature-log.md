@@ -18,6 +18,9 @@
   database covered rename/resource attachment, duplicate deletion and restore,
   unsaved changes, history, guide, and 390px layout. Study content and foreign
   keys remained intact; no live task cleanup was performed.
+- Deployment: fresh database backup, rebuilt frontend and restarted the persistent
+  service. Health, administration and guide endpoints passed; live task/content
+  rows match the backup and no administration mutations were made to live data.
 
 ## 2026-09-17 — keep optional resource links consistent
 
