@@ -1,5 +1,13 @@
 # Tracker feature and maintenance log
 
+## 2026-09-18 — copy only unanswered follow-ups
+
+- Follow-up copying now uses the shared question queue: an existing mapped tutor
+  response excludes the whole logical question even before it is marked understood.
+  Legacy inline markers cannot reintroduce persisted captures or duplicate them.
+- Validation: regression cases for mapped-but-open questions, companion captures,
+  resolved inline markers, and returning to the queue after answer removal.
+
 ## 2026-09-18 — task administration UI and patch handoff
 
 - Roadmap has a separate Manage tasks mode and a per-day maintenance button.

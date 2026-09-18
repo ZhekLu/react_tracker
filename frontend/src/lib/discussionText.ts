@@ -4,6 +4,7 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkMath from "remark-math";
 import type { Root, RootContent } from "mdast";
+import { queuedTrackedQuestionGroups } from "./questionIdentity";
 
 const sectionParser = unified().use(remarkParse).use(remarkMath);
 
@@ -373,6 +374,14 @@ export function discussionFollowups(
   const messageById = new Map(
     discussion.messages.map((message) => [message.id, message]),
   );
+  const queuedIds = new Set(queuedTrackedQuestionGroups(annotations)
+    .flatMap(group => group.annotations.map(annotation => annotation.id)));
+  const markerKey = (value: string) => value.replace(/^\s*[-*+]\s+/, "").trim().replace(/\s+/g, " ").toLowerCase();
+  // Persisted captures own their queue status. Legacy text must not bypass it.
+  const capturedMarkers = new Set(annotations.filter(annotation =>
+    annotation.anchor?.discussionMessageId && messageById.has(annotation.anchor.discussionMessageId),
+  ).flatMap(annotation => (annotation.body?.markdown || annotation.body?.plainText || "")
+    .split(/\r?\n/).map(markerKey)));
   const reviewQuestions = annotations
     .filter(
       (annotation) =>
@@ -380,6 +389,7 @@ export function discussionFollowups(
         annotation.status === "open" &&
         !annotation.postponed &&
         !annotation.skipped &&
+        queuedIds.has(annotation.id) &&
         annotation.anchor?.discussionMessageId &&
         messageById.has(annotation.anchor.discussionMessageId),
     )
@@ -391,7 +401,8 @@ export function discussionFollowups(
       .map((line) => line.trim())
       .filter(
         (line) =>
-          line.includes("??") || line.toLowerCase().includes("todo!"),
+          (line.includes("??") || line.toLowerCase().includes("todo!")) &&
+          !capturedMarkers.has(markerKey(line)),
       )
       .map((line) => ({
         line,

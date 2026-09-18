@@ -15,6 +15,39 @@ const questions: DiscussionQuestionCandidate[] = Array.from(
   }),
 );
 
+describe("follow-up copy queue", () => {
+  const followup = (id: string, responseCount = 0): Annotation => ({
+    id, kind: "question", status: "open", postponed: false, discussionResponseCount: responseCount,
+    body: {markdown: `Why ${id}??`}, createdAt: "2026-09-18",
+    anchor: {discussionMessageId: "source", metadata: {promptLabel: id}, quote: "Selected explanation"},
+  } as unknown as Annotation);
+  const discussion = {title: "Review", questionIds: ["Q-001-F1", "Q-002-F1"],
+    messages: [{id: "source", role: "assistant", sequenceNumber: 1,
+      body: {plainText: "Why Q-001-F1??\nWhy Q-002-F1??\nUncaptured thought??"}}],
+  } as Discussion;
+
+  it("omits open follow-ups with mapped responses and does not recopy their inline markers", () => {
+    const prompt = discussionFollowups(discussion, [followup("Q-001-F1", 1), followup("Q-002-F1")]);
+    expect(prompt).not.toContain("Q-001-F1");
+    expect(prompt.match(/Why Q-002-F1\?\?/g)).toHaveLength(1);
+    expect(prompt).toContain("Uncaptured thought??");
+  });
+
+  it("uses the whole logical question when an answer is mapped to another capture", () => {
+    const question = followup("Q-001-F1");
+    question.stableLabel = "Q-001-F1";
+    const companion = {...followup("image", 1), stableLabel: "Q-001-F1", anchor: undefined};
+    expect(discussionFollowups(discussion, [question, companion])).not.toContain("Q-001-F1");
+    expect(discussionFollowups(discussion, [question, {...companion, discussionResponseCount: 0}])).toContain("## Q-001-F1");
+  });
+
+  it("returns an empty queue when the only captured follow-up is answered", () => {
+    const question = {...followup("Q-001-F1"), status: "answered" as const};
+    const source = {...discussion, messages: [{...discussion.messages[0], body: {...discussion.messages[0].body, plainText: "Why Q-001-F1??"}}]};
+    expect(discussionFollowups(source, [question])).toBe("");
+  });
+});
+
 describe("discussion answer mapping", () => {
   it("recognizes hyphenated and grouped ChatGPT question headings", () => {
     const parsed = discussionAnswerSections([
