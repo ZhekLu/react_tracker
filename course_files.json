@@ -1,4 +1,7 @@
 {
+  "resource_file_roots": [
+    "~/Library/Mobile Documents/com~apple~CloudDocs/uni/thesis/papers"
+  ],
   "course_file_roots": {
     "TORL": [
       "../../special_course/exercises"

@@ -1,5 +1,17 @@
 # Tracker feature and maintenance log
 
+## 2026-09-18 — allow the linked iCloud papers directory
+
+- Added explicit `resource_file_roots` in `course_files.json`, including the
+  iCloud thesis papers folder. Opening, PDF reading and annotation collection
+  share the same allowlist; spaces need no shell escaping. Existing helper roots
+  remain supported, and resolved symlinks/traversal cannot escape allowed roots.
+- Validation: 51 resource/local integration/workspace tests, Ruff and strict
+  mypy; added coverage for spaces, PDF rendering/extraction, relative/home roots,
+  malformed configuration and three escape attempts.
+- Local handwriting import is a separate follow-up; macOS denied direct iCloud
+  reads from the agent process, so actual-file validation remains pending.
+
 ## 2026-09-18 — meaningful sidebar progress and course map
 
 - Progress and Course map are separate remembered sidebar summaries. Progress

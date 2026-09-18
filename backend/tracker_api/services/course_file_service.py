@@ -85,6 +85,24 @@ def _roots(short_code: str) -> list[Path]:
     return roots
 
 
+def resource_file_roots() -> list[Path]:
+    """Additional explicitly allowed PDF/resource directories (including iCloud)."""
+
+    config_path, config = _config()
+    values = config.get("resource_file_roots", [])
+    if not isinstance(values, list) or any(
+        not isinstance(value, str) or not value.strip() for value in values
+    ):
+        raise CourseFileError("resource_file_roots must be a list of directory paths.")
+    roots: list[Path] = []
+    for value in values:
+        candidate = Path(value).expanduser()
+        if not candidate.is_absolute():
+            candidate = config_path.parent / candidate
+        roots.append(candidate.resolve())
+    return roots
+
+
 def discussion_export_root(short_code: str) -> Path | None:
     """Return the configured Markdown export directory for a course."""
 

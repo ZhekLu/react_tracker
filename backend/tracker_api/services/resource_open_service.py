@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import get_settings
+from .course_file_service import CourseFileError, resource_file_roots
 from .drawboard_service import (
     DrawboardError,
     drawboard_deep_link,
@@ -41,6 +42,10 @@ def _allowed_roots(config: dict[str, Any]) -> list[Path]:
             roots.append(Path(str(value)).expanduser().resolve())
         except OSError:
             continue
+    try:
+        roots.extend(resource_file_roots())
+    except (CourseFileError, OSError) as error:
+        raise ResourceOpenError(str(error)) from error
     return roots
 
 

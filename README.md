@@ -122,6 +122,11 @@ Copy `backend/.env.example` to `backend/.env` only when a default path or port
 must be overridden.
 
 - `open_allowed_roots` limits which local paths the API may open.
+- `resource_file_roots` in `course_files.json` adds explicitly trusted resource
+  folders for opening, reading and collecting PDF annotations. Relative paths
+  resolve beside that config; `~` expands to your home directory. Write spaces
+  normally (no shell quotes or backslashes inside the JSON path). The configured
+  iCloud papers folder is read directly; PDFs are never copied into Drawboard Cloud.
 - `pdf_app` selects the desktop PDF application. When it is configured, opening
   a PDF fails visibly if that application is unavailable instead of silently
   falling back to Preview.
