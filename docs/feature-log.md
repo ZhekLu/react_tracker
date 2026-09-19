@@ -1,5 +1,13 @@
 # Tracker feature and maintenance log
 
+## 2026-09-19 — preserve paragraph grouping for text questions
+
+- Screenshot frame reconciliation now applies only to visual questions. Text
+  questions in one paragraph retain their shared readable identity and grouping
+  in review/Q&A, without an unnecessary per-capture frame ID.
+- Validation: paragraph-context integration test runs for both regular highlights
+  and question-colour highlights; local/cloud import and frame regressions pass.
+
 ## 2026-09-19 — one annotation policy for local PDFs and the cloud book
 
 - Local/iCloud and Drawboard Cloud connectors now feed one classifier, colour

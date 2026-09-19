@@ -987,7 +987,11 @@ def _collect_resource_pdf_annotations(
             command,
             source_revision=sync_revision,
         )
-        if capture.is_question and outcome != "existing":
+        if (
+            capture.is_question
+            and capture.annotation_kind in VISUAL_KINDS
+            and outcome != "existing"
+        ):
             workspace_repository.reconcile_imported_question_frame(
                 connection, resource_id, capture.fingerprint
             )

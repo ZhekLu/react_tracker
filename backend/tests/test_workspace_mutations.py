@@ -2579,8 +2579,10 @@ Stop when: the later reading is reviewed. {#day03-stop}
     assert len(workspace.resources[0].annotations) == 2
 
 
+@pytest.mark.parametrize("question", [False, True])
 def test_local_pdf_annotations_share_paragraph_context_outside_book_resources(
     tmp_path: Path,
+    question: bool,
 ) -> None:
     pdf_path = tmp_path / "paper.pdf"
     document = pymupdf.open()
@@ -2590,6 +2592,10 @@ def test_local_pdf_annotations_share_paragraph_context_outside_book_resources(
         "the target policy. Small logging probabilities can create unstable "
         "importance weights. Clipping those weights trades variance for bias."
     )
+    if question:
+        # Leave an actual Y gap between the two marked lines; otherwise the
+        # screenshot rule correctly joins their inflated PDF highlight bounds.
+        paragraph = paragraph.replace("Clipping", "The estimator needs enough observations before its estimates stabilize. Clipping")
     page.insert_textbox(pymupdf.Rect(72, 100, 520, 220), paragraph, fontsize=11)
     first_rect = page.search_for("overlap between the logging policy")[0]
     second_rect = page.search_for("Clipping those weights trades variance for bias")[0]
@@ -2634,7 +2640,7 @@ Stop when: the paper is annotated. {#day01-stop}
                       AND source_key = 'paper_context_course:paper'
                     """)).scalar_one())
         from tracker_api.services.pdf_annotation_service import save_drawboard_color_roles
-        save_drawboard_color_roles(connection, resource_id, {"#FFFF00": "regular"})
+        save_drawboard_color_roles(connection, resource_id, {"#FFFF00": "question" if question else "regular"})
         first_import = collect_resource_pdf_annotations(connection, resource_id)
         second_import = collect_resource_pdf_annotations(connection, resource_id)
         workspace = get_workspace(connection, result.course_id)
@@ -2652,6 +2658,11 @@ Stop when: the paper is annotated. {#day01-stop}
     }
     assert len(group_ids) == 1
     assert None not in group_ids
+    if question:
+        assert len({annotation.stable_label for annotation in paper.annotations}) == 1
+        assert all(annotation.anchor is not None
+                   and not annotation.anchor.metadata.get("questionFrameId")
+                   for annotation in paper.annotations)
     assert all(
         annotation.anchor is not None
         and annotation.anchor.metadata.get("contextParagraph") == paragraph
