@@ -106,4 +106,39 @@ describe('controlled editor lifecycle', () => {
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('Connection interrupted');
     expect(host.querySelector('.ProseMirror')?.textContent).toBe('Day note');
   });
+
+  it('colours the source passage when a follow-up is queued', async () => {
+    const reviewItemsChanged = vi.fn();
+    await act(async () => root.render(
+      <DiscussionMarkdownSurfaceImpl
+        editable
+        markdown="Alpha beta."
+        onReviewItemsChange={reviewItemsChanged}
+        reviewMode
+      />,
+    ));
+    await act(async () => {
+      state.editor!.commands.setTextSelection({from: 1, to: 6});
+      host.querySelector<HTMLButtonElement>('button[title^="Select text"]')!.click();
+    });
+    const draft = host.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="What should the tutor clarify?"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!.call(draft, 'Why is this important?');
+      draft.dispatchEvent(new Event('input', {bubbles: true}));
+    });
+    await act(async () => {
+      [...host.querySelectorAll('button')]
+        .find((button) => button.textContent === 'Queue follow-up')!
+        .click();
+    });
+    expect(state.editor!.getMarkdown()).toContain('!!Alpha!!');
+    expect(reviewItemsChanged).toHaveBeenLastCalledWith([
+      expect.objectContaining({kind: 'question', markdown: 'Why is this important?', quote: 'Alpha'}),
+    ]);
+  });
 });

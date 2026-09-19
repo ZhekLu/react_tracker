@@ -61,9 +61,15 @@ import {
 } from "../../lib/discussionText";
 import { importWithDebug } from "../../lib/insertDebug";
 import {
+  discussionQaSections,
   discussionQuestionIdsByLabel,
   responseQuestionIds,
 } from "../../lib/discussionQa";
+import {
+  discussionPriority,
+  discussionPriorityLabel,
+  discussionPriorityRank,
+} from "../../lib/discussionPriority";
 import {
   discussionHighlights,
   discussionHeadingAt,
@@ -278,8 +284,11 @@ function HighlightOnlyExcerptList({
 function DiscussionMessageContent({
   annotationById, message, editing, visible, highlightsOnly, onCancelEditing,
   questionIdsByLabel, reviewHighlights, onSaveEditing, onDeleteSection,
+  compactByResource, importantQuestionIds, resourceById,
 }: {
   annotationById: Map<string, Annotation>;
+  compactByResource: boolean;
+  importantQuestionIds: ReadonlySet<string>;
   message: DiscussionMessage;
   editing: boolean;
   visible: boolean;
@@ -287,6 +296,7 @@ function DiscussionMessageContent({
   onCancelEditing: () => void;
   questionIdsByLabel: Map<string, string[]>;
   reviewHighlights: Annotation[];
+  resourceById: Map<string, Resource>;
   onSaveEditing: (markdown: string, reviewItems: DiscussionReviewItem[]) => void | boolean | Promise<void | boolean>;
   onDeleteSection: (markdown: string, questionIds: string[]) => void;
 }) {
@@ -331,16 +341,46 @@ function DiscussionMessageContent({
   function sectionQuestionIds(index: number) {
     return sections[index].labels.flatMap(label => questionIdsByLabel.get(label) ?? []);
   }
-  return <div className="discussionStructuredAnswer discussionReadableSections">
-    {sections.map((section, index) => {
+  const sectionModels = sections.map((section, index) => {
+    const questionIds = sectionQuestionIds(index);
+    const questions = questionIds
+      .map((id) => annotationById.get(id))
+      .filter((item): item is Annotation => Boolean(item));
+    const title = (section.markdown.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? section.label)
+      .replace(/(?:\*\*|__|==|\^\^|!!|%%|`)/g, "");
+    return {
+      important: questionIds.some((id) => importantQuestionIds.has(id)),
+      index,
+      priority: discussionPriority(section.markdown, questions),
+      questions,
+      resourceId: questions[0]?.resourceId ?? "",
+      section,
+      title,
+    };
+  });
+  const sortedSectionModels = [...sectionModels].sort(
+    (left, right) =>
+      Number(right.important) - Number(left.important) ||
+      discussionPriorityRank(right.priority) - discussionPriorityRank(left.priority) ||
+      left.index - right.index,
+  );
+  function renderSection(model: (typeof sectionModels)[number], compact: boolean) {
+      const { index, important, priority, questions, section, title } = model;
       const key = section.key;
       const isEditing = editingSectionKey === key;
-      const questions = sectionQuestionIds(index).map(id => annotationById.get(id)).filter(Boolean);
-      const title = (section.markdown.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? section.label)
-        .replace(/(?:\*\*|__|==|\^\^|!!|%%|`)/g, "");
-      return <section className="discussionDocumentSection" key={key}>
+      const resourceTitle = resourceById.get(model.resourceId)?.title ?? "";
+      const displayTitle = compact && resourceTitle
+        ? title
+            .replace(`${resourceTitle} · `, "")
+            .replace(` · ${resourceTitle}`, "")
+        : title;
+      return <section className={`discussionDocumentSection priority-${priority}${important ? " important" : ""}${compact ? " compact" : ""}`} key={key}>
         <header className="discussionDocumentSectionHeader">
-          <strong>{title}</strong>
+          <strong>{displayTitle}</strong>
+          <span className={`discussionPriorityTag priority-${priority}`}>
+            {discussionPriorityLabel(priority)}
+          </span>
+          {important ? <span className="discussionPinnedTag"><Pin size={11} /> Pinned</span> : null}
           {sectionDrafts.has(key) && sectionDrafts.get(key) !== section.markdown ? <span>Unsaved draft</span> : null}
           {questions.length ? <span>{questions.length} linked</span> : null}
           <div>
@@ -374,7 +414,50 @@ function DiscussionMessageContent({
             section.markdown.replace(/^#{1,6}\s+.+(?:\n+|$)/, "")
           } />}
       </section>;
-    })}
+  }
+  const groupedSections = compactByResource
+    ? [...sectionModels.reduce((groups, model) => {
+        const key = model.resourceId || "other";
+        const group = groups.get(key) ?? { id: key, items: [] as typeof sectionModels };
+        group.items.push(model);
+        groups.set(key, group);
+        return groups;
+      }, new Map<string, { id: string; items: typeof sectionModels }>()).values()]
+        .map((group) => ({
+          ...group,
+          important: group.items.some((item) => item.important),
+          priorityRank: Math.max(
+            ...group.items.map((item) => discussionPriorityRank(item.priority)),
+          ),
+          items: [...group.items].sort(
+            (left, right) =>
+              Number(right.important) - Number(left.important) ||
+              discussionPriorityRank(right.priority) - discussionPriorityRank(left.priority) ||
+              left.index - right.index,
+          ),
+        }))
+        .sort(
+          (left, right) =>
+            Number(right.important) - Number(left.important) ||
+            right.priorityRank - left.priorityRank ||
+            Math.min(...left.items.map((item) => item.index)) -
+              Math.min(...right.items.map((item) => item.index)),
+        )
+    : [];
+  return <div className={`discussionStructuredAnswer discussionReadableSections${compactByResource ? " dayResourceAnswers" : ""}`}>
+    {compactByResource
+      ? groupedSections.map((group) => {
+          const resource = resourceById.get(group.id);
+          return <section className={`discussionResourceAnswerGroup${group.important ? " important" : ""}`} key={group.id}>
+            <header className="discussionResourceAnswerHeader">
+              <BookOpen size={14} />
+              <strong>{resource?.title ?? "General discussion"}</strong>
+              <span>{group.items.length} answer{group.items.length === 1 ? "" : "s"}</span>
+            </header>
+            <div>{group.items.map((model) => renderSection(model, true))}</div>
+          </section>;
+        })
+      : sortedSectionModels.map((model) => renderSection(model, false))}
     {pendingDelete ? <ConfirmDialog title="Delete this section?" confirmLabel="Delete section"
       description={`Remove “${pendingDelete.label}” and reopen questions linked only to this section. Other sections stay in the discussion.`}
       onCancel={() => setPendingDelete(null)} onConfirm={() => {
@@ -718,8 +801,19 @@ export function DiscussionsView({
     (resource) => resource.id === selectedSourceId,
   );
   const captureEditorOpen = captureEditorResourceId === selectedSourceId;
+  const mappedAnswerIds = useMemo(
+    () =>
+      new Set(
+        course.discussions.flatMap((item) =>
+          discussionQaSections(item, course.annotations).flatMap(
+            (section) => section.questionIds,
+          ),
+        ),
+      ),
+    [course.annotations, course.discussions],
+  );
   const followups = discussion
-    ? discussionFollowups(discussion, course.annotations)
+    ? discussionFollowups(discussion, course.annotations, mappedAnswerIds)
     : "";
   const annotationById = useMemo(
     () => new Map(course.annotations.map((annotation) => [annotation.id, annotation])),
@@ -728,6 +822,19 @@ export function DiscussionsView({
   const resourceById = useMemo(
     () => new Map(course.resources.map((resource) => [resource.id, resource])),
     [course.resources],
+  );
+  const importantQuestionIds = useMemo(
+    () =>
+      new Set(
+        course.notes
+          .filter((note) => note.kind === "important_answer")
+          .flatMap((note) =>
+            note.links
+              .filter((link) => link.entityType === "annotation")
+              .map((link) => link.entityId),
+          ),
+      ),
+    [course.notes],
   );
   const linkedQuestions = (discussion?.questionIds ?? [])
     .map((id) => annotationById.get(id))
@@ -1307,7 +1414,7 @@ export function DiscussionsView({
                       (messageExpansion.get(message.id) ?? messageIndex === visibleMessages.length - 1);
                     return (
                     <details
-                      className={`discussionMessage role-${message.role}`}
+                      className={`discussionMessage role-${message.role}${discussion.scopeType === "day" ? " dayScope" : ""}`}
                       id={`discussion-message-${message.id}`}
                   key={message.id}
                       open={messageOpen}
@@ -1388,7 +1495,9 @@ export function DiscussionsView({
                       </summary>
                       <DiscussionMessageContent
                           annotationById={annotationById}
+                          compactByResource={discussion.scopeType === "day"}
                           editing={editingMessageId === message.id}
+                          importantQuestionIds={importantQuestionIds}
                           visible={messageOpen}
                           highlightsOnly={highlightsOnly}
                           message={message}
@@ -1400,6 +1509,7 @@ export function DiscussionsView({
                           reviewHighlights={
                             reviewAnnotationsByMessage.get(message.id) ?? []
                           }
+                          resourceById={resourceById}
                           onSaveEditing={(updatedMarkdown, reviewItems) => {
                             return onUpdateMessage(message, updatedMarkdown, reviewItems);
                           }}

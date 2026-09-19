@@ -11,6 +11,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   PRIMARY_DISCUSSION_HIGHLIGHT,
+  QUESTION_MARKER_HIGHLIGHT,
   SECONDARY_DISCUSSION_HIGHLIGHT,
   discussionEditorExtensions,
 } from "./discussionEditorExtensions";
@@ -251,6 +252,11 @@ export function DiscussionMarkdownSurfaceImpl({
 
   function queueFollowup() {
     if (!reviewSelection || !followupDraft.trim()) return;
+    highlightTextInsideSelection(
+      reviewSelection,
+      QUESTION_MARKER_HIGHLIGHT,
+      false,
+    );
     queueReviewItem({
       contextAfter: reviewSelection.contextAfter,
       contextBefore: reviewSelection.contextBefore,
@@ -281,19 +287,20 @@ export function DiscussionMarkdownSurfaceImpl({
   function highlightTextInsideSelection(
     selection: ReviewSelection,
     color: string,
+    toggle = true,
   ) {
     // Use the same Tiptap command path as the toolbar. A hand-built
     // transaction split text around inline-math atoms and could corrupt the
     // visual line layout when a shortcut selection crossed a formula.
-    activeEditor
+    const chain = activeEditor
       .chain()
       .focus()
       .setTextSelection({
         from: selection.fromPosition,
         to: selection.toPosition,
-      })
-      .toggleHighlight({ color })
-      .run();
+      });
+    if (toggle) chain.toggleHighlight({ color }).run();
+    else chain.setHighlight({ color }).run();
   }
 
   function applyHighlight(secondary: boolean) {

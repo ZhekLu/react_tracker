@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Circle,
   CircleHelp,
+  ChevronDown,
   Save,
   Sparkles,
   Trash2,
@@ -45,6 +46,11 @@ import {
   type DiscussionQaSection,
 } from "../../lib/discussionQa";
 import { canonicalQuestionCaptures } from "../../lib/questionIdentity";
+import {
+  discussionPriority,
+  discussionPriorityLabel,
+  savedDiscussionPriority,
+} from "../../lib/discussionPriority";
 import type {
   Annotation,
   AnnotationKind,
@@ -809,8 +815,16 @@ export function DiscussionQaReview({
       ],
     [activeRootQuestions],
   );
-  const activeImportantNote = activeItem?.section
+  const activeImportantNote = activeItem
     ? course.notes.find(
+        (note) =>
+          note.kind === "important_answer" &&
+          note.links.some(
+            (link) =>
+              link.entityType === "annotation" &&
+              activeItem.questions.some((question) => question.id === link.entityId),
+          ),
+      ) ?? (activeItem.section ? course.notes.find(
         (note) =>
           note.kind === "important_answer" &&
           note.document.plainText.includes(
@@ -827,8 +841,15 @@ export function DiscussionQaReview({
           (note.document.markdown ?? "").includes(
             `qa-section:${activeItem.section!.messageId}:${activeItem.section!.label}`,
           ),
-      )
+      ) : undefined)
     : undefined;
+  const activePriority = activeItem
+    ? discussionPriority(
+        activeAnswerRecords.map((answer) => answer.section.bodyMarkdown).join("\n\n"),
+        activeRootQuestions,
+      )
+    : "medium";
+  const activeSavedPriority = savedDiscussionPriority(activeRootQuestions);
   const reviewUnits = allItems;
   const scopeProgress = useMemo(
     () => qaReviewScopeProgress(allItems, questionIds, course.resources),
@@ -1231,7 +1252,7 @@ export function DiscussionQaReview({
               questions={activeSourceQuestions.length ? activeSourceQuestions : activeItem.questions}
               resourceById={resourceById}
             />}
-            <section className="qaAnswerPanel">
+            <section className={`qaAnswerPanel priority-${activePriority}${activeImportantNote ? " importantQuestion" : ""}`}>
               <header className="qaAnswerHeading">
                 <div className="qaAnswerIdentity">
                   <span className="qaResponseTag">
@@ -1262,6 +1283,32 @@ export function DiscussionQaReview({
                   ) : null}
                 </div>
                 <div className="qaAnswerActions">
+                  {activeRootQuestions.length ? (
+                    <label className="qaPriorityControl">
+                      <span className={`qaPriorityBadge priority-${activePriority}`}>
+                        {discussionPriorityLabel(activePriority)}
+                      </span>
+                      <select
+                        aria-label="Question priority"
+                        onChange={(event) => {
+                          const priority = event.target.value as Annotation["priority"];
+                          activeRootQuestions.forEach((question) =>
+                            onAnnotationChange(question, { priority }),
+                          );
+                        }}
+                        title="Set your priority; tutor priority language is detected automatically"
+                        value={
+                          activeSavedPriority === "medium"
+                            ? "normal"
+                            : activeSavedPriority
+                        }
+                      >
+                        <option value="high">High</option>
+                        <option value="normal">Medium</option>
+                        <option value="low">Low</option>
+                      </select>
+                    </label>
+                  ) : null}
                   {activeItem.section ? (
                     <button
                       className={activeImportantNote ? "qaImportantAnswer active" : "qaImportantAnswer"}
@@ -1277,11 +1324,11 @@ export function DiscussionQaReview({
                           title: activeItem.section!.title,
                         })
                       }
-                      title={activeImportantNote ? "Remove from important answers" : "Keep this answer in Notes"}
+                      title={activeImportantNote ? "Unpin this important question" : "Pin this question and answer to the top"}
                       type="button"
                     >
                       <BookMarked size={14} />
-                      {activeImportantNote ? "Important" : "Mark important"}
+                      {activeImportantNote ? "Pinned" : "Pin important"}
                     </button>
                   ) : null}
                   {activeItem.section && activeItem.questions.length ? (
@@ -1460,32 +1507,68 @@ export function DiscussionQaReview({
                   ))}
                   {activeFollowups.map((followup, followupIndex) => {
                     const answers = followupAnswersById.get(followup.id) ?? [];
+                    const done = followup.status === "answered";
                     return (
-                      <section className="qaFollowupExchange" key={followup.id}>
-                        <article className="qaFollowupMessage">
-                          <header>
-                            <span>
+                      <details
+                        className={`qaFollowupExchange${done ? " completed" : ""}`}
+                        key={`${followup.id}:${done}`}
+                        open={!done}
+                      >
+                        <summary>
+                          <ChevronDown size={15} />
+                          <span>
+                            <strong>
                               {labelsByAnnotationId.get(followup.id) ??
                                 `Follow-up ${followupIndex + 1}`}
-                            </span>
-                            <div className="qaFollowupActions">
-                              <button
-                                onClick={() => setEditingFollowupId(followup.id)}
-                                type="button"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                className="danger"
-                                onClick={() =>
-                                  onAnnotationChange(followup, { status: "archived" })
-                                }
-                                type="button"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </header>
+                            </strong>
+                            <small>
+                              {done
+                                ? "Done · click to expand"
+                                : answers.length
+                                  ? `${answers.length} mapped answer${answers.length === 1 ? "" : "s"}`
+                                  : "Awaiting tutor"}
+                            </small>
+                          </span>
+                          <p>{annotationDisplayText(followup)}</p>
+                          <div className="qaFollowupActions">
+                            <button
+                              className={done ? "done" : ""}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onAnnotationChange(followup, {
+                                  status: done ? "open" : "answered",
+                                });
+                              }}
+                              type="button"
+                            >
+                              <CheckCircle2 size={12} /> {done ? "Reopen" : "Done"}
+                            </button>
+                            <button
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setEditingFollowupId(followup.id);
+                              }}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="danger"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onAnnotationChange(followup, { status: "archived" });
+                              }}
+                              type="button"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </summary>
+                        <div className="qaFollowupContent">
+                        <article className="qaFollowupMessage">
                           {followup.anchor?.quote ? (
                             <blockquote>
                               <MarkdownMath>{followup.anchor.quote}</MarkdownMath>
@@ -1571,7 +1654,8 @@ export function DiscussionQaReview({
                             Awaiting a tutor response to this follow-up.
                           </p>
                         )}
-                      </section>
+                        </div>
+                      </details>
                     );
                   })}
                 </section>

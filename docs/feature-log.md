@@ -1,5 +1,19 @@
 # Tracker feature and maintenance log
 
+## 2026-09-20 — prioritize QA answers and tame follow-ups
+
+- Tutor answers now receive conservative Core/High/Medium/Low badges from
+  explicit priority wording. A durable manual priority control is available in
+  QA review; discussion answers sort by pinned state and priority without
+  changing the normal QA review order. Important answers reuse the existing
+  note links and appear pinned in purple.
+- Day discussions group answers into compact resource cards. Completed
+  follow-ups can be marked done, collapse into a green row, and remain
+  expandable or reopenable. Structurally mapped follow-up answers are excluded
+  from the next tutor prompt even when cached counts lag, and newly selected
+  follow-up source text is saved with the question highlight colour.
+- Validation: 213 frontend tests, ESLint, TypeScript and the production build.
+
 ## 2026-09-19 — preserve paragraph grouping for text questions
 
 - Screenshot frame reconciliation now applies only to visual questions. Text

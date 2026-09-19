@@ -33,6 +33,17 @@ describe("follow-up copy queue", () => {
     expect(prompt).toContain("Uncaptured thought??");
   });
 
+  it("uses direct section mappings when derived response counts are stale", () => {
+    const answeredIds = new Set(["Q-001-F1"]);
+    const prompt = discussionFollowups(
+      discussion,
+      [followup("Q-001-F1"), followup("Q-002-F1")],
+      answeredIds,
+    );
+    expect(prompt).not.toContain("Q-001-F1");
+    expect(prompt).toContain("Q-002-F1");
+  });
+
   it("uses the whole logical question when an answer is mapped to another capture", () => {
     const question = followup("Q-001-F1");
     question.stableLabel = "Q-001-F1";

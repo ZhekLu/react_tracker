@@ -370,6 +370,7 @@ export function matchAnswerSectionsToQuestions(
 export function discussionFollowups(
   discussion: Discussion,
   annotations: Annotation[] = [],
+  mappedAnswerIds: ReadonlySet<string> = new Set(),
 ): string {
   const messageById = new Map(
     discussion.messages.map((message) => [message.id, message]),
@@ -389,6 +390,7 @@ export function discussionFollowups(
         annotation.status === "open" &&
         !annotation.postponed &&
         !annotation.skipped &&
+        !mappedAnswerIds.has(annotation.id) &&
         queuedIds.has(annotation.id) &&
         annotation.anchor?.discussionMessageId &&
         messageById.has(annotation.anchor.discussionMessageId),
