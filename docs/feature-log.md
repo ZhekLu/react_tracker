@@ -16,7 +16,12 @@
   colours, ignored bridging ink, repeat imports, palette confirmation, rollback,
   identity retention and the historical book frame fixture. Full backend suite,
   Ruff, strict mypy and frontend production build pass.
-- Live Day 12 PPO cleanup/recollection is pending the final guarded repair.
+- Backed up and transactionally replaced the 51 unreviewed Day 12 PPO captures:
+  6 question groups and 15 regular highlights; 100 regular visual source marks
+  ignored. Archived two obsolete copied prompts (no tutor answers were linked).
+  A repeat import found all 21 existing with zero changes; foreign keys are clean
+  and unrelated rows across all 44 ordinary tables matched before/after.
+  Native screenshots were visually checked for combined handwriting/highlights.
 
 ## 2026-09-18 — share pen-colour rules between local and cloud PDFs
 
