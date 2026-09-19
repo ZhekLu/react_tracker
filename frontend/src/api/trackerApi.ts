@@ -440,6 +440,16 @@ export type PdfAnnotationCollectionItem = {
   page: number | null;
   sectionTitle: string;
   sourceDayId: string | null;
+  sourceFingerprint: string;
+  contextImageUrl: string;
+  annotatedPageImageUrl: string;
+  proposedCaptureRect: number[];
+  captureRect: number[];
+  pageWidth: number;
+  pageHeight: number;
+  layoutMode: "single" | "two_column";
+  layoutColumn: "full" | "left" | "right";
+  requiresCaptureReview: boolean;
 };
 
 export type DrawboardColorRole = "question" | "regular";
@@ -470,6 +480,31 @@ export type TogglStatus = {
   totals: Record<string, number>;
   days: Record<string, Record<string, number>>;
   tasks: Record<string, number>;
+};
+
+export type TrackerSettings = {
+  captureDebugMode: boolean;
+  captureCorrectionCount: number;
+};
+
+export type ZoteroStatus = {
+  available: boolean;
+  enabled: boolean;
+  apiVersion: string;
+  zoteroVersion: string;
+  itemCount: number | null;
+  message: string;
+};
+
+export type ZoteroExportResult = {
+  status: "synced" | "partial";
+  created: boolean;
+  itemKey: string;
+  noteKey: string;
+  attachmentKey: string;
+  metadataSource: string;
+  fileAttached: boolean;
+  message: string;
 };
 
 type ApiTogglStatus = {
@@ -1444,7 +1479,14 @@ export async function openResourceFile(
 export async function collectResourcePdfAnnotations(
   resourceId: string,
   sourceDayId?: string,
+  options: {
+    dryRun?: boolean;
+    captureOverrides?: Record<string, number[]>;
+  } = {},
 ): Promise<PdfAnnotationCollectionResult> {
+  const query = new URLSearchParams();
+  if (sourceDayId) query.set("source_day_id", sourceDayId);
+  if (options.dryRun) query.set("dry_run", "true");
   const result = await requestJson<{
     resource_id: string;
     path: string;
@@ -1472,10 +1514,23 @@ export async function collectResourcePdfAnnotations(
       page: number | null;
       section_title: string;
       source_day_id: string | null;
+      source_fingerprint: string;
+      context_image_url: string;
+      annotated_page_image_url: string;
+      proposed_capture_rect: number[];
+      capture_rect: number[];
+      page_width: number;
+      page_height: number;
+      layout_mode: "single" | "two_column";
+      layout_column: "full" | "left" | "right";
+      requires_capture_review: boolean;
     }>;
   }>(`/resources/${resourceId}/pdf-annotations/collect${
-    sourceDayId ? `?source_day_id=${encodeURIComponent(sourceDayId)}` : ""
+    query.size ? `?${query.toString()}` : ""
   }`, {
+    body: JSON.stringify({
+      capture_overrides: options.captureOverrides ?? {},
+    }),
     method: "POST",
   });
   return {
@@ -1503,6 +1558,16 @@ export async function collectResourcePdfAnnotations(
       page: item.page,
       sectionTitle: item.section_title,
       sourceDayId: item.source_day_id,
+      sourceFingerprint: item.source_fingerprint,
+      contextImageUrl: item.context_image_url,
+      annotatedPageImageUrl: item.annotated_page_image_url,
+      proposedCaptureRect: item.proposed_capture_rect,
+      captureRect: item.capture_rect,
+      pageWidth: item.page_width,
+      pageHeight: item.page_height,
+      layoutMode: item.layout_mode,
+      layoutColumn: item.layout_column,
+      requiresCaptureReview: item.requires_capture_review,
     })),
     path: result.path,
     resourceId: result.resource_id,
@@ -1521,6 +1586,77 @@ export async function saveDrawboardColorRoles(
     body: JSON.stringify({ roles }),
   });
   return result.roles;
+}
+
+export async function fetchTrackerSettings(): Promise<TrackerSettings> {
+  const result = await requestJson<{
+    capture_debug_mode: boolean;
+    capture_correction_count: number;
+  }>("/settings");
+  return {
+    captureDebugMode: result.capture_debug_mode,
+    captureCorrectionCount: result.capture_correction_count,
+  };
+}
+
+export async function updateTrackerSettings(
+  captureDebugMode: boolean,
+): Promise<TrackerSettings> {
+  const result = await requestJson<{
+    capture_debug_mode: boolean;
+    capture_correction_count: number;
+  }>("/settings", {
+    method: "PUT",
+    body: JSON.stringify({ capture_debug_mode: captureDebugMode }),
+  });
+  return {
+    captureDebugMode: result.capture_debug_mode,
+    captureCorrectionCount: result.capture_correction_count,
+  };
+}
+
+export async function fetchZoteroStatus(): Promise<ZoteroStatus> {
+  const result = await requestJson<{
+    available: boolean;
+    enabled: boolean;
+    api_version: string;
+    zotero_version: string;
+    item_count: number | null;
+    message: string;
+  }>("/integrations/zotero");
+  return {
+    available: result.available,
+    enabled: result.enabled,
+    apiVersion: result.api_version,
+    zoteroVersion: result.zotero_version,
+    itemCount: result.item_count,
+    message: result.message,
+  };
+}
+
+export async function exportResourceToZotero(
+  resourceId: string,
+): Promise<ZoteroExportResult> {
+  const result = await requestJson<{
+    status: "synced" | "partial";
+    created: boolean;
+    item_key: string;
+    note_key: string;
+    attachment_key: string;
+    metadata_source: string;
+    file_attached: boolean;
+    message: string;
+  }>(`/resources/${resourceId}/zotero/export`, { method: "POST" });
+  return {
+    status: result.status,
+    created: result.created,
+    itemKey: result.item_key,
+    noteKey: result.note_key,
+    attachmentKey: result.attachment_key,
+    metadataSource: result.metadata_source,
+    fileAttached: result.file_attached,
+    message: result.message,
+  };
 }
 
 export async function fetchTogglStatus(force = false): Promise<TogglStatus> {

@@ -345,6 +345,39 @@ class DrawboardColorRolesResponse(StrictModel):
     roles: dict[str, DrawboardColorRole]
 
 
+class TrackerSettings(StrictModel):
+    capture_debug_mode: bool = True
+    capture_correction_count: int = 0
+
+
+class TrackerSettingsCommand(StrictModel):
+    capture_debug_mode: bool
+
+
+class ZoteroStatusResponse(StrictModel):
+    available: bool
+    enabled: bool
+    api_version: str = ""
+    zotero_version: str = ""
+    item_count: int | None = None
+    message: str
+
+
+class ZoteroExportResponse(StrictModel):
+    status: Literal["synced", "partial"]
+    created: bool
+    item_key: str
+    note_key: str
+    attachment_key: str
+    metadata_source: str
+    file_attached: bool
+    message: str
+
+
+class PdfAnnotationCollectionCommand(StrictModel):
+    capture_overrides: dict[str, list[float]] = Field(default_factory=dict)
+
+
 class PdfAnnotationCollectionItemResponse(StrictModel):
     outcome: Literal["created", "updated"]
     kind: AnnotationKind
@@ -352,6 +385,16 @@ class PdfAnnotationCollectionItemResponse(StrictModel):
     page: int | None = None
     section_title: str = ""
     source_day_id: str | None = None
+    source_fingerprint: str = ""
+    context_image_url: str = ""
+    annotated_page_image_url: str = ""
+    proposed_capture_rect: list[float] = Field(default_factory=list)
+    capture_rect: list[float] = Field(default_factory=list)
+    page_width: float = 0
+    page_height: float = 0
+    layout_mode: Literal["single", "two_column"] = "single"
+    layout_column: Literal["full", "left", "right"] = "full"
+    requires_capture_review: bool = False
 
 
 class PdfAnnotationCollectionResponse(StrictModel):

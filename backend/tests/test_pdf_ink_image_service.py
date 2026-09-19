@@ -667,3 +667,33 @@ def test_local_pdf_snapshots_keep_embedded_ink_and_rotation(tmp_path, monkeypatc
         assert image.read_bytes() == before
     finally:
         get_settings.cache_clear()
+
+
+def test_local_pdf_capture_uses_an_explicit_reviewed_crop(tmp_path, monkeypatch):
+    from tracker_api.services.pdf_ink_image_service import render_local_annotation_images
+
+    monkeypatch.setenv("TRACKER_ANNOTATION_IMAGE_DIR", str(tmp_path / "images"))
+    get_settings.cache_clear()
+    path = tmp_path / "two-column.pdf"
+    with pymupdf.open() as document:
+        page = document.new_page(width=200, height=240)
+        page.insert_text((20, 80), "left column")
+        page.insert_text((120, 80), "right column")
+        annotation = page.add_ink_annot([[(20, 90), (80, 100)]])
+        annotation.update()
+        rect = list(annotation.rect)
+        document.save(path)
+    try:
+        crops, _pages = render_local_annotation_images(
+            path,
+            "resource",
+            [("left-note", 1, rect)],
+            crop_rects={"left-note": [0, 40, 100, 140]},
+        )
+        image_id = crops["left-note"].rsplit("/", 1)[1]
+        pixmap = pymupdf.Pixmap(str(tmp_path / "images" / "resource" / f"{image_id}.png"))
+
+        assert pixmap.width == 300
+        assert pixmap.height == 300
+    finally:
+        get_settings.cache_clear()

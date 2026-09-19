@@ -6,7 +6,7 @@ import logging
 import math
 import re
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, TypeGuard
@@ -446,6 +446,7 @@ def _render_ink(
     margin: float,
     scale: float,
     stroke_width: float,
+    crop_rect: list[float] | None = None,
 ) -> None:
     if ink.page < 1 or ink.page > source_document.page_count:
         raise PdfInkImageError(f"Ink page is outside the PDF: {ink.page}")
@@ -464,8 +465,12 @@ def _render_ink(
         raw_y1 = max(pdf_rect[1], pdf_rect[3]) if len(pdf_rect) == 4 else source_page.rect.height
         y0 = max(source_page.rect.y0, raw_y0 - margin)
         y1 = min(source_page.rect.y1, raw_y1 + margin)
-        clip = pymupdf.Rect(  # type: ignore[no-untyped-call]
-            source_page.rect.x0, y0, source_page.rect.x1, y1
+        clip = (
+            pymupdf.Rect(crop_rect) & source_page.rect  # type: ignore[no-untyped-call]
+            if crop_rect and len(crop_rect) == 4
+            else pymupdf.Rect(  # type: ignore[no-untyped-call]
+                source_page.rect.x0, y0, source_page.rect.x1, y1
+            )
         )
         if clip.is_empty or not clip.is_valid or clip.width * scale < 1 or clip.height * scale < 1:
             raise PdfInkImageError(
@@ -692,6 +697,7 @@ def render_local_annotation_images(
     captures: Iterable[tuple[str, int, list[float]]],
     *,
     page_numbers: Iterable[int] = (),
+    crop_rects: Mapping[str, list[float]] | None = None,
 ) -> tuple[dict[str, str], dict[int, str]]:
     """Snapshot embedded PDF appearances, without cloud overlays or OCR."""
 
@@ -718,8 +724,11 @@ def render_local_annotation_images(
         for fingerprint, page_number, rect in items:
             page = document[page_number - 1]
             bounds = pymupdf.Rect(rect) * page.rotation_matrix  # type: ignore[no-untyped-call]
+            configured_crop = (crop_rects or {}).get(fingerprint)
             clip = (
-                pymupdf.Rect(  # type: ignore[no-untyped-call]
+                pymupdf.Rect(configured_crop) & page.rect  # type: ignore[no-untyped-call]
+                if configured_crop and len(configured_crop) == 4
+                else pymupdf.Rect(  # type: ignore[no-untyped-call]
                     page.rect.x0,
                     bounds.y0 - 36,
                     page.rect.x1,
@@ -729,7 +738,11 @@ def render_local_annotation_images(
             )
             if clip.is_empty or clip.is_infinite:
                 raise PdfInkImageError(f"Invalid local annotation bounds on page {page_number}.")
-            image_id = _snapshot_id(source_path, fingerprint, ["native-v1", page_number, rect])
+            image_id = _snapshot_id(
+                source_path,
+                fingerprint,
+                ["native-v2", page_number, rect, configured_crop],
+            )
             output = annotation_image_path(resource_id, image_id)
             if not output.is_file():
                 pixmap = page.get_pixmap(
@@ -754,6 +767,7 @@ def render_ink_context_images(
     margin: float = 12.0,
     scale: float = 5.0,
     stroke_width: float = 0.65,
+    crop_rects: Mapping[str, list[float]] | None = None,
 ) -> dict[str, str]:
     urls: dict[str, str] = {}
     capture_list = list(captures)
@@ -785,6 +799,7 @@ def render_ink_context_images(
                     asdict(ink),
                     [asdict(item) for item in visible_captures],
                     [asdict(item) for item in visible_inks],
+                    (crop_rects or {}).get(ink.fingerprint),
                 ],
             )
             output_path = annotation_image_path(resource_id, image_id)
@@ -801,6 +816,7 @@ def render_ink_context_images(
                         margin=margin,
                         scale=scale,
                         stroke_width=stroke_width,
+                        crop_rect=(crop_rects or {}).get(ink.fingerprint),
                     )
             except PdfInkImageError as error:
                 logger.warning(

@@ -118,7 +118,7 @@ Stop when: the slides are read. {#day01-stop}
     return str(resource_id)
 
 
-def test_pdf_collection_persists_and_reports_existing_captures(
+def test_plain_red_highlight_imports_text_without_a_screenshot(
     tmp_path: Path,
 ) -> None:
     resource_id = _seed_pdf_resource(tmp_path)
@@ -130,7 +130,7 @@ def test_pdf_collection_persists_and_reports_existing_captures(
             connection.execute(
                 text(
                     """
-                SELECT a.kind, aa.page_number, aa.quote, aa.color
+                SELECT a.kind, aa.page_number, aa.quote, aa.color, aa.selector_json
                 FROM annotations a
                 JOIN annotation_anchors aa ON aa.annotation_id = a.id
                 WHERE a.resource_id = :resource_id
@@ -144,13 +144,30 @@ def test_pdf_collection_persists_and_reports_existing_captures(
 
     assert first.extracted_count == 1
     assert first.created_count == 1
-    assert first.kind_counts == {"question": 1}
+    assert first.kind_counts == {"highlight": 1}
     assert second.created_count == 0
     assert second.existing_count == 1
-    assert row["kind"] == "question"
+    assert row["kind"] == "highlight"
     assert row["page_number"] == 1
     assert row["quote"] == "Coverage is required for off-policy evaluation."
     assert row["color"] == "red"
+    assert "contextImageUrl" not in row["selector_json"]
+
+
+def test_capture_debug_mode_defaults_on_and_can_be_disabled(tmp_path: Path) -> None:
+    from tracker_api.services.settings_service import (
+        capture_correction_count,
+        capture_debug_mode,
+        save_capture_debug_mode,
+    )
+
+    _seed_pdf_resource(tmp_path)
+    with transaction() as connection:
+        assert capture_debug_mode(connection) is True
+        assert capture_correction_count(connection) == 0
+        assert save_capture_debug_mode(connection, False) is False
+    with transaction() as connection:
+        assert capture_debug_mode(connection) is False
 
 
 def test_toggl_integration_recognizes_torl_without_extra_prefix_config(
@@ -236,7 +253,7 @@ def test_local_source_identity_survives_recolor_and_deletion(tmp_path: Path) -> 
         )
         assert recolored.created_count == 0 and recolored.updated_count == 1
         assert row["id"] == saved["id"] and row["source_fingerprint"] == saved["source_fingerprint"]
-        assert row["kind"] == "question" and row["status"] == "answered"
+        assert row["kind"] == "highlight" and row["status"] == "answered"
     doc = pymupdf.open(path)
     page = doc[0]
     page.delete_annot(page.first_annot)
@@ -250,7 +267,7 @@ def test_local_source_identity_survives_recolor_and_deletion(tmp_path: Path) -> 
             connection.execute(
                 text("SELECT COUNT(*) FROM annotation_question_identities")
             ).scalar_one()
-            == 1
+            == 0
         )
 
 
@@ -330,7 +347,7 @@ def test_local_icloud_annotations_import_without_cloud_and_repeat_safely(tmp_pat
     with transaction() as connection:
         second = collect_resource_pdf_annotations(connection, resource_id)
     assert first.created_count == 3
-    assert first.kind_counts == {"question": 2, "note": 1}
+    assert first.kind_counts == {"highlight": 1, "question": 1, "note": 1}
     assert first.ignored == {"non_question_visual": 2}
     assert second.existing_count == 3
     assert second.created_count == second.updated_count == second.removed_count == 0
@@ -540,6 +557,7 @@ def test_denied_local_file_read_reports_permission_before_import(tmp_path, monke
 
 def test_collection_preview_rolls_back_all_study_data_then_normal_import_persists(tmp_path):
     from tracker_api.api.routes import collect_resource_annotations
+    from tracker_api.schemas.workspace import PdfAnnotationCollectionCommand
 
     resource_id = _seed_pdf_resource(tmp_path)
     _add_local_marks(tmp_path / "annotated.pdf")
@@ -565,14 +583,35 @@ def test_collection_preview_rolls_back_all_study_data_then_normal_import_persist
         preview = collect_resource_annotations(resource_id, connection, dry_run=True)
         assert preview.dry_run is True
         assert preview.created_count == 3
+        review = next(item for item in preview.changed_items if item.requires_capture_review)
+        assert review.layout_mode == "single"
+        assert review.layout_column == "full"
+        assert review.capture_rect == review.proposed_capture_rect
+        assert review.page_width > 0 and review.page_height > 0
         assert snapshot() == before
     with transaction() as connection:
         assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 0
-        saved = collect_resource_annotations(resource_id, connection)
+        reviewed_rect = list(review.capture_rect)
+        reviewed_rect[2] -= 5
+        saved = collect_resource_annotations(
+            resource_id,
+            connection,
+            command=PdfAnnotationCollectionCommand(
+                capture_overrides={review.source_fingerprint: reviewed_rect}
+            ),
+        )
         assert saved.dry_run is False
         assert saved.created_count == 3
     with transaction() as connection:
         assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 3
+        correction = connection.execute(
+            text(
+                "SELECT source_fingerprint, proposed_rect_json, final_rect_json "
+                "FROM capture_region_corrections"
+            )
+        ).mappings().one()
+        assert correction["source_fingerprint"] == review.source_fingerprint
+        assert correction["proposed_rect_json"] != correction["final_rect_json"]
 
 
 def test_failed_collection_preview_rolls_back_partial_writes(tmp_path, monkeypatch):
@@ -631,7 +670,7 @@ def test_dark_red_local_guide_and_handwriting_are_one_question(tmp_path):
         doc.saveIncr()
     with transaction() as connection:
         result = collect_resource_pdf_annotations(connection, resource_id)
-        assert result.kind_counts == {"question": 2, "note": 1}
+        assert result.kind_counts == {"highlight": 1, "question": 1, "note": 1}
         assert (
             len(
                 [

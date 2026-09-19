@@ -385,3 +385,32 @@ Keep a concise record of behavior, special handling, known gaps, and validation.
 - Resolved 12 older PDF type-check failures without disabling strict checking:
   narrowly annotated untyped library calls, removed a duplicate declaration, and
   made a validated four-coordinate crop tuple explicit.
+
+## 2026-09-19 — column-aware PDF captures and approved Zotero exports
+
+- PDF collection now detects two-column pages from extracted text geometry and
+  partitions question marks into logical left/right/full lanes before applying the
+  same transitive Y-overlap grouping. Uncertain/full-page layouts keep the old
+  cross-page-width behavior. The real 10-page function-approximation paper detects
+  two columns throughout and no longer merges aligned left/right notes.
+- Standalone question-colour highlights now import their text without producing
+  screenshots. Near-touching pen fragments and gutter-crossing handwriting are
+  assigned to one logical note; this removes the observed duplicate capture pairs
+  on pages 2, 6, and 7 of the calibration paper.
+- New Settings view adds `capture_debug_mode`, on by default. New screenshots run
+  through a rollback-only preview with a draggable/resizable crop over the
+  annotated page. Confirmed proposed/final regions and layout evidence are logged;
+  the reviewed region drives the final immutable screenshot.
+- Added explicit per-paper resource notes in task rows and “Approve note & save to
+  Zotero” actions in tasks/resources. Export is blocked until the paper is read and
+  its saved final note is non-empty. Source metadata comes from arXiv or the
+  canonical page, while Tracker supplies only its note, tags, and local PDF.
+- Zotero uses its authorized local API, retains keys only in process memory,
+  persists object IDs/hashes for repeat-safe updates, preserves Zotero-edited
+  bibliography/tags, and records partial file-sync failures for retry. Settings
+  reports connection state and setup guidance.
+- Validation: all 243 backend tests and 209 frontend tests, full backend
+  Ruff/mypy, frontend lint, and production build. The existing Vite large-chunk
+  and PyMuPDF binding deprecation advisories remain.
+- Details and known limits: [PDF collection](pdf-annotation-collection.md) and
+  [Zotero integration](zotero-integration.md).

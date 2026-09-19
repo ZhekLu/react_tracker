@@ -5,6 +5,7 @@ import {
   FileQuestion,
   MessageSquareText,
   ScanSearch,
+  Settings,
   StickyNote,
 } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
@@ -61,6 +62,7 @@ const viewMeta = {
   exams: { label: "Exams", icon: FileQuestion },
   notes: { label: "Notes", icon: StickyNote },
   discussions: { label: "Discussions", icon: MessageSquareText },
+  settings: { label: "Settings", icon: Settings },
   debug: { label: "Debug", icon: Bug },
 } satisfies Record<TrackerView, { label: string; icon: typeof CalendarDays }>;
 

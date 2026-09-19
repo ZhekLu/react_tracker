@@ -8,6 +8,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ScanSearch,
+  Settings,
   SkipForward,
   Sparkles,
   StickyNote,
@@ -49,6 +50,7 @@ const navItems: Array<{
   { view: "exams", label: "Exams", icon: FileQuestion },
   { view: "notes", label: "Notes", icon: StickyNote },
   { view: "discussions", label: "Discussions", icon: MessageSquareText },
+  { view: "settings", label: "Settings", icon: Settings },
   { view: "debug", label: "Debug", icon: Bug },
 ];
 
@@ -231,6 +233,7 @@ export function WorkspaceSidebar({
           {view === "exams" ? <FileQuestion size={18} /> : null}
           {view === "notes" ? <StickyNote size={18} /> : null}
           {view === "discussions" ? <MessageSquareText size={18} /> : null}
+          {view === "settings" ? <Settings size={18} /> : null}
           {view === "debug" ? <Bug size={18} /> : null}
           <div>
             <strong>
@@ -239,6 +242,7 @@ export function WorkspaceSidebar({
               {view === "exams" ? "Practice map" : null}
               {view === "notes" ? "Study memory" : null}
               {view === "discussions" ? "Tutor conversations" : null}
+              {view === "settings" ? "Workspace behavior" : null}
               {view === "debug" ? "Insert review" : null}
             </strong>
             <span>
@@ -254,7 +258,7 @@ export function WorkspaceSidebar({
         </div>
       )}
       <div className="sidebarShortcutHint">
-        <span>⌥1–7 views</span>
+        <span>⌥1–8 views</span>
         <span>J/K days</span>
       </div>
       <a

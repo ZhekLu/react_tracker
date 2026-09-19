@@ -28,7 +28,9 @@ import {
   Link2,
   MessageCircleQuestion,
   MessageSquareText,
+  NotebookPen,
   RotateCcw,
+  Send,
   Sparkles,
   Settings2,
   Timer,
@@ -108,6 +110,7 @@ type RoadmapViewProps = {
     },
   ) => void;
   onCollectPdfAnnotations: (resourceId: string) => void;
+  onExportToZotero: (resourceId: string) => void;
   onCreateCapture: (resourceId: string, input: ResourceCaptureInput) => void;
   onImportMaccyImages: (
     resourceId: string,
@@ -165,6 +168,7 @@ type TaskRowProps = {
   task: Task;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
+  onExportToZotero: RoadmapViewProps["onExportToZotero"];
   onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
   onImportMaccyImages: RoadmapViewProps["onImportMaccyImages"];
@@ -214,6 +218,7 @@ function TaskRow({
   task,
   onAnnotationChange,
   onCollectPdfAnnotations,
+  onExportToZotero,
   onChapterProgressChange,
   onCreateCapture,
   onImportMaccyImages,
@@ -240,12 +245,17 @@ function TaskRow({
   const [rationaleOpen, setRationaleOpen] = useState(false);
   const [compactDetailsOpen, setCompactDetailsOpen] = useState(false);
   const [quickCaptureResourceId, setQuickCaptureResourceId] = useState("");
+  const [paperNoteResourceId, setPaperNoteResourceId] = useState("");
   const [exerciseQaOpen, setExerciseQaOpen] = useState(false);
   const [armedMaccyResourceId, setArmedMaccyResourceId] = useState("");
   const completed = task.status === "done";
   const linkedResources = task.resourceIds
     .map((resourceId) => resourceById.get(resourceId))
     .filter((resource): resource is Resource => Boolean(resource));
+  const paperNoteResource = linkedResources.find(
+    (resource) => resource.id === paperNoteResourceId && resource.kind === "paper",
+  );
+  const paperNote = paperNoteResource?.notes.find((note) => note.kind === "resource");
   const linkedQuestions = task.examQuestionIds
     .map((questionId) => examQuestionById.get(questionId))
     .filter((question): question is ExamQuestion => Boolean(question));
@@ -565,6 +575,45 @@ function TaskRow({
                 >
                   <MessageSquareText size={12} />
                 </button>
+                {resource.kind === "paper" ? (
+                  <button
+                    aria-pressed={paperNoteResourceId === resource.id}
+                    className={`taskLinkIcon paperNote ${paperNoteResourceId === resource.id ? "active" : ""}`}
+                    onClick={() =>
+                      setPaperNoteResourceId((current) =>
+                        current === resource.id ? "" : resource.id,
+                      )
+                    }
+                    title={`Edit the final paper note for ${resource.title}`}
+                    type="button"
+                  >
+                    <NotebookPen size={12} />
+                  </button>
+                ) : null}
+                {resource.kind === "paper" ? (
+                  <button
+                    className="taskLinkIcon zotero"
+                    disabled={
+                      !["read", "review"].includes(resource.status) ||
+                      !resource.notes
+                        .find((note) => note.kind === "resource")
+                        ?.document.plainText.trim()
+                    }
+                    onClick={() => onExportToZotero(resource.id)}
+                    title={
+                      !["read", "review"].includes(resource.status)
+                        ? "Mark the paper read before saving it to Zotero"
+                        : !resource.notes
+                            .find((note) => note.kind === "resource")
+                            ?.document.plainText.trim()
+                          ? "Save the final paper note before sending it to Zotero"
+                          : "Approve the final note and save this paper to Zotero"
+                    }
+                    type="button"
+                  >
+                    <Send size={12} />
+                  </button>
+                ) : null}
                 <button
                   className="taskLinkIcon"
                   onClick={() =>
@@ -660,6 +709,44 @@ function TaskRow({
                 </span>
               );
             })}
+          </div>
+        ) : null}
+        {paperNoteResource ? (
+          <div className="taskPaperNote">
+            <div className="taskPaperNoteHeader">
+              <div>
+                <NotebookPen size={14} />
+                <strong>{paperNoteResource.title}</strong>
+                <span>Only this resource note is sent to Zotero.</span>
+              </div>
+              <button
+                className="commandButton subtle"
+                disabled={
+                  !["read", "review"].includes(paperNoteResource.status) ||
+                  !paperNote?.document.plainText.trim()
+                }
+                onClick={() => onExportToZotero(paperNoteResource.id)}
+                type="button"
+              >
+                <Send size={14} /> Approve note &amp; save to Zotero
+              </button>
+            </div>
+            <EntityNoteEditor
+              defaultOpen
+              key={`${paperNote?.id ?? paperNoteResource.id}:${paperNote?.revision ?? 0}`}
+              label="Paper note"
+              note={paperNote}
+              onSave={(markdown) =>
+                onNoteSave({
+                  entityId: paperNoteResource.id,
+                  entityType: "resource",
+                  html: markdown,
+                  kind: "resource",
+                  note: paperNote,
+                })
+              }
+              placeholder="Your final summary, critique, and useful takeaways from this paper…"
+            />
           </div>
         ) : null}
         {quickCaptureResourceId ? (
@@ -1137,6 +1224,7 @@ type DayCardProps = {
   skillById: Map<string, Skill>;
   onAnnotationChange: RoadmapViewProps["onAnnotationChange"];
   onCollectPdfAnnotations: RoadmapViewProps["onCollectPdfAnnotations"];
+  onExportToZotero: RoadmapViewProps["onExportToZotero"];
   onChapterProgressChange: RoadmapViewProps["onChapterProgressChange"];
   onCreateCapture: RoadmapViewProps["onCreateCapture"];
   onImportMaccyImages: RoadmapViewProps["onImportMaccyImages"];
@@ -1170,6 +1258,7 @@ function DayCard({
   skillById,
   onAnnotationChange,
   onCollectPdfAnnotations,
+  onExportToZotero,
   onChapterProgressChange,
   onCreateCapture,
   onImportMaccyImages,
@@ -1301,6 +1390,7 @@ function DayCard({
                 key={task.id}
                 onAnnotationChange={onAnnotationChange}
                 onCollectPdfAnnotations={onCollectPdfAnnotations}
+                onExportToZotero={onExportToZotero}
                 onChapterProgressChange={onChapterProgressChange}
                 onCreateCapture={onCreateCapture}
                 onImportMaccyImages={onImportMaccyImages}
@@ -1397,6 +1487,7 @@ export function RoadmapView({
   onActiveDayChange,
   onAnnotationChange,
   onCollectPdfAnnotations,
+  onExportToZotero,
   onChapterProgressChange,
   onCreateCapture,
   onImportMaccyImages,
@@ -1517,6 +1608,7 @@ export function RoadmapView({
           key={day.id}
           onAnnotationChange={onAnnotationChange}
           onCollectPdfAnnotations={onCollectPdfAnnotations}
+          onExportToZotero={onExportToZotero}
           onChapterProgressChange={onChapterProgressChange}
           onCreateCapture={onCreateCapture}
           onImportMaccyImages={onImportMaccyImages}

@@ -15,6 +15,7 @@ import {
   NotebookPen,
   NotebookText,
   Search,
+  Send,
   Sparkles,
 } from "lucide-react";
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
@@ -66,6 +67,7 @@ type ResourcesViewProps = {
   onOpenResource: (resourceId: string) => void;
   onOpenResourceFile: (resourceId: string, fileIndex: number) => void;
   onResourceStatusChange: (resourceId: string, status: ResourceStatus) => void;
+  onExportToZotero: (resourceId: string) => void;
 };
 
 type ResourceFilter = "all" | "open" | "questions" | "read";
@@ -123,6 +125,7 @@ function ResourceRow({
   onOpenResource,
   onOpenResourceFile,
   onStatusChange,
+  onExportToZotero,
 }: {
   accent: string;
   dayNumberById: Map<string, number>;
@@ -138,6 +141,7 @@ function ResourceRow({
   onOpenResource: (resourceId: string) => void;
   onOpenResourceFile: (resourceId: string, fileIndex: number) => void;
   onStatusChange: (resourceId: string, status: ResourceStatus) => void;
+  onExportToZotero: (resourceId: string) => void;
 }) {
   const reward = useCompletionReward();
   const [capturesOpen, setCapturesOpen] = useState(false);
@@ -273,6 +277,24 @@ function ResourceRow({
             <Link2 size={16} />
           </a>
         ) : null}
+        {resource.kind === "paper" ? (
+          <button
+            className="resourceZoteroButton"
+            disabled={!completed || !resourceNote?.document.plainText.trim()}
+            onClick={() => onExportToZotero(resource.id)}
+            title={
+              !completed
+                ? "Mark this paper read before sending it to Zotero"
+                : !resourceNote?.document.plainText.trim()
+                  ? "Save the final resource note before sending it to Zotero"
+                  : "Approve this final note and save the paper to Zotero"
+            }
+            type="button"
+          >
+            <Send size={14} />
+            <span>Approve &amp; Zotero</span>
+          </button>
+        ) : null}
         <button
           className="resourceIconButton"
           disabled={!sourcePath}
@@ -386,6 +408,7 @@ export function ResourcesView({
   onOpenResource,
   onOpenResourceFile,
   onResourceStatusChange,
+  onExportToZotero,
 }: ResourcesViewProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ResourceFilter>("all");
@@ -536,6 +559,7 @@ export function ResourcesView({
                   onOpenResource={onOpenResource}
                   onOpenResourceFile={onOpenResourceFile}
                   onStatusChange={onResourceStatusChange}
+                  onExportToZotero={onExportToZotero}
                   resource={resource}
                 />
               ))}

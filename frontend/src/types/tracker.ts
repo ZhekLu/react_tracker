@@ -34,6 +34,7 @@ export type TrackerView =
   | "exams"
   | "notes"
   | "discussions"
+  | "settings"
   | "debug";
 
 export type CourseStats = {

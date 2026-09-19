@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import threading
 import time
-from collections.abc import Iterable
+import uuid
+from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
@@ -43,6 +45,12 @@ from .pdf_ink_image_service import (
     render_annotated_page_images,
     render_ink_context_images,
     render_local_annotation_images,
+)
+from .pdf_layout_service import (
+    PdfPageLayout,
+    analyze_pdf_page_layouts,
+    region_layout_column,
+    suggested_capture_rect,
 )
 from .question_region_service import question_region_groups
 from .resource_open_service import (
@@ -85,6 +93,12 @@ class PdfCapture:
     ink_vertex_sets: tuple[list[Any], ...] = ()
     member_fingerprints: tuple[str, ...] = ()
     origin: str = "pdf_import"
+    layout_mode: str = "single"
+    layout_column: str = "full"
+    page_width: float = 0.0
+    page_height: float = 0.0
+    proposed_capture_rect: tuple[float, ...] = ()
+    capture_rect: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +128,16 @@ class PdfCollectionItem:
     page: int | None
     section_title: str
     source_day_id: str | None
+    source_fingerprint: str = ""
+    context_image_url: str = ""
+    annotated_page_image_url: str = ""
+    proposed_capture_rect: list[float] = field(default_factory=list)
+    capture_rect: list[float] = field(default_factory=list)
+    page_width: float = 0.0
+    page_height: float = 0.0
+    layout_mode: str = "single"
+    layout_column: str = "full"
+    requires_capture_review: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +193,23 @@ def _collection_item(
         page=anchor.page_number if anchor else None,
         section_title=(anchor.section_title or "") if anchor else "",
         source_day_id=source_day_id,
+        source_fingerprint=command.source_fingerprint or "",
+        context_image_url=str((anchor.metadata if anchor else {}).get("contextImageUrl") or ""),
+        annotated_page_image_url=str(
+            (anchor.metadata if anchor else {}).get("annotatedPageImageUrl") or ""
+        ),
+        proposed_capture_rect=list(
+            (anchor.metadata if anchor else {}).get("proposedCaptureRect") or []
+        ),
+        capture_rect=list((anchor.metadata if anchor else {}).get("captureRect") or []),
+        page_width=float((anchor.metadata if anchor else {}).get("pageWidth") or 0),
+        page_height=float((anchor.metadata if anchor else {}).get("pageHeight") or 0),
+        layout_mode=str((anchor.metadata if anchor else {}).get("pageLayout") or "single"),
+        layout_column=str((anchor.metadata if anchor else {}).get("layoutColumn") or "full"),
+        requires_capture_review=bool(
+            (anchor.metadata if anchor else {}).get("contextImageUrl")
+            and command.kind in {"question", "todo"}
+        ),
     )
 
 
@@ -583,6 +624,8 @@ def _classify_question_annotations(
     extraction: PdfExtraction,
     states: dict[str, dict[str, Any]],
     roles: dict[str, str],
+    page_layouts: Mapping[int, PdfPageLayout] | None = None,
+    capture_overrides: Mapping[str, list[float]] | None = None,
 ) -> PdfExtraction:
     """Select question marks before grouping; regular handwriting stays in the PDF."""
     previous = {
@@ -615,9 +658,31 @@ def _classify_question_annotations(
             result.append(classified)
     by_id = {capture.fingerprint: capture for capture in questions}
     claimed: set[str] = set()
-    for members in question_region_groups(questions):
+    for members in question_region_groups(questions, page_layouts):
         combined = merge_ink_annotation_groups([_capture_as_ink(member) for member in members])
         visuals = [member for member in members if member.annotation_kind in VISUAL_KINDS]
+        source_texts = [member.comment or member.quote for member in members]
+        explicit_text_question = any(
+            "??" in source_text or "todo!" in source_text.casefold()
+            for source_text in source_texts
+        )
+        preserves_existing_question = any(
+            member.fingerprint in tracked_members for member in members
+        )
+        plain_text_markup = all(
+            member.annotation_kind.removeprefix("Text") in MARKUP_KINDS
+            for member in members
+        )
+        if (
+            plain_text_markup
+            and not visuals
+            and not explicit_text_question
+            and not preserves_existing_question
+        ):
+            # A palette colour can mean "question ink", but a plain markup
+            # highlight already carries its text and does not need a screenshot.
+            result.extend(replace(member, is_question=False) for member in members)
+            continue
         anchor = merge_ink_annotation_groups(
             [_capture_as_ink(member) for member in (visuals or members)]
         )
@@ -633,6 +698,23 @@ def _classify_question_annotations(
             anchor.fingerprint,
         )
         claimed.add(fingerprint)
+        layout = page_layouts.get(anchor.page) if page_layouts else None
+        layout_column = region_layout_column(combined.rect, layout)
+        proposed_rect: list[float] = []
+        final_rect: list[float] = []
+        if layout is not None:
+            proposed_rect = suggested_capture_rect(
+                combined.rect,
+                layout,
+                column=layout_column,
+                drawboard_coordinates=extraction.cloud_source is not None,
+                margin=12.0 if extraction.cloud_source is not None else 36.0,
+            )
+            override = (capture_overrides or {}).get(fingerprint)
+            if override is not None:
+                final_rect = _validated_capture_rect(override, layout)
+            else:
+                final_rect = proposed_rect
         result.append(
             replace(
                 by_id[anchor.fingerprint],
@@ -650,6 +732,12 @@ def _classify_question_annotations(
                 comment="\n\n".join(
                     dict.fromkeys(member.comment for member in members if member.comment)
                 ),
+                layout_mode=layout.mode if layout else "single",
+                layout_column=layout_column,
+                page_width=layout.width if layout else 0.0,
+                page_height=layout.height if layout else 0.0,
+                proposed_capture_rect=tuple(proposed_rect),
+                capture_rect=tuple(final_rect),
             )
         )
     return replace(
@@ -664,6 +752,30 @@ def _classify_question_annotations(
         ),
         ignored=ignored,
     )
+
+
+def _validated_capture_rect(rect: list[float], layout: PdfPageLayout) -> list[float]:
+    if len(rect) != 4:
+        raise PdfAnnotationError("A capture correction must contain four coordinates.")
+    try:
+        x0, y0, x1, y1 = (float(value) for value in rect)
+    except (TypeError, ValueError) as error:
+        raise PdfAnnotationError(
+            "A capture correction contains a non-numeric coordinate."
+        ) from error
+    if not all(math.isfinite(value) for value in (x0, y0, x1, y1)):
+        raise PdfAnnotationError("A capture correction contains a non-finite coordinate.")
+    x0, x1 = sorted((x0, x1))
+    y0, y1 = sorted((y0, y1))
+    values = [
+        max(0.0, min(x0, layout.width)),
+        max(0.0, min(y0, layout.height)),
+        max(0.0, min(x1, layout.width)),
+        max(0.0, min(y1, layout.height)),
+    ]
+    if values[2] - values[0] < 8 or values[3] - values[1] < 8:
+        raise PdfAnnotationError("A capture correction is too small to render.")
+    return [round(value, 3) for value in values]
 
 
 def _annotation_command(
@@ -685,12 +797,20 @@ def _annotation_command(
         "syncRevision": sync_revision,
         "sourceRevision": capture.source_revision,
         "colorRoleRevision": f"question-policy-v1:{capture.is_question}",
-        "questionGrouping": "y-overlap-v1",
+        "questionGrouping": "layout-lanes-y-overlap-v2",
         "highlightedText": capture.quote,
         "sourceContent": capture.comment,
         "sourceVisual": capture.annotation_kind in VISUAL_KINDS,
+        "pageLayout": capture.layout_mode,
+        "layoutColumn": capture.layout_column,
+        "proposedCaptureRect": list(capture.proposed_capture_rect),
+        "captureRect": list(capture.capture_rect),
         **_context_metadata(context),
     }
+    if capture.page_width:
+        metadata["pageWidth"] = capture.page_width
+    if capture.page_height:
+        metadata["pageHeight"] = capture.page_height
     if cloud_document_id:
         metadata["drawboardDocumentId"] = cloud_document_id
     if source_day_id:
@@ -767,15 +887,23 @@ def collect_resource_pdf_annotations(
     connection: Connection,
     resource_id: str,
     source_day_id: str | None = None,
+    capture_overrides: Mapping[str, list[float]] | None = None,
 ) -> PdfCollection:
     with _COLLECTION_LOCK:
-        return _collect_resource_pdf_annotations(connection, resource_id, source_day_id)
+        return _collect_resource_pdf_annotations(
+            connection,
+            resource_id,
+            source_day_id,
+            capture_overrides=capture_overrides,
+        )
 
 
 def _collect_resource_pdf_annotations(
     connection: Connection,
     resource_id: str,
     source_day_id: str | None = None,
+    *,
+    capture_overrides: Mapping[str, list[float]] | None = None,
 ) -> PdfCollection:
     global _PENDING_PALETTE
     logger.debug(
@@ -849,8 +977,24 @@ def _collect_resource_pdf_annotations(
                 requires_color_roles=True,
             )
         )
+    page_layouts: dict[int, PdfPageLayout] = {}
+    if safe_path is not None:
+        try:
+            page_layouts = analyze_pdf_page_layouts(safe_path)
+        except Exception:
+            logger.warning(
+                "PDF layout detection unavailable resource_id=%s path=%s",
+                resource_id,
+                safe_path,
+            )
     states = workspace_repository.imported_annotation_states(connection, resource_id)
-    extraction = _classify_question_annotations(extraction, states, roles)
+    extraction = _classify_question_annotations(
+        extraction,
+        states,
+        roles,
+        page_layouts,
+        capture_overrides,
+    )
     # Closed questions retain their saved screenshots. New/open captures follow
     # the PDF currently synced to disk, with immutable snapshots for old answers.
     preview_captures = [
@@ -881,6 +1025,11 @@ def _collect_resource_pdf_annotations(
                         for capture in preview_captures
                     ],
                     page_numbers=review_pages,
+                    crop_rects={
+                        capture.fingerprint: list(capture.capture_rect)
+                        for capture in preview_captures
+                        if capture.capture_rect
+                    },
                 )
             except Exception as error:
                 raise PdfAnnotationError(
@@ -903,6 +1052,11 @@ def _collect_resource_pdf_annotations(
                         preview_inks,
                         captures=cloud.captures,
                         page_inks=cloud.all_ink,
+                        crop_rects={
+                            capture.fingerprint: list(capture.capture_rect)
+                            for capture in preview_captures
+                            if capture.capture_rect
+                        },
                     )
                     if preview_inks
                     else {}
@@ -957,7 +1111,8 @@ def _collect_resource_pdf_annotations(
             f"{source_version}:"
             f"{'pdf-paragraph-context-v1' if context else 'local-plain-v1'}:"
             f"study-day-v1:{capture_day_id or '-'}:"
-            f"roles:{json.dumps(roles, sort_keys=True)}"
+            f"roles:{json.dumps(roles, sort_keys=True)}:"
+            f"capture:{json.dumps(capture.capture_rect)}"
         )
         command = _annotation_command(
             resource_id,
@@ -998,6 +1153,8 @@ def _collect_resource_pdf_annotations(
         counts[outcome] += 1
         if outcome in {"created", "updated"}:
             changed_items.append(_collection_item(command, outcome, capture_day_id))
+        if capture.fingerprint in (capture_overrides or {}) and capture.capture_rect:
+            _log_capture_review(connection, resource_id, capture)
     return _logged_collection(
         PdfCollection(
             resource_id=resource_id,
@@ -1019,4 +1176,37 @@ def _collect_resource_pdf_annotations(
             kind_counts=kind_counts,
             changed_items=changed_items,
         )
+    )
+
+
+def _log_capture_review(
+    connection: Connection,
+    resource_id: str,
+    capture: PdfCapture,
+) -> None:
+    connection.execute(
+        text("""
+            INSERT INTO capture_region_corrections (
+              id, resource_id, source_fingerprint, page_number,
+              layout_mode, layout_column, proposed_rect_json, final_rect_json,
+              page_width, page_height, created_at
+            ) VALUES (
+              :id, :resource_id, :source_fingerprint, :page_number,
+              :layout_mode, :layout_column, :proposed_rect_json, :final_rect_json,
+              :page_width, :page_height, :created_at
+            )
+            """),
+        {
+            "id": str(uuid.uuid4()),
+            "resource_id": resource_id,
+            "source_fingerprint": capture.fingerprint,
+            "page_number": capture.page,
+            "layout_mode": capture.layout_mode,
+            "layout_column": capture.layout_column,
+            "proposed_rect_json": json.dumps(capture.proposed_capture_rect),
+            "final_rect_json": json.dumps(capture.capture_rect),
+            "page_width": capture.page_width,
+            "page_height": capture.page_height,
+            "created_at": _utc_now_iso(),
+        },
     )

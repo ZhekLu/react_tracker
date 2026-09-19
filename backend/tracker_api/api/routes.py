@@ -45,6 +45,7 @@ from ..schemas.workspace import (
     MutationResponse,
     NoteDeleteCommand,
     NoteUpsertCommand,
+    PdfAnnotationCollectionCommand,
     PdfAnnotationCollectionResponse,
     PdfReaderMetadataResponse,
     PdfReaderPage,
@@ -62,6 +63,10 @@ from ..schemas.workspace import (
     TaskTutorReviewResponse,
     TogglStartCommand,
     TogglStatusResponse,
+    TrackerSettings,
+    TrackerSettingsCommand,
+    ZoteroExportResponse,
+    ZoteroStatusResponse,
 )
 from ..services.course_file_service import (
     CourseFileError,
@@ -106,12 +111,23 @@ from ..services.prompt_batch_service import (
 )
 from ..services.resource_content_service import read_resource_content
 from ..services.resource_open_service import ResourceOpenError, open_resource
+from ..services.settings_service import (
+    capture_correction_count,
+    capture_debug_mode,
+    save_capture_debug_mode,
+)
 from ..services.toggl_service import (
     TogglConfigurationError,
     TogglServiceError,
     public_status,
     start,
     stop,
+)
+from ..services.zotero_service import (
+    ZoteroIntegrationError,
+    ZoteroUnavailableError,
+    export_resource_to_zotero,
+    zotero_status,
 )
 
 
@@ -152,6 +168,56 @@ def get_workspace(course_id: str, connection: Database) -> CourseWorkspace:
         return workspace_repository.get_workspace(connection, course_id)
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error
+
+
+@router.get("/settings", response_model=TrackerSettings)
+def get_tracker_settings(connection: Database) -> TrackerSettings:
+    return TrackerSettings(
+        capture_debug_mode=capture_debug_mode(connection),
+        capture_correction_count=capture_correction_count(connection),
+    )
+
+
+@router.put("/settings", response_model=TrackerSettings)
+def update_tracker_settings(
+    command: TrackerSettingsCommand,
+    connection: Database,
+) -> TrackerSettings:
+    return TrackerSettings(
+        capture_debug_mode=save_capture_debug_mode(
+            connection,
+            command.capture_debug_mode,
+        ),
+        capture_correction_count=capture_correction_count(connection),
+    )
+
+
+@router.get("/integrations/zotero", response_model=ZoteroStatusResponse)
+def get_zotero_status() -> ZoteroStatusResponse:
+    return ZoteroStatusResponse.model_validate(zotero_status(), from_attributes=True)
+
+
+@router.post(
+    "/resources/{resource_id}/zotero/export",
+    response_model=ZoteroExportResponse,
+)
+def export_resource_zotero(
+    resource_id: str,
+    connection: Database,
+) -> ZoteroExportResponse:
+    try:
+        result = export_resource_to_zotero(connection, resource_id)
+        return ZoteroExportResponse.model_validate(result, from_attributes=True)
+    except ZoteroUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(error),
+        ) from error
+    except ZoteroIntegrationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
 
 
 @router.get(
@@ -406,6 +472,7 @@ def get_resource_pdf_page(
 def collect_resource_annotations(
     resource_id: str,
     connection: Database,
+    command: PdfAnnotationCollectionCommand | None = None,
     source_day_id: str | None = None,
     dry_run: bool = False,
 ) -> PdfAnnotationCollectionResponse:
@@ -416,6 +483,7 @@ def collect_resource_annotations(
                 connection,
                 resource_id,
                 source_day_id=source_day_id,
+                capture_overrides=(command.capture_overrides if command else None),
             )
         finally:
             if preview is not None:
@@ -455,6 +523,16 @@ def collect_resource_annotations(
                     "page": item.page,
                     "section_title": item.section_title,
                     "source_day_id": item.source_day_id,
+                    "source_fingerprint": item.source_fingerprint,
+                    "context_image_url": item.context_image_url,
+                    "annotated_page_image_url": item.annotated_page_image_url,
+                    "proposed_capture_rect": item.proposed_capture_rect,
+                    "capture_rect": item.capture_rect,
+                    "page_width": item.page_width,
+                    "page_height": item.page_height,
+                    "layout_mode": item.layout_mode,
+                    "layout_column": item.layout_column,
+                    "requires_capture_review": item.requires_capture_review,
                 }
                 for item in result.changed_items
             ],

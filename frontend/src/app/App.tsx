@@ -22,6 +22,8 @@ import {
   deleteDiscussion,
   fetchCourses,
   fetchCourseWorkspace,
+  fetchTrackerSettings,
+  exportResourceToZotero,
   importMaccyImageQuestions,
   importDiscussionAnswers,
   importTaskTutorReview,
@@ -46,6 +48,7 @@ import {
   updateTaskStatus,
   uploadImageQuestions,
   upsertNote,
+  updateTrackerSettings,
 } from "../api/trackerApi";
 import { createRevisionQueue } from "../lib/revisionQueue";
 import { withQuestionAnswerReferences } from "../lib/questionAnswerReferences";
@@ -64,12 +67,14 @@ import { ExamsView } from "../features/exams/ExamsView";
 import { NotesView } from "../features/notes/NotesView";
 import { ResourcesView } from "../features/resources/ResourcesView";
 import { DrawboardColorPaletteDialog } from "../features/resources/DrawboardColorPaletteDialog";
+import { CaptureRegionReviewDialog } from "../features/resources/CaptureRegionReviewDialog";
 import { PdfImportOverviewDialog } from "../features/resources/PdfImportOverviewDialog";
 import { ResourceReader } from "../features/reader/ResourceReader";
 import { RoadmapView } from "../features/roadmap/RoadmapView";
 import { TaskTutorReviewDialog } from "../features/roadmap/TaskTutorReviewDialog";
 import { taskReviewQuestionIds, type TaskReviewPart } from "../lib/taskReview";
 import { SkillsView } from "../features/skills/SkillsView";
+import { SettingsView } from "../features/settings/SettingsView";
 import { QuestionDialog } from "../features/questions/QuestionDialog";
 import { QuestionExtractionDialog } from "../features/questions/QuestionExtractionDialog";
 import {
@@ -141,6 +146,7 @@ import type {
   DrawboardColorRole,
   PdfAnnotationCollectionResult,
   PdfAnnotationCollectionItem,
+  TrackerSettings,
 } from "../api/trackerApi";
 
 const trackerViews = new Set<TrackerView>([
@@ -150,6 +156,7 @@ const trackerViews = new Set<TrackerView>([
   "exams",
   "notes",
   "discussions",
+  "settings",
   "debug",
 ]);
 
@@ -327,6 +334,16 @@ export function App() {
     items: PdfAnnotationCollectionItem[];
     resourceTitle: string;
   } | null>(null);
+  const [captureReviewDraft, setCaptureReviewDraft] = useState<{
+    items: PdfAnnotationCollectionItem[];
+    resourceId: string;
+    resourceTitle: string;
+    sourceDayId?: string;
+  } | null>(null);
+  const [trackerSettings, setTrackerSettings] = useState<TrackerSettings>({
+    captureDebugMode: true,
+    captureCorrectionCount: 0,
+  });
   const [promptQuestionSelection, setPromptQuestionSelection] = useState<{
     choices: PromptQuestionChoice[];
     resource: Resource;
@@ -410,9 +427,13 @@ export function App() {
       setLoading(true);
       setError(null);
       try {
-        const nextCourses = await fetchCourses();
+        const [nextCourses, nextSettings] = await Promise.all([
+          fetchCourses(),
+          fetchTrackerSettings(),
+        ]);
         if (cancelled) return;
         setCourses(nextCourses);
+        setTrackerSettings(nextSettings);
         const requestedCourseId = navigationFromUrl().courseId;
         const nextCourseId = nextCourses.some(
           (course) => course.id === requestedCourseId,
@@ -594,9 +615,10 @@ export function App() {
         "exams",
         "notes",
         "discussions",
+        "settings",
         "debug",
       ];
-      if (event.altKey && /^[1-7]$/.test(event.key)) {
+      if (event.altKey && /^[1-8]$/.test(event.key)) {
         event.preventDefault();
         navigationIntentRef.current = "push";
         setView(viewShortcuts[Number(event.key) - 1]);
@@ -1710,6 +1732,51 @@ export function App() {
     });
   }
 
+  async function collectPdfWithOptionalReview(
+    resourceId: string,
+    resourceTitle: string,
+    sourceDayId?: string,
+  ) {
+    if (trackerSettings.captureDebugMode) {
+      const preview = await collectResourcePdfAnnotations(resourceId, sourceDayId, {
+        dryRun: true,
+      });
+      if (preview.requiresColorRoles) {
+        setDrawboardPaletteDraft({
+          resourceId,
+          resourceTitle,
+          sourceDayId,
+          entries: preview.colorPalette,
+        });
+        return;
+      }
+      if (preview.changedItems.some((item) => item.requiresCaptureReview)) {
+        setCaptureReviewDraft({
+          items: preview.changedItems,
+          resourceId,
+          resourceTitle,
+          sourceDayId,
+        });
+        return;
+      }
+    }
+
+    const imported = await collectResourcePdfAnnotations(resourceId, sourceDayId);
+    if (imported.requiresColorRoles) {
+      setDrawboardPaletteDraft({
+        resourceId,
+        resourceTitle,
+        sourceDayId,
+        entries: imported.colorPalette,
+      });
+      return;
+    }
+    if (imported.changedItems.length) {
+      setPdfImportOverview({ items: imported.changedItems, resourceTitle });
+    }
+    setActionMessage(pdfAnnotationCollectionMessage(imported));
+  }
+
   function handleCollectPdfAnnotations(resourceId: string) {
     if (!workspace) return;
     const resource = workspace.resources.find((item) => item.id === resourceId);
@@ -1721,28 +1788,9 @@ export function App() {
       setError("This resource has no local PDF path or cloud PDF URL.");
       return;
     }
-    void runMutation(async () => {
-      const imported = await collectResourcePdfAnnotations(
-        resourceId,
-        activeDay?.id,
-      );
-      if (imported.requiresColorRoles) {
-        setDrawboardPaletteDraft({
-          resourceId,
-          resourceTitle: resource.title,
-          sourceDayId: activeDay?.id,
-          entries: imported.colorPalette,
-        });
-        return;
-      }
-      if (imported.changedItems.length) {
-        setPdfImportOverview({
-          items: imported.changedItems,
-          resourceTitle: resource.title,
-        });
-      }
-      setActionMessage(pdfAnnotationCollectionMessage(imported));
-    });
+    void runMutation(() =>
+      collectPdfWithOptionalReview(resourceId, resource.title, activeDay?.id),
+    );
   }
 
   function handleSaveDrawboardColorRoles(
@@ -1753,21 +1801,46 @@ export function App() {
     setDrawboardPaletteDraft(null);
     void runMutation(async () => {
       await saveDrawboardColorRoles(draft.resourceId, roles);
+      await collectPdfWithOptionalReview(
+        draft.resourceId,
+        draft.resourceTitle,
+        draft.sourceDayId,
+      );
+    });
+  }
+
+  function handleCollectReviewedCaptureRegions(overrides: Record<string, number[]>) {
+    if (!captureReviewDraft) return;
+    const draft = captureReviewDraft;
+    setCaptureReviewDraft(null);
+    void runMutation(async () => {
       const imported = await collectResourcePdfAnnotations(
         draft.resourceId,
         draft.sourceDayId,
+        { captureOverrides: overrides },
       );
-      if (imported.requiresColorRoles) {
-        setDrawboardPaletteDraft({ ...draft, entries: imported.colorPalette });
-        return;
-      }
       if (imported.changedItems.length) {
         setPdfImportOverview({
           items: imported.changedItems,
           resourceTitle: draft.resourceTitle,
         });
       }
+      setTrackerSettings(await fetchTrackerSettings());
       setActionMessage(pdfAnnotationCollectionMessage(imported));
+    });
+  }
+
+  function handleCaptureDebugModeChange(enabled: boolean) {
+    void runMutation(async () => {
+      setTrackerSettings(await updateTrackerSettings(enabled));
+      setActionMessage(`Capture debug mode ${enabled ? "enabled" : "disabled"}.`);
+    });
+  }
+
+  function handleExportToZotero(resourceId: string) {
+    void runMutation(async () => {
+      const result = await exportResourceToZotero(resourceId);
+      setActionMessage(result.message);
     });
   }
 
@@ -2314,6 +2387,12 @@ export function App() {
         </div>
       ) : null}
       {mutating ? <div className="savingPill">Saving...</div> : null}
+      {view === "settings" ? (
+        <SettingsView
+          onCaptureDebugModeChange={handleCaptureDebugModeChange}
+          settings={trackerSettings}
+        />
+      ) : null}
       {view === "debug" ? <DebugView key={workspace.id} courseId={workspace.id}/> : null}
       {view === "roadmap" ? (
         <RoadmapView
@@ -2323,6 +2402,7 @@ export function App() {
           onActiveDayChange={setActiveDayId}
           onAnnotationChange={handleAnnotationChange}
           onCollectPdfAnnotations={handleCollectPdfAnnotations}
+          onExportToZotero={handleExportToZotero}
           onChapterProgressChange={handleResourceChapterProgressChange}
           onDayClosedChange={handleDayClosedChange}
           onExerciseProgressChange={handleExerciseProgressChange}
@@ -2371,6 +2451,7 @@ export function App() {
             void handleCopyResourceQuestions(resource)
           }
           onCollectPdfAnnotations={handleCollectPdfAnnotations}
+          onExportToZotero={handleExportToZotero}
           onCreateCapture={handleCreateResourceCapture}
           onAnnotationChange={handleAnnotationChange}
           onNoteSave={handleNoteSave}
@@ -2536,6 +2617,14 @@ export function App() {
           onClose={() => setDrawboardPaletteDraft(null)}
           onSave={handleSaveDrawboardColorRoles}
           resourceTitle={drawboardPaletteDraft.resourceTitle}
+        />
+      ) : null}
+      {captureReviewDraft ? (
+        <CaptureRegionReviewDialog
+          items={captureReviewDraft.items}
+          onClose={() => setCaptureReviewDraft(null)}
+          onCollect={handleCollectReviewedCaptureRegions}
+          resourceTitle={captureReviewDraft.resourceTitle}
         />
       ) : null}
       {pdfImportOverview ? (
