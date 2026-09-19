@@ -48,7 +48,7 @@ export function DrawboardColorPaletteDialog({
       >
         <header>
           <div>
-            <p className="eyebrow">Drawboard colour roles</p>
+            <p className="eyebrow">PDF colour roles</p>
             <h2 id="drawboard-palette-title">
               Which colours mean “question”?
             </h2>
@@ -59,9 +59,10 @@ export function DrawboardColorPaletteDialog({
         </header>
         <p>
           Found {unknownCount} new colour{unknownCount === 1 ? "" : "s"} in{" "}
-          <strong>{resourceTitle}</strong>. Assign each exact Drawboard colour once;
-          the choice is reused for this course. Regular colours remain notes or
-          highlights even when their quoted text ends in a question mark.
+          <strong>{resourceTitle}</strong>. Assign each exact colour once;
+          the choice is reused for local and cloud PDFs in this course. Only question
+          colours create handwriting screenshots. Other handwriting stays in the
+          PDF; regular text notes and highlights are still collected.
         </p>
         <div className="drawboardPaletteList">
           {entries.map((entry) => {

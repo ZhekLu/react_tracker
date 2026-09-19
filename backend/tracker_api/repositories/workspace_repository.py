@@ -2834,7 +2834,7 @@ def reconcile_imported_question_frame(
     resource_id: str,
     source_fingerprint: str,
 ) -> int:
-    """Persist one logical frame across expanding Drawboard ink captures.
+    """Persist one logical frame across expanding imported question regions.
 
     Drawboard gives a newly extended margin frame a new source fingerprint.
     Existing question rows must remain immutable because answers and reviews
@@ -2846,12 +2846,13 @@ def reconcile_imported_question_frame(
     canonical = _one_or_none(
         connection,
         """
-        SELECT a.id, a.created_at, aa.page_number, aa.rect_json, aa.selector_json
+        SELECT a.id, a.origin, a.created_at, aa.page_number, aa.rect_json, aa.selector_json
         FROM annotations a
         JOIN annotation_anchors aa ON aa.annotation_id = a.id
         WHERE a.resource_id = :resource_id
           AND a.source_fingerprint = :source_fingerprint
-          AND a.origin = 'drawboard_cloud_ink'
+          AND a.origin IN ('drawboard_cloud_ink', 'drawboard_cloud', 'pdf_import')
+          AND a.kind IN ('question', 'todo')
           AND a.deleted_at IS NULL
         """,
         {
@@ -2897,11 +2898,6 @@ def reconcile_imported_question_frame(
         },
     )
 
-    def vertical_gap(first: list[float], second: list[float]) -> float:
-        first_low, first_high = sorted((first[1], first[3]))
-        second_low, second_high = sorted((second[1], second[3]))
-        return max(0.0, max(first_low, second_low) - min(first_high, second_high))
-
     related: list[tuple[RowMapping, dict[str, Any]]] = []
     for candidate in candidates:
         metadata: dict[str, Any] = _json_loads(candidate["selector_json"], {})
@@ -2913,19 +2909,22 @@ def reconcile_imported_question_frame(
             for item in metadata.get("inkMemberFingerprints", [])
             if isinstance(item, str) and item
         }
-        # Ink identities are related only through the source strokes that the
-        # Drawboard y-overlap grouping already joined. A long frame must not
-        # absorb a nearby framed question across a real vertical gap.
-        ink_matches = str(candidate["origin"]) == "drawboard_cloud_ink" and bool(
-            canonical_members & candidate_members
+        # Shared source membership is authoritative for both connectors.
+        same_connector = (str(candidate["origin"]) == "pdf_import") == (
+            str(canonical["origin"]) == "pdf_import"
         )
-        color_role = str(metadata.get("colorRoleRevision") or "")
-        merged_highlight_matches = (
-            str(candidate["origin"]) == "drawboard_cloud"
-            and color_role.endswith(":question:merged-with-ink")
-            and vertical_gap(canonical_rect, rect) == 0.0
+        member_matches = same_connector and bool(
+            canonical_members & (candidate_members or {str(candidate["source_fingerprint"])})
         )
-        if str(candidate["id"]) == str(canonical["id"]) or ink_matches or merged_highlight_matches:
+        # Compatibility for historical book groups, which recorded merged
+        # highlight roles before highlight source IDs were part of membership.
+        legacy_highlight_matches = (
+            same_connector and str(candidate["origin"]) == "drawboard_cloud"
+            and str(metadata.get("colorRoleRevision") or "").endswith(":question:merged-with-ink")
+            and max(canonical_rect[1], rect[1]) <= min(canonical_rect[3], rect[3])
+        )
+        if (str(candidate["id"]) == str(canonical["id"])
+                or member_matches or legacy_highlight_matches):
             related.append((candidate, metadata))
     if not related:
         return 0
@@ -2939,7 +2938,7 @@ def reconcile_imported_question_frame(
     related_ink_ids = {
         str(candidate["id"])
         for candidate, _ in related
-        if str(candidate["origin"]) == "drawboard_cloud_ink"
+        if str(candidate["origin"]) == str(canonical["origin"])
     }
     retained_frame_ids = sorted(existing_frame_ids & related_ink_ids)
     if retained_frame_ids:
@@ -2948,7 +2947,7 @@ def reconcile_imported_question_frame(
         frame_id = next(
             str(candidate["id"])
             for candidate, _ in related
-            if str(candidate["origin"]) == "drawboard_cloud_ink"
+            if str(candidate["origin"]) == str(canonical["origin"])
         )
     frame_label = next(
         (

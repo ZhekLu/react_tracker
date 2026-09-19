@@ -219,7 +219,7 @@ def test_compound_ink_outline_keeps_an_enclosed_hole() -> None:
     document.close()
 
 
-def test_vertical_guides_prevent_transitive_question_merges() -> None:
+def test_question_handwriting_bridges_guides_into_one_group() -> None:
     first_guide = _ink("guide-1", [4.0, 10.0, 7.0, 60.0])
     second_guide = _ink("guide-2", [4.0, 65.0, 7.0, 115.0])
     bridge = _ink("bridge", [20.0, 50.0, 60.0, 70.0])
@@ -227,13 +227,10 @@ def test_vertical_guides_prevent_transitive_question_merges() -> None:
 
     groups = group_red_ink_annotations(
         [first_guide, bridge, second_guide, second_text],
-        tolerance=6.0,
     )
 
-    assert len(groups) == 2
-    members = [set(group.member_fingerprints) for group in groups]
-    assert {"guide-1", "bridge"} in members
-    assert {"guide-2", "second-text"} in members
+    assert len(groups) == 1
+    assert set(groups[0].member_fingerprints) == {"guide-1", "bridge", "guide-2", "second-text"}
 
 
 def test_contained_guide_groups_become_one_screenshot() -> None:
@@ -300,7 +297,6 @@ def test_opposite_page_guides_with_brief_vertical_overlap_are_one_question() -> 
 
     groups = group_red_ink_annotations(
         [left_guide, upper_note, right_guide, lower_note],
-        tolerance=2.0,
     )
 
     assert len(groups) == 1
@@ -320,7 +316,6 @@ def test_nearby_non_overlapping_guides_remain_separate_questions() -> None:
 
     groups = group_red_ink_annotations(
         [first_guide, first_note, second_guide, second_note],
-        tolerance=2.0,
     )
 
     assert len(groups) == 2

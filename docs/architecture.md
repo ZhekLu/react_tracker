@@ -136,8 +136,13 @@ Three derived workflows intentionally live outside the database schema:
 - `tracker_api/services/pdf_ink_image_service.py` renders lossless, high-density
   handwriting screenshots. The crop is owned by the red question group, while
   every Drawboard ink stroke and text markup intersecting that crop is rendered
-  in its original color. Deliberate vertical guide strokes define independent
-  handwriting groups and prevent nearby questions from merging transitively.
+  in its original color. Local native rendering and cloud vector rendering feed
+  the same collection policy: question-colour marks sharing any Y coordinate on
+  one page form a connected screenshot group. Highlight text is attached to that
+  screenshot instead of creating a second question. Non-question handwriting
+  never creates a capture, although nearby ink can appear as screenshot context.
+  Paragraph grouping remains a review presentation feature. See
+  [PDF annotation collection](pdf-annotation-collection.md).
 
 Paragraph grouping is a presentation projection rather than a destructive
 merge. Each annotation keeps its own ID, anchor, workflow state, note, and

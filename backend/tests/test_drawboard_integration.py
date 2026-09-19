@@ -23,7 +23,6 @@ from tracker_api.services.drawboard_service import (
 )
 from tracker_api.services.pdf_annotation_service import (
     _chapter_study_days,
-    _merge_ink_groups_by_paragraph,
     collect_resource_pdf_annotations,
 )
 from tracker_api.services.pdf_context_service import PdfAnnotationContext
@@ -228,7 +227,7 @@ def test_cloud_extraction_pages_batches_and_reuses_credentials(
     assert consume_count == 1
     assert [capture.page for capture in first.captures] == [11, 12, 12]
     assert first.captures[0].comment == "Why?"
-    assert first.captures[0].is_question is True
+    assert first.captures[0].is_question is False  # Connector does not apply question roles.
     colors = {capture.annotation_kind: capture.color for capture in first.captures}
     assert colors["TextHighlight"] == "yellow"
     assert colors["TextUnderline"] == "cyan"
@@ -841,97 +840,10 @@ def test_red_highlight_inside_handwriting_group_is_not_a_second_question(
             .all()
         )
 
-    assert collected.kind_counts == {"highlight": 1, "question": 1}
+    assert collected.kind_counts == {"question": 1}
     assert rows == [
-        {"kind": "highlight", "origin": "drawboard_cloud"},
         {"kind": "question", "origin": "drawboard_cloud_ink"},
     ]
-
-
-def test_ink_groups_in_the_same_pdf_paragraph_become_one_capture() -> None:
-    first = DrawboardInk(
-        fingerprint="ink-one",
-        source_revision="rev-one",
-        page=172,
-        color="red",
-        rgb=[1.0, 0.0, 0.0],
-        created_at="2026-08-17T10:00:00Z",
-        rect=[5.0, 531.0, 32.0, 548.0],
-        ink_vertex_sets=([[5.0, 531.0], [32.0, 548.0]],),
-        member_fingerprints=("ink-one",),
-    )
-    second = DrawboardInk(
-        fingerprint="ink-two",
-        source_revision="rev-two",
-        page=172,
-        color="red",
-        rgb=[1.0, 0.0, 0.0],
-        created_at="2026-08-17T10:01:00Z",
-        rect=[5.0, 552.0, 34.0, 573.0],
-        ink_vertex_sets=([[5.0, 552.0], [34.0, 573.0]],),
-        member_fingerprints=("ink-two",),
-    )
-    context = PdfAnnotationContext(
-        chapter_number=7,
-        chapter_title="n-step Bootstrapping",
-        context_after="",
-        context_before="",
-        context_sentence="Expected Sarsa uses one fewer ratio.",
-        match_method="paragraph",
-        subchapter_title="Per-decision Methods",
-        paragraph_id="paragraph-172-a",
-    )
-
-    merged = _merge_ink_groups_by_paragraph(
-        [first, second],
-        {first.fingerprint: context, second.fingerprint: context},
-    )
-
-    assert len(merged) == 1
-    assert merged[0].rect == [5.0, 531.0, 34.0, 573.0]
-    assert set(merged[0].member_fingerprints) == {"ink-one", "ink-two"}
-
-
-def test_framed_ink_groups_in_one_pdf_paragraph_remain_separate() -> None:
-    first = DrawboardInk(
-        fingerprint="frame-one",
-        source_revision="rev-one",
-        page=282,
-        color="red",
-        rgb=[1.0, 0.0, 0.0],
-        created_at="2026-09-04T10:00:00Z",
-        rect=[5.0, 20.0, 300.0, 120.0],
-        ink_vertex_sets=([[5.0, 20.0], [7.0, 120.0]],),
-        member_fingerprints=("frame-one",),
-    )
-    second = DrawboardInk(
-        fingerprint="frame-two",
-        source_revision="rev-two",
-        page=282,
-        color="red",
-        rgb=[1.0, 0.0, 0.0],
-        created_at="2026-09-04T10:01:00Z",
-        rect=[320.0, 124.0, 500.0, 210.0],
-        ink_vertex_sets=([[498.0, 124.0], [500.0, 210.0]],),
-        member_fingerprints=("frame-two",),
-    )
-    context = PdfAnnotationContext(
-        chapter_number=11,
-        chapter_title="Off-policy Methods",
-        context_after="",
-        context_before="",
-        context_sentence="One broad extracted paragraph.",
-        match_method="paragraph",
-        subchapter_title="Examples of Off-policy Divergence",
-        paragraph_id="paragraph-282-a",
-    )
-
-    merged = _merge_ink_groups_by_paragraph(
-        [first, second],
-        {first.fingerprint: context, second.fingerprint: context},
-    )
-
-    assert [item.fingerprint for item in merged] == ["frame-one", "frame-two"]
 
 
 def test_book_chapters_map_to_their_explicit_study_days(tmp_path: Path) -> None:

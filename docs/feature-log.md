@@ -1,5 +1,23 @@
 # Tracker feature and maintenance log
 
+## 2026-09-19 — one annotation policy for local PDFs and the cloud book
+
+- Local/iCloud and Drawboard Cloud connectors now feed one classifier, colour
+  palette, grouping rule, import command and persistence loop. Regular-colour
+  handwriting/shapes stay in the PDF; regular text notes/highlights still import.
+- Question-colour highlights and handwriting connected by overlapping Y ranges
+  on the same page become one screenshot question, including transitive overlap
+  across columns. Highlight text remains searchable metadata. Real vertical gaps
+  stay separate; paragraph grouping remains available in the review UI.
+- Course colour choices, explicit `??`/`todo!` text markers, historical question
+  IDs, manual notes, answers and closed screenshots are preserved. Legacy book
+  frame aliases remain compatible. The source PDF is never edited.
+- Validation: shared connector parity tests, exact/transitive overlap, custom
+  colours, ignored bridging ink, repeat imports, palette confirmation, rollback,
+  identity retention and the historical book frame fixture. Full backend suite,
+  Ruff, strict mypy and frontend production build pass.
+- Live Day 12 PPO cleanup/recollection is pending the final guarded repair.
+
 ## 2026-09-18 — share pen-colour rules between local and cloud PDFs
 
 - Real PPO-file preview exposed a local-only bug: Drawboard's dark-red pen was
@@ -7,8 +25,8 @@
   rules, including dark red and pink while excluding neutral and blue ink.
 - Validation: 38 local/cloud tests, including five matching-palette cases and
   a dark-red guide/handwriting group; Ruff and strict mypy. The real preview
-  parsed 49 captures with nothing ignored and left annotations, documents and
-  question identities identical to the backup. Final recollection pending reload.
+  revealed 51 captures after final recollection. The unwanted regular handwriting
+  and split question groups are corrected by the shared-policy entry above.
 
 ## 2026-09-18 — preview PDF collection without changing study data
 
@@ -32,8 +50,8 @@
 ## 2026-09-18 — import embedded local/iCloud handwriting
 
 - Local PDF collection now imports handwriting and visual marks as native PDF
-  screenshots, groups pen strokes using guides, and keeps highlight comments as
-  well as quotes. Red ink becomes questions; other ink remains available as notes.
+  screenshots and keeps highlight comments as well as quotes. The initial import
+  incorrectly kept regular handwriting as notes; superseded by the shared policy above.
   Local screenshots use the same review presentation as cloud screenshots.
 - Reimports preserve answers, manual notes and historical closed-question images.
   Page-scoped IDs prevent repeated PDF annotation names from overwriting captures
@@ -43,9 +61,9 @@
   page rotations, immutable image caching, recolouring, guide removal, source
   deletion, repeated IDs and legacy migration. 220 backend and 209 frontend tests
   passed, plus Ruff, strict mypy, frontend lint and a typechecked production build.
-- Actual PPO-file verification remains blocked by macOS read permission. Its
-  supplied iCloud link opens a shared folder requiring Apple Account sign-in,
-  rather than an anonymous PDF download. No live annotations have been imported.
+- The tracker started from the user's Terminal can read the actual iCloud PDF.
+  The supplied iCloud link requires Apple Account sign-in; collection uses the
+  local file. Initial live imports are superseded by the correction above.
 
 ## 2026-09-18 — allow the linked iCloud papers directory
 
@@ -56,8 +74,8 @@
 - Validation: 51 resource/local integration/workspace tests, Ruff and strict
   mypy; added coverage for spaces, PDF rendering/extraction, relative/home roots,
   malformed configuration and three escape attempts.
-- Local handwriting support is covered above; actual-file validation remains
-  pending because macOS denies reads from the tracker process.
+- Actual iCloud collection works through the tracker started in the user's
+  Terminal, which has file access; Codex's own process remains unable to read it.
 
 ## 2026-09-18 — meaningful sidebar progress and course map
 

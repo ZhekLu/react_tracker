@@ -102,6 +102,19 @@ Stop when: the slides are read. {#day01-stop}
                 """
             )
         ).scalar_one()
+    from tracker_api.services.pdf_annotation_service import save_drawboard_color_roles
+
+    with transaction() as connection:
+        save_drawboard_color_roles(
+            connection,
+            str(resource_id),
+            {
+                "#FF0000": "question",
+                "#AF0001": "question",
+                "#0000FF": "regular",
+                "#000000": "regular",
+            },
+        )
     return str(resource_id)
 
 
@@ -316,10 +329,10 @@ def test_local_icloud_annotations_import_without_cloud_and_repeat_safely(tmp_pat
         rows = _local_rows(connection)
     with transaction() as connection:
         second = collect_resource_pdf_annotations(connection, resource_id)
-    assert first.created_count == 5
-    assert first.kind_counts == {"question": 2, "note": 3}
-    assert first.ignored == {}
-    assert second.existing_count == 5
+    assert first.created_count == 3
+    assert first.kind_counts == {"question": 2, "note": 1}
+    assert first.ignored == {"non_question_visual": 2}
+    assert second.existing_count == 3
     assert second.created_count == second.updated_count == second.removed_count == 0
     assert all(row["origin"] == "pdf_import" for row in rows)
     ink = next(row for row in rows if row["annotation_kind"] == "Ink" and row["kind"] == "question")
@@ -394,7 +407,7 @@ def test_local_ink_preserves_identity_answer_and_user_notes_after_guide_deletion
             ).scalar_one()
             == "My own explanation"
         )
-    assert deleted.removed_count == 2
+    assert deleted.removed_count == 1
 
 
 def test_local_preview_failure_does_not_persist_invisible_handwriting(tmp_path, monkeypatch):
@@ -551,15 +564,15 @@ def test_collection_preview_rolls_back_all_study_data_then_normal_import_persist
         before = snapshot()
         preview = collect_resource_annotations(resource_id, connection, dry_run=True)
         assert preview.dry_run is True
-        assert preview.created_count == 5
+        assert preview.created_count == 3
         assert snapshot() == before
     with transaction() as connection:
         assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 0
         saved = collect_resource_annotations(resource_id, connection)
         assert saved.dry_run is False
-        assert saved.created_count == 5
+        assert saved.created_count == 3
     with transaction() as connection:
-        assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 5
+        assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 3
 
 
 def test_failed_collection_preview_rolls_back_partial_writes(tmp_path, monkeypatch):
@@ -618,7 +631,7 @@ def test_dark_red_local_guide_and_handwriting_are_one_question(tmp_path):
         doc.saveIncr()
     with transaction() as connection:
         result = collect_resource_pdf_annotations(connection, resource_id)
-        assert result.kind_counts == {"question": 2, "note": 3}
+        assert result.kind_counts == {"question": 2, "note": 1}
         assert (
             len(
                 [
@@ -629,3 +642,146 @@ def test_dark_red_local_guide_and_handwriting_are_one_question(tmp_path):
             )
             == 1
         )
+
+
+@pytest.mark.parametrize("connector", ["local", "cloud"])
+def test_connectors_share_question_selection_grouping_and_persistence(
+    tmp_path, monkeypatch, connector
+):
+    """Same actual PDF annotations, fed through each connector, same saved questions."""
+    import json
+    from tracker_api.services import pdf_annotation_service as service
+    from tracker_api.services.drawboard_service import (
+        DrawboardCapture,
+        DrawboardExtraction,
+        DrawboardInk,
+    )
+
+    resource_id = _seed_pdf_resource(tmp_path)
+    path = tmp_path / "annotated.pdf"
+    with pymupdf.open(path) as doc:
+        page = doc[0]
+        for points, rgb in [
+            ([(40, 40), (40, 65)], (1, 0, 0)),
+            ([(400, 70), (400, 100)], (0, 1, 0)),  # custom question colour, X is irrelevant
+            ([(100, 55), (100, 220)], (0, 0, 1)),  # must not bridge the questions
+            ([(40, 200), (40, 220)], (1, 0, 0)),
+        ]:
+            annotation = page.add_ink_annot([points])
+            annotation.set_colors(stroke=rgb)
+            annotation.update()
+        regular = page.add_highlight_annot(page.search_for("off-policy")[0])
+        regular.set_colors(stroke=(1, 1, 0))
+        regular.update()
+        page = doc.new_page()
+        ink = page.add_ink_annot([[(40, 50), (40, 65)]])
+        ink.set_colors(stroke=(1, 0, 0))
+        ink.update()
+        doc.saveIncr()
+    raw = service.extract_pdf_annotations(path)
+    if connector == "cloud":
+        cloud_inks, cloud_marks = [], []
+        for mark in raw.captures:
+            # Drawboard coordinates have the opposite Y origin.
+            height = 842
+            rect = [mark.rect[0], height - mark.rect[3], mark.rect[2], height - mark.rect[1]]
+            if mark.annotation_kind == "Ink":
+                cloud_inks.append(
+                    DrawboardInk(
+                        mark.fingerprint,
+                        mark.source_revision,
+                        mark.page,
+                        mark.color,
+                        mark.rgb,
+                        mark.created_at,
+                        rect,
+                        tuple(
+                            [[x, height - y] for x, y in stroke] for stroke in mark.ink_vertex_sets
+                        ),
+                        (mark.fingerprint,),
+                    )
+                )
+            else:
+                cloud_marks.append(
+                    DrawboardCapture(
+                        mark.fingerprint,
+                        mark.source_revision,
+                        mark.page,
+                        "Text" + mark.annotation_kind,
+                        mark.color,
+                        mark.rgb,
+                        mark.quote,
+                        mark.comment,
+                        False,
+                        mark.created_at,
+                        rect,
+                    )
+                )
+        # A valid share-link shape selects the cloud connector.
+        url = "https://pdf.drawboard.com/documents/links/8759d0a6458b42499fc13babc9e3f81d/consume"
+        current = DrawboardExtraction(url, "test-document", cloud_marks, [], {}, cloud_inks)
+        monkeypatch.setattr(service, "extract_drawboard_annotations", lambda _: current)
+        with transaction() as connection:
+            connection.execute(
+                text("UPDATE resources SET canonical_url=:url WHERE id=:id"),
+                {"url": url, "id": resource_id},
+            )
+    with transaction() as connection:
+        service.save_drawboard_color_roles(
+            connection, resource_id, {"#00FF00": "question", "#FFFF00": "regular"}
+        )
+        first = collect_resource_pdf_annotations(connection, resource_id)
+        rows = _local_rows(connection)
+        questions = [row for row in rows if row["kind"] == "question"]
+        assert first.kind_counts == {"question": 3, "highlight": 1}
+        assert first.ignored == {"non_question_visual": 1}
+        assert len(questions) == 3
+        # Paragraph context still groups the UI/readable identities; it must
+        # not merge disjoint screenshot sources in the collection itself.
+        assert all(json.loads(row["selector_json"]).get("contextGroupId") for row in questions[:2])
+        merged = next(
+            row for row in questions if json.loads(row["selector_json"])["inkGroupSize"] == 3
+        )
+        metadata = json.loads(merged["selector_json"])
+        assert "Coverage is required" in metadata["highlightedText"]
+        assert metadata["contextImageUrl"]
+        assert metadata["sourceVisual"] is True
+        assert all(row["annotation_kind"] == "Ink" for row in questions)
+        assert collect_resource_pdf_annotations(connection, resource_id).existing_count == 4
+        assert {row["id"] for row in _local_rows(connection)} == {row["id"] for row in rows}
+        connection.execute(
+            text("UPDATE annotations SET status='answered' WHERE id=:id"), {"id": merged["id"]}
+        )
+        connection.execute(
+            text(
+                "UPDATE documents SET markdown='My explanation', plain_text='My explanation' WHERE id=:id"
+            ),
+            {"id": merged["body_document_id"]},
+        )
+        service.save_drawboard_color_roles(
+            connection, resource_id, {"#FF0000": "regular", "#00FF00": "regular"}
+        )
+        repeated = collect_resource_pdf_annotations(connection, resource_id)
+        after = next(row for row in _local_rows(connection) if row["id"] == merged["id"])
+        assert repeated.created_count == repeated.removed_count == 0
+        assert after["status"] == "answered"
+        assert after["plain_text"] == "My explanation"
+        assert json.loads(after["selector_json"])["contextImageUrl"] == metadata["contextImageUrl"]
+
+
+def test_local_palette_uses_book_confirmation_and_explicit_roles(tmp_path):
+    from tracker_api.services import pdf_annotation_service as service
+
+    resource_id = _seed_pdf_resource(tmp_path)
+    with transaction() as connection:
+        connection.execute(
+            text("DELETE FROM app_preferences WHERE key LIKE 'drawboard_color_roles:%'")
+        )
+        preview = collect_resource_pdf_annotations(connection, resource_id)
+        assert preview.requires_color_roles
+        assert preview.color_palette[0].suggested_role == "question"
+        assert connection.execute(text("SELECT COUNT(*) FROM annotations")).scalar_one() == 0
+        service.save_drawboard_color_roles(connection, resource_id, {"#FF0000": "regular"})
+        assert collect_resource_pdf_annotations(connection, resource_id).kind_counts == {
+            "highlight": 1
+        }

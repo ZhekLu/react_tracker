@@ -2633,6 +2633,8 @@ Stop when: the paper is annotated. {#day01-stop}
                     WHERE entity_type = 'resource'
                       AND source_key = 'paper_context_course:paper'
                     """)).scalar_one())
+        from tracker_api.services.pdf_annotation_service import save_drawboard_color_roles
+        save_drawboard_color_roles(connection, resource_id, {"#FFFF00": "regular"})
         first_import = collect_resource_pdf_annotations(connection, resource_id)
         second_import = collect_resource_pdf_annotations(connection, resource_id)
         workspace = get_workspace(connection, result.course_id)

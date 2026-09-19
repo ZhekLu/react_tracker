@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,8 +31,6 @@ from .drawboard_service import (
     DrawboardExtraction,
     DrawboardInk,
     extract_drawboard_annotations,
-    group_red_ink_annotations,
-    ink_vertical_guide_bounds,
     is_drawboard_cloud_url,
     merge_ink_annotation_groups,
 )
@@ -41,11 +40,11 @@ from .pdf_context_service import (
     extract_pdf_annotation_contexts,
 )
 from .pdf_ink_image_service import (
-    INK_RENDERER_VERSION,
     render_annotated_page_images,
     render_ink_context_images,
     render_local_annotation_images,
 )
+from .question_region_service import question_region_groups
 from .resource_open_service import (
     ResourceOpenError,
     readable_local_resource_path,
@@ -62,41 +61,6 @@ logger = logging.getLogger("uvicorn.error")
 # own requests and are not blocked by this lock.
 _COLLECTION_LOCK = threading.Lock()
 _PENDING_PALETTE: tuple[str, str, float, DrawboardExtraction] | None = None
-
-
-def _merge_ink_groups_by_paragraph(
-    inks: list[DrawboardInk],
-    contexts: dict[str, PdfAnnotationContext],
-) -> list[DrawboardInk]:
-    """Collapse screenshot questions that PDF extraction maps to one paragraph."""
-
-    buckets: dict[tuple[int, str], list[DrawboardInk]] = {}
-    ungrouped: list[DrawboardInk] = []
-    for ink in inks:
-        context = contexts.get(ink.fingerprint)
-        # A deliberate vertical guide is authoritative. Two framed questions
-        # must not be joined merely because PDF text extraction maps them to
-        # one broad paragraph. Paragraph fallback is only for handwriting
-        # that has no guide line.
-        if (
-            context is None
-            or not context.paragraph_id
-            or ink_vertical_guide_bounds(ink)
-        ):
-            ungrouped.append(ink)
-            continue
-        buckets.setdefault((ink.page, context.paragraph_id), []).append(ink)
-    merged = [
-        merge_ink_annotation_groups(bucket) for _key, bucket in sorted(buckets.items())
-    ]
-    return sorted(
-        [*merged, *ungrouped],
-        key=lambda ink: (
-            ink.page,
-            ink.rect[1] if len(ink.rect) == 4 else 0.0,
-            ink.rect[0] if len(ink.rect) == 4 else 0.0,
-        ),
-    )
 
 
 class PdfAnnotationError(RuntimeError):
@@ -120,14 +84,16 @@ class PdfCapture:
     source_revision: str = ""
     ink_vertex_sets: tuple[list[Any], ...] = ()
     member_fingerprints: tuple[str, ...] = ()
+    origin: str = "pdf_import"
 
 
 @dataclass(frozen=True, slots=True)
 class PdfExtraction:
-    path: Path
+    path: Path | str
     captures: list[PdfCapture]
     ignored: dict[str, int]
     source_fingerprints: set[str] | None = None
+    cloud_source: DrawboardExtraction | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,10 +160,7 @@ def _collection_item(
 ) -> PdfCollectionItem:
     anchor = command.anchor
     text_value = (
-        (anchor.quote if anchor else None)
-        or command.plain_text
-        or command.markdown
-        or "Screenshot"
+        (anchor.quote if anchor else None) or command.plain_text or command.markdown or "Screenshot"
     )
     return PdfCollectionItem(
         outcome=outcome,
@@ -227,9 +190,7 @@ def _drawboard_role_preference_key(connection: Connection, resource_id: str) -> 
         {"resource_id": resource_id},
     ).scalar_one_or_none()
     if course_id is None:
-        raise workspace_repository.EntityNotFoundError(
-            f"Resource does not exist: {resource_id}"
-        )
+        raise workspace_repository.EntityNotFoundError(f"Resource does not exist: {resource_id}")
     return f"{DRAWBOARD_COLOR_ROLE_PREFIX}:{course_id}"
 
 
@@ -253,8 +214,7 @@ def drawboard_color_roles(
     return {
         str(color).upper(): str(role)
         for color, role in payload.items()
-        if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(color))
-        and role in {"question", "regular"}
+        if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(color)) and role in {"question", "regular"}
     }
 
 
@@ -290,33 +250,21 @@ def save_drawboard_color_roles(
     return current
 
 
-def _drawboard_palette(
-    extraction: DrawboardExtraction,
+def _annotation_palette(
+    captures: list[PdfCapture],
     roles: dict[str, str],
 ) -> list[DrawboardColorPaletteEntry]:
     items: dict[str, dict[str, Any]] = {}
-    for capture in extraction.captures:
+    for capture in captures:
         key = drawboard_color_key(capture.rgb)
         if not key:
             continue
         entry = items.setdefault(
-            key,
-            {"rgb": capture.rgb, "count": 0, "kinds": set(), "red": False},
+            key, {"rgb": capture.rgb, "count": 0, "kinds": set(), "red": False}
         )
         entry["count"] += 1
         entry["kinds"].add(capture.annotation_kind)
         entry["red"] = entry["red"] or capture.color == "red"
-    for ink in extraction.all_ink:
-        key = drawboard_color_key(ink.rgb)
-        if not key:
-            continue
-        entry = items.setdefault(
-            key,
-            {"rgb": ink.rgb, "count": 0, "kinds": set(), "red": False},
-        )
-        entry["count"] += 1
-        entry["kinds"].add("Ink")
-        entry["red"] = entry["red"] or ink.color == "red"
     return [
         DrawboardColorPaletteEntry(
             key=key,
@@ -330,41 +278,80 @@ def _drawboard_palette(
     ]
 
 
-def _classify_drawboard_extraction(
-    extraction: DrawboardExtraction,
-    roles: dict[str, str],
-) -> DrawboardExtraction:
-    question_ink = group_red_ink_annotations(
-        [
-            ink
-            for ink in extraction.all_ink
-            if roles.get(drawboard_color_key(ink.rgb)) == "question"
-        ]
+def _is_question_color(rgb: list[float], color: str, roles: dict[str, str]) -> bool:
+    # Explicit course choices override the red default, for local and cloud PDFs.
+    return (
+        roles.get(drawboard_color_key(rgb), "question" if color == "red" else "regular")
+        == "question"
     )
-    captures = []
-    for capture in extraction.captures:
-        source_text = capture.comment or capture.quote
-        explicit_marker = "??" in source_text or "todo!" in source_text.casefold()
-        color_question = roles.get(drawboard_color_key(capture.rgb)) == "question"
-        merged_with_ink = (
-            color_question
-            and not explicit_marker
-            and any(
-                capture.page == ink.page
-                and len(capture.rect) == 4
-                and len(ink.rect) == 4
-                and capture.rect[1] <= ink.rect[3] + 6.0
-                and ink.rect[1] <= capture.rect[3] + 6.0
-                for ink in question_ink
-            )
+
+
+def _capture_as_ink(capture: PdfCapture | DrawboardCapture) -> DrawboardInk:
+    return DrawboardInk(
+        fingerprint=capture.fingerprint,
+        source_revision=hashlib.sha256(
+            json.dumps(asdict(capture), sort_keys=True).encode()
+        ).hexdigest(),
+        page=capture.page,
+        color=capture.color,
+        rgb=capture.rgb,
+        created_at=capture.created_at,
+        rect=capture.rect,
+        ink_vertex_sets=capture.ink_vertex_sets if isinstance(capture, PdfCapture) else (),
+        member_fingerprints=(capture.fingerprint,),
+    )
+
+
+def _from_drawboard(extraction: DrawboardExtraction) -> PdfExtraction:
+    """Connector adapter only: retain source IDs and native Drawboard coordinates."""
+    captures = [
+        PdfCapture(
+            fingerprint=capture.fingerprint,
+            page=capture.page,
+            annotation_kind={
+                "TextHighlight": "Highlight",
+                "TextUnderline": "Underline",
+                "TextInsert": "FreeText",
+            }.get(capture.annotation_kind, capture.annotation_kind),
+            color=capture.color,
+            rgb=capture.rgb,
+            quote=capture.quote,
+            comment=capture.comment,
+            is_question=False,
+            created_at=capture.created_at,
+            rect=capture.rect,
+            source_revision=capture.source_revision,
+            origin="drawboard_cloud",
         )
-        captures.append(
-            replace(
-                capture,
-                is_question=explicit_marker or (color_question and not merged_with_ink),
-            )
+        for capture in extraction.captures
+    ]
+    captures.extend(
+        PdfCapture(
+            fingerprint=ink.fingerprint,
+            page=ink.page,
+            annotation_kind="Ink",
+            color=ink.color,
+            rgb=ink.rgb,
+            quote="",
+            comment="",
+            is_question=False,
+            created_at=ink.created_at,
+            rect=ink.rect,
+            source_revision=ink.source_revision,
+            ink_vertex_sets=ink.ink_vertex_sets,
+            member_fingerprints=ink.member_fingerprints,
+            origin="drawboard_cloud_ink",
         )
-    return replace(extraction, captures=captures, red_ink=question_ink)
+        for ink in extraction.all_ink
+    )
+    return PdfExtraction(
+        path=extraction.source_url,
+        captures=captures,
+        ignored=extraction.ignored,
+        source_fingerprints=extraction.source_fingerprints
+        or {capture.fingerprint for capture in captures},
+        cloud_source=extraction,
+    )
 
 
 def _chapter_study_days(
@@ -525,7 +512,7 @@ def _capture_from_annotation(
         rgb=rgb,
         quote=quote,
         comment=comment,
-        is_question=(color == "red" or "??" in content or "todo!" in content.casefold()),
+        is_question=False,  # The shared collection policy owns classification.
         created_at=created_at,
         rect=rect,
         source_revision=hashlib.sha256(
@@ -592,105 +579,120 @@ def extract_pdf_annotations(path: Path) -> PdfExtraction:
     )
 
 
-def _group_local_ink(
-    captures: list[PdfCapture],
+def _classify_question_annotations(
+    extraction: PdfExtraction,
     states: dict[str, dict[str, Any]],
-) -> list[PdfCapture]:
-    """Reuse guide grouping while keeping local coordinates and saved identities."""
-
+    roles: dict[str, str],
+) -> PdfExtraction:
+    """Select question marks before grouping; regular handwriting stays in the PDF."""
     previous = {
         fingerprint: state
         for fingerprint, state in states.items()
-        if state["origin"] == "pdf_import" and state["metadata"].get("inkMemberFingerprints")
-    }
-    question_members = {
-        member
-        for state in previous.values()
         if state["kind"] in {"question", "todo"}
-        for member in state["metadata"]["inkMemberFingerprints"]
     }
-    by_fingerprint = {capture.fingerprint: capture for capture in captures}
-    buckets: dict[str, list[DrawboardInk]] = {}
-    result = [capture for capture in captures if capture.annotation_kind != "Ink"]
-    for capture in captures:
-        if capture.annotation_kind != "Ink":
-            continue
-        role = (
-            "question"
-            if capture.is_question or capture.fingerprint in question_members
-            else capture.color
+    tracked_members = {
+        member
+        for fingerprint, state in previous.items()
+        for member in state["metadata"].get("inkMemberFingerprints", [fingerprint])
+    }
+    questions = []
+    result = []
+    ignored = dict(extraction.ignored)
+    for capture in extraction.captures:
+        source_text = capture.comment or capture.quote
+        is_question = (
+            _is_question_color(capture.rgb, capture.color, roles)
+            or capture.fingerprint in tracked_members
+            or "??" in source_text
+            or "todo!" in source_text.casefold()
         )
-        buckets.setdefault(role, []).append(
-            DrawboardInk(
-                fingerprint=capture.fingerprint,
-                source_revision=hashlib.sha256(
-                    json.dumps(asdict(capture), sort_keys=True).encode()
-                ).hexdigest(),
-                page=capture.page,
-                color=capture.color,
-                rgb=capture.rgb,
-                created_at=capture.created_at,
-                rect=capture.rect,
-                ink_vertex_sets=capture.ink_vertex_sets,
-                member_fingerprints=capture.member_fingerprints,
-            )
-        )
+        classified = replace(capture, is_question=is_question)
+        if is_question:
+            questions.append(classified)
+        elif capture.annotation_kind in VISUAL_KINDS:
+            ignored["non_question_visual"] = ignored.get("non_question_visual", 0) + 1
+        else:
+            result.append(classified)
+    by_id = {capture.fingerprint: capture for capture in questions}
     claimed: set[str] = set()
-    for role, inks in buckets.items():
-        for group in group_red_ink_annotations(inks):
-            members = set(group.member_fingerprints)
-            fingerprint = next(
-                (
-                    key
-                    for key, state in previous.items()
-                    if key not in claimed
-                    and members.intersection(state["metadata"]["inkMemberFingerprints"])
+    for members in question_region_groups(questions):
+        combined = merge_ink_annotation_groups([_capture_as_ink(member) for member in members])
+        visuals = [member for member in members if member.annotation_kind in VISUAL_KINDS]
+        anchor = merge_ink_annotation_groups(
+            [_capture_as_ink(member) for member in (visuals or members)]
+        )
+        member_ids = {member.fingerprint for member in members}
+        fingerprint = next(
+            (
+                key
+                for key, state in previous.items()
+                if key not in claimed
+                and not (key.startswith("pdf-") and not key.startswith("pdf-source-"))
+                and member_ids.intersection(state["metadata"].get("inkMemberFingerprints", [key]))
+            ),
+            anchor.fingerprint,
+        )
+        claimed.add(fingerprint)
+        result.append(
+            replace(
+                by_id[anchor.fingerprint],
+                fingerprint=fingerprint,
+                rect=combined.rect,
+                is_question=True,
+                source_revision=members[0].source_revision
+                if len(members) == 1
+                else combined.source_revision,
+                ink_vertex_sets=combined.ink_vertex_sets,
+                member_fingerprints=tuple(sorted(member_ids)),
+                quote="\n\n".join(
+                    dict.fromkeys(member.quote for member in members if member.quote)
                 ),
-                group.fingerprint,
+                comment="\n\n".join(
+                    dict.fromkeys(member.comment for member in members if member.comment)
+                ),
             )
-            claimed.add(fingerprint)
-            result.append(
-                replace(
-                    by_fingerprint[group.fingerprint],
-                    fingerprint=fingerprint,
-                    rect=group.rect,
-                    is_question=role == "question",
-                    source_revision=group.source_revision,
-                    ink_vertex_sets=group.ink_vertex_sets,
-                    member_fingerprints=group.member_fingerprints,
-                    comment="\n\n".join(
-                        dict.fromkeys(
-                            by_fingerprint[member].comment
-                            for member in group.member_fingerprints
-                            if by_fingerprint[member].comment
-                        )
-                    ),
-                )
-            )
-    return sorted(result, key=lambda item: (item.page, item.rect[1], item.rect[0]))
+        )
+    return replace(
+        extraction,
+        captures=sorted(
+            result,
+            key=lambda item: (
+                item.page,
+                item.rect[1] if len(item.rect) == 4 else 0,
+                item.rect[0] if len(item.rect) == 4 else 0,
+            ),
+        ),
+        ignored=ignored,
+    )
 
 
 def _annotation_command(
     resource_id: str,
-    source_path: Path,
+    source_path: Path | str,
     capture: PdfCapture,
     context: PdfAnnotationContext | None,
     sync_revision: str,
     source_day_id: str | None = None,
+    cloud_document_id: str | None = None,
 ) -> AnnotationCreateCommand:
     kind: AnnotationKind = (
         "question" if capture.is_question else "highlight" if capture.quote else "note"
     )
     metadata: dict[str, Any] = {
         "createdAt": capture.created_at,
-        "sourceLabel": source_path.name,
+        "sourceLabel": "Drawboard cloud PDF" if cloud_document_id else Path(source_path).name,
         "sourcePath": str(source_path),
         "syncRevision": sync_revision,
-        "colorRoleRevision": f"pdf-color-v1:{capture.is_question}",
+        "sourceRevision": capture.source_revision,
+        "colorRoleRevision": f"question-policy-v1:{capture.is_question}",
+        "questionGrouping": "y-overlap-v1",
+        "highlightedText": capture.quote,
         "sourceContent": capture.comment,
         "sourceVisual": capture.annotation_kind in VISUAL_KINDS,
         **_context_metadata(context),
     }
+    if cloud_document_id:
+        metadata["drawboardDocumentId"] = cloud_document_id
     if source_day_id:
         metadata["createdDayId"] = source_day_id
     if capture.member_fingerprints:
@@ -706,7 +708,7 @@ def _annotation_command(
     return AnnotationCreateCommand(
         resource_id=resource_id,
         kind=kind,
-        origin="pdf_import",
+        origin=capture.origin,
         external_id=capture.fingerprint,
         source_fingerprint=capture.fingerprint,
         markdown=body,
@@ -717,78 +719,6 @@ def _annotation_command(
             section_title=context.subchapter_title if context else None,
             page_number=capture.page,
             rect=capture.rect,
-            color=capture.color or None,
-            rgb=capture.rgb or None,
-            annotation_kind=capture.annotation_kind,
-            metadata=metadata,
-        ),
-    )
-
-
-def _drawboard_annotation_command(
-    resource_id: str,
-    source_url: str,
-    document_id: str,
-    capture: DrawboardCapture,
-    context: PdfAnnotationContext | None,
-    annotated_page_url: str | None,
-    sync_revision: str,
-    source_day_id: str | None = None,
-    color_role_revision: str | None = None,
-) -> AnnotationCreateCommand:
-    kind: AnnotationKind = (
-        "question" if capture.is_question else "highlight" if capture.quote else "note"
-    )
-    source_content = capture.comment or capture.quote
-    metadata: dict[str, Any] = {
-        "createdAt": capture.created_at,
-        "drawboardDocumentId": document_id,
-        "sourceContent": source_content,
-        "sourceLabel": "Drawboard cloud PDF",
-        "sourcePath": source_url,
-        "sourceRevision": capture.source_revision,
-        "syncRevision": sync_revision,
-    }
-    if color_role_revision:
-        metadata["colorRoleRevision"] = color_role_revision
-    if context is not None:
-        metadata.update(
-            {
-                "chapterNumber": context.chapter_number,
-                "chapterTitle": context.chapter_title,
-                "contextAfter": context.context_after,
-                "contextBefore": context.context_before,
-                "contextMatch": context.match_method,
-                "contextSentence": context.context_sentence,
-                "contextGroupId": context.paragraph_id,
-                "contextParagraph": context.paragraph_text,
-                "contextParagraphEndPage": context.paragraph_end_page,
-                "contextParagraphStartPage": context.paragraph_start_page,
-                "contextParagraphTruncated": context.paragraph_truncated,
-                "subchapterTitle": context.subchapter_title,
-                "pageWidth": context.page_width,
-                "pageHeight": context.page_height,
-                "pageCount": context.page_count,
-            }
-        )
-    if annotated_page_url:
-        metadata["annotatedPageImageUrl"] = annotated_page_url
-    if source_day_id:
-        metadata["createdDayId"] = source_day_id
-    return AnnotationCreateCommand(
-        resource_id=resource_id,
-        kind=kind,
-        origin="drawboard_cloud",
-        external_id=capture.fingerprint,
-        source_fingerprint=capture.fingerprint,
-        markdown=capture.comment,
-        plain_text=capture.comment,
-        anchor=AnnotationAnchorCreate(
-            anchor_type="pdf_rect",
-            quote=capture.quote or None,
-            section_title=context.subchapter_title if context else None,
-            page_number=capture.page,
-            rect=capture.rect or None,
             color=capture.color or None,
             rgb=capture.rgb or None,
             annotation_kind=capture.annotation_kind,
@@ -819,102 +749,6 @@ def _context_metadata(
         "pageHeight": context.page_height,
         "pageCount": context.page_count,
     }
-
-
-def _drawboard_ink_command(
-    resource_id: str,
-    source_url: str,
-    document_id: str,
-    ink: DrawboardInk,
-    context: PdfAnnotationContext | None,
-    image_url: str | None,
-    annotated_page_url: str | None,
-    sync_revision: str,
-    source_day_id: str | None = None,
-    color_role_revision: str | None = None,
-) -> AnnotationCreateCommand:
-    context_text = " ".join(
-        part
-        for part in (
-            context.context_sentence if context else "",
-            context.paragraph_text if context else "",
-        )
-        if part
-    )
-    nearby_tag = re.search(
-        r"\b(?:Exercise|Example|Figure|Algorithm|Theorem|Definition)\s+"
-        r"\d+(?:\.\d+)*\b",
-        context_text,
-        re.IGNORECASE,
-    )
-    label = (
-        nearby_tag.group(0)
-        if nearby_tag
-        else (
-            context.subchapter_title
-            if context and context.subchapter_title
-            else "handwriting"
-        )
-    )
-    markdown = f"Screenshot · {label}"
-    metadata: dict[str, Any] = {
-        "createdAt": ink.created_at,
-        "drawboardDocumentId": document_id,
-        "inkGroupSize": len(ink.member_fingerprints),
-        "inkGrouping": "guide-paragraph-v4",
-        "inkMemberFingerprints": list(ink.member_fingerprints),
-        "sourceContent": "",
-        "sourceLabel": "Drawboard cloud PDF",
-        "sourcePath": source_url,
-        "sourceRevision": ink.source_revision,
-        "syncRevision": sync_revision,
-        **_context_metadata(context),
-    }
-    if color_role_revision:
-        metadata["colorRoleRevision"] = color_role_revision
-    if image_url:
-        metadata["contextImageUrl"] = image_url
-    if annotated_page_url:
-        metadata["annotatedPageImageUrl"] = annotated_page_url
-    if source_day_id:
-        metadata["createdDayId"] = source_day_id
-    return AnnotationCreateCommand(
-        resource_id=resource_id,
-        kind="question",
-        origin="drawboard_cloud_ink",
-        external_id=ink.fingerprint,
-        source_fingerprint=ink.fingerprint,
-        markdown=markdown,
-        plain_text=markdown,
-        anchor=AnnotationAnchorCreate(
-            anchor_type="pdf_rect",
-            page_number=ink.page,
-            rect=ink.rect or None,
-            color=ink.color,
-            rgb=ink.rgb,
-            annotation_kind="Ink",
-            section_title=context.subchapter_title if context else None,
-            metadata=metadata,
-        ),
-    )
-
-
-def _retain_tracked_ink(
-    extraction: DrawboardExtraction,
-    states: dict[str, dict[str, Any]],
-) -> DrawboardExtraction:
-    """Recolored question strokes remain tracked, including open previews."""
-    inks = list(extraction.red_ink)
-    represented = {ink.fingerprint for ink in inks}
-    source_inks = {ink.fingerprint: ink for ink in extraction.all_ink}
-    for fingerprint, state in states.items():
-        if state["origin"] != "drawboard_cloud_ink" or fingerprint in represented:
-            continue
-        members = state["metadata"].get("inkMemberFingerprints") or [fingerprint]
-        remaining = [source_inks[member] for member in members if member in source_inks]
-        if remaining:
-            inks.append(replace(merge_ink_annotation_groups(remaining), fingerprint=fingerprint))
-    return replace(extraction, red_ink=inks)
 
 
 def _attach_page_snapshots(
@@ -973,317 +807,147 @@ def _collect_resource_pdf_annotations(
                 cloud_extraction = extract_drawboard_annotations(source_url)
         except DrawboardError as error:
             raise PdfAnnotationError(str(error)) from error
-        color_roles = drawboard_color_roles(connection, resource_id)
-        color_palette = _drawboard_palette(cloud_extraction, color_roles)
-        if any(entry.role is None for entry in color_palette):
-            _PENDING_PALETTE = (cache_key, source_url, snapshot_started_at, cloud_extraction)
-            return _logged_collection(
-                PdfCollection(
-                    resource_id=resource_id,
-                    path=cloud_extraction.source_url,
-                    extracted_count=(
-                        len(cloud_extraction.captures) + len(cloud_extraction.all_ink)
-                    ),
-                    created_count=0,
-                    updated_count=0,
-                    existing_count=0,
-                    removed_count=0,
-                    ignored=cloud_extraction.ignored,
-                    kind_counts={},
-                    color_palette=color_palette,
-                    requires_color_roles=True,
-                )
-            )
-        states = workspace_repository.imported_annotation_states(connection, resource_id)
-        cloud_extraction = _retain_tracked_ink(
-            _classify_drawboard_extraction(cloud_extraction, color_roles),
-            states,
-        )
-
-        def needs_preview(fingerprint: str, is_question: bool = True) -> bool:
-            state = states.get(fingerprint)
-            if state is None:
-                return is_question
-            return state["status"] == "open" and state["kind"] in {"question", "todo"}
-
-        contexts: dict[str, PdfAnnotationContext] = {}
-        image_urls: dict[str, str] = {}
-        annotated_page_urls: dict[int, str] = {}
-        safe_path: Path | None = None
+        extraction = _from_drawboard(cloud_extraction)
+        safe_path = None
         if local_path:
-            try:
+            with suppress(ResourceOpenError):
                 safe_path = safe_local_resource_path(local_path)
-            except ResourceOpenError:
-                safe_path = None
-        if safe_path is not None:
-            try:
-                contexts = extract_pdf_annotation_contexts(
-                    safe_path,
-                    [*cloud_extraction.captures, *cloud_extraction.red_ink],
-                    drawboard_coordinates=True,
-                )
-            except PdfContextError:
-                contexts = {}
-            merged_question_ink = _merge_ink_groups_by_paragraph(
-                cloud_extraction.red_ink,
-                contexts,
+        source_stat = None
+    else:
+        if not local_path:
+            raise PdfAnnotationError("This resource has no local PDF path.")
+        try:
+            safe_path = readable_local_resource_path(local_path)
+        except ResourceOpenError as error:
+            raise PdfAnnotationError(str(error)) from error
+        source_stat = safe_path.stat()
+        extraction = extract_pdf_annotations(safe_path)
+
+    roles = drawboard_color_roles(connection, resource_id)
+    color_palette = _annotation_palette(extraction.captures, roles)
+    # Both connectors use the course palette and the same confirmation UI.
+    if any(entry.role is None for entry in color_palette):
+        if extraction.cloud_source:
+            _PENDING_PALETTE = (
+                cache_key,
+                source_url or "",
+                snapshot_started_at,
+                extraction.cloud_source,
             )
-            if merged_question_ink != cloud_extraction.red_ink:
-                cloud_extraction = replace(
-                    cloud_extraction,
-                    red_ink=merged_question_ink,
-                )
-                try:
-                    contexts = extract_pdf_annotation_contexts(
-                        safe_path,
-                        [*cloud_extraction.captures, *cloud_extraction.red_ink],
-                        drawboard_coordinates=True,
-                    )
-                except PdfContextError:
-                    contexts = {}
-            preview_inks = [
-                ink for ink in cloud_extraction.red_ink if needs_preview(ink.fingerprint)
-            ]
-            if preview_inks:
-                try:
-                    image_urls = render_ink_context_images(
-                        safe_path,
-                        resource_id,
-                        preview_inks,
-                        captures=cloud_extraction.captures,
-                        page_inks=cloud_extraction.all_ink,
-                    )
-                except Exception:
-                    logger.exception(
-                        "Handwriting preview rendering failed; continuing import resource_id=%s",
-                        resource_id,
-                    )
-                    image_urls = {}
-            try:
-                source_annotation_pages = {item.page for item in cloud_extraction.captures} | {
-                    item.page for item in cloud_extraction.all_ink
-                }
-                question_pages = {
-                    item.page
-                    for item in cloud_extraction.captures
-                    if needs_preview(item.fingerprint, item.is_question)
-                } | {item.page for item in preview_inks}
-                review_pages = {
-                    neighboring_page
-                    for page in question_pages
-                    for neighboring_page in (page - 1, page, page + 1)
-                    if neighboring_page in source_annotation_pages
-                }
-                annotated_page_urls = render_annotated_page_images(
-                    safe_path,
-                    resource_id,
-                    review_pages,
-                    captures=cloud_extraction.captures,
-                    page_inks=cloud_extraction.all_ink,
-                )
-            except Exception:
-                logger.exception(
-                    "Annotated page rendering failed; continuing import resource_id=%s",
-                    resource_id,
-                )
-                annotated_page_urls = {}
-        counts = {"created": 0, "existing": 0, "updated": 0}
-        changed_items: list[PdfCollectionItem] = []
-        cloud_kind_counts: dict[str, int] = {}
-        chapter_study_days = _chapter_study_days(connection, resource_id)
-        for cloud_capture in cloud_extraction.captures:
-            context = contexts.get(cloud_capture.fingerprint)
-            capture_day_id = _capture_study_day(
-                context,
-                chapter_study_days,
-                source_day_id,
-            )
-            color_key = drawboard_color_key(cloud_capture.rgb)
-            color_role = color_roles.get(color_key, "regular")
-            classification = (
-                "standalone-question"
-                if cloud_capture.is_question
-                else "merged-with-ink"
-                if color_role == "question"
-                else "regular"
-            )
-            color_role_revision = (
-                f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:{color_role}:{classification}"
-            )
-            sync_revision = (
-                f"{cloud_capture.source_revision}:"
-                f"{'pdf-paragraph-context-v2' if context else 'plain-v1'}:"
-                f"study-day-v1:{capture_day_id or '-'}:"
-                f"{color_role_revision}"
-            )
-            command = _drawboard_annotation_command(
-                resource_id,
-                cloud_extraction.source_url,
-                cloud_extraction.document_id,
-                cloud_capture,
-                context,
-                annotated_page_urls.get(cloud_capture.page)
-                if needs_preview(cloud_capture.fingerprint, cloud_capture.is_question)
-                else None,
-                sync_revision,
-                capture_day_id,
-                color_role_revision,
-            )
-            if needs_preview(cloud_capture.fingerprint, cloud_capture.is_question):
-                _attach_page_snapshots(command, annotated_page_urls)
-            cloud_kind_counts[command.kind] = cloud_kind_counts.get(command.kind, 0) + 1
-            outcome = workspace_repository.upsert_imported_annotation(
-                connection,
-                command,
-                source_revision=sync_revision,
-            )
-            counts[outcome] += 1
-            if outcome in {"created", "updated"}:
-                changed_items.append(_collection_item(command, outcome, capture_day_id))
-        for ink in cloud_extraction.red_ink:
-            context = contexts.get(ink.fingerprint)
-            capture_day_id = _capture_study_day(
-                context,
-                chapter_study_days,
-                source_day_id,
-            )
-            color_key = drawboard_color_key(ink.rgb)
-            color_role_revision = f"{DRAWBOARD_COLOR_ROLE_VERSION}:{color_key}:question:ink-group"
-            sync_revision = (
-                f"{ink.source_revision}:"
-                f"{'ink-paragraph-context-v4' if context else 'ink-plain-v4'}:"
-                f"{INK_RENDERER_VERSION}:study-day-v1:{capture_day_id or '-'}:"
-                f"{color_role_revision}"
-            )
-            command = _drawboard_ink_command(
-                resource_id,
-                cloud_extraction.source_url,
-                cloud_extraction.document_id,
-                ink,
-                context,
-                image_urls.get(ink.fingerprint),
-                annotated_page_urls.get(ink.page) if needs_preview(ink.fingerprint) else None,
-                sync_revision,
-                capture_day_id,
-                color_role_revision,
-            )
-            if needs_preview(ink.fingerprint):
-                _attach_page_snapshots(command, annotated_page_urls)
-            cloud_kind_counts["question"] = cloud_kind_counts.get("question", 0) + 1
-            outcome = workspace_repository.upsert_imported_annotation(
-                connection,
-                command,
-                source_revision=sync_revision,
-            )
-            if outcome != "existing":
-                workspace_repository.reconcile_imported_question_frame(
-                    connection,
-                    resource_id,
-                    ink.fingerprint,
-                )
-            counts[outcome] += 1
-            if outcome in {"created", "updated"}:
-                changed_items.append(_collection_item(command, outcome, capture_day_id))
-        active_cloud_fingerprints = {
-            capture.fingerprint for capture in cloud_extraction.captures
-        } | {
-            member
-            for ink in [*cloud_extraction.red_ink, *cloud_extraction.all_ink]
-            for member in (ink.member_fingerprints or (ink.fingerprint,))
-        }
-        if cloud_extraction.source_fingerprints is not None:
-            active_cloud_fingerprints = cloud_extraction.source_fingerprints
-        removed_count = workspace_repository.soft_delete_stale_imported_annotations(
-            connection,
-            resource_id,
-            active_cloud_fingerprints,
-        )
         return _logged_collection(
             PdfCollection(
                 resource_id=resource_id,
-                path=cloud_extraction.source_url,
-                extracted_count=(len(cloud_extraction.captures) + len(cloud_extraction.red_ink)),
-                created_count=counts["created"],
-                updated_count=counts["updated"],
-                existing_count=counts["existing"],
-                removed_count=removed_count,
-                ignored=cloud_extraction.ignored,
-                kind_counts=cloud_kind_counts,
+                path=str(extraction.path),
+                extracted_count=len(extraction.captures),
+                created_count=0,
+                updated_count=0,
+                existing_count=0,
+                removed_count=0,
+                ignored=extraction.ignored,
+                kind_counts={},
                 color_palette=color_palette,
-                changed_items=changed_items,
+                requires_color_roles=True,
             )
         )
-
-    if not local_path:
-        raise PdfAnnotationError("This resource has no local PDF path.")
-    try:
-        safe_path = readable_local_resource_path(local_path)
-    except ResourceOpenError as error:
-        raise PdfAnnotationError(str(error)) from error
-    source_stat = safe_path.stat()
-    local_extraction = extract_pdf_annotations(safe_path)
-    local_states = workspace_repository.imported_annotation_states(connection, resource_id)
-    local_extraction = replace(
-        local_extraction,
-        captures=_group_local_ink(local_extraction.captures, local_states),
-    )
+    states = workspace_repository.imported_annotation_states(connection, resource_id)
+    extraction = _classify_question_annotations(extraction, states, roles)
     # Closed questions retain their saved screenshots. New/open captures follow
     # the PDF currently synced to disk, with immutable snapshots for old answers.
     preview_captures = [
         capture
-        for capture in local_extraction.captures
+        for capture in extraction.captures
         if (capture.annotation_kind in VISUAL_KINDS or capture.is_question)
-        and (
-            capture.fingerprint not in local_states
-            or local_states[capture.fingerprint]["status"] == "open"
-        )
+        and (capture.fingerprint not in states or states[capture.fingerprint]["status"] == "open")
     ]
-    annotated_pages = {capture.page for capture in local_extraction.captures}
+    annotated_pages = {capture.page for capture in extraction.captures}
     review_pages = {
         neighbor
         for capture in preview_captures
         for neighbor in (capture.page - 1, capture.page, capture.page + 1)
         if neighbor in annotated_pages
     }
-    try:
-        local_images, local_pages = render_local_annotation_images(
-            safe_path,
-            resource_id,
-            [(capture.fingerprint, capture.page, capture.rect) for capture in preview_captures],
-            page_numbers=review_pages,
-        )
-    except Exception as error:
-        raise PdfAnnotationError(
-            f"Could not render embedded PDF annotations: {safe_path.name}. Nothing was imported."
-        ) from error
-    try:
-        contexts = extract_pdf_annotation_contexts(
-            safe_path,
-            local_extraction.captures,
-        )
-    except PdfContextError:
-        contexts = {}
-    current_stat = safe_path.stat()
-    if (source_stat.st_mtime_ns, source_stat.st_size, source_stat.st_ino) != (
-        current_stat.st_mtime_ns, current_stat.st_size, current_stat.st_ino
-    ):
-        raise PdfAnnotationError("The PDF changed during collection. Let syncing finish and retry.")
+    images: dict[str, str] = {}
+    pages: dict[int, str] = {}
+    contexts: dict[str, PdfAnnotationContext] = {}
+    cloud = extraction.cloud_source
+    if safe_path is not None:
+        if cloud is None:
+            try:
+                images, pages = render_local_annotation_images(
+                    safe_path,
+                    resource_id,
+                    [
+                        (capture.fingerprint, capture.page, capture.rect)
+                        for capture in preview_captures
+                    ],
+                    page_numbers=review_pages,
+                )
+            except Exception as error:
+                raise PdfAnnotationError(
+                    f"Could not render embedded PDF annotations: {safe_path.name}. "
+                    "Nothing was imported."
+                ) from error
+        else:
+            # Drawboard stores vectors separately; only this renderer needs the
+            # original cloud payload. Selection/grouping/persistence are shared.
+            preview_inks = [
+                _capture_as_ink(capture)
+                for capture in preview_captures
+                if capture.annotation_kind in VISUAL_KINDS
+            ]
+            try:
+                images = (
+                    render_ink_context_images(
+                        safe_path,
+                        resource_id,
+                        preview_inks,
+                        captures=cloud.captures,
+                        page_inks=cloud.all_ink,
+                    )
+                    if preview_inks
+                    else {}
+                )
+                pages = render_annotated_page_images(
+                    safe_path,
+                    resource_id,
+                    review_pages,
+                    captures=cloud.captures,
+                    page_inks=cloud.all_ink,
+                )
+            except Exception:
+                logger.exception("Cloud preview rendering failed resource_id=%s", resource_id)
+        with suppress(PdfContextError):
+            contexts = extract_pdf_annotation_contexts(
+                safe_path,
+                extraction.captures,
+                drawboard_coordinates=cloud is not None,
+            )
+        if source_stat is not None:
+            current_stat = safe_path.stat()
+            if (source_stat.st_mtime_ns, source_stat.st_size, source_stat.st_ino) != (
+                current_stat.st_mtime_ns,
+                current_stat.st_size,
+                current_stat.st_ino,
+            ):
+                raise PdfAnnotationError(
+                    "The PDF changed during collection. Let syncing finish and retry."
+                )
     counts = {"created": 0, "existing": 0, "updated": 0}
     changed_items = []
     kind_counts: dict[str, int] = {}
     chapter_study_days = _chapter_study_days(connection, resource_id)
-    for local_capture in local_extraction.captures:
+    for capture in extraction.captures:
         source_version = hashlib.sha256(
             json.dumps(
                 {
                     key: value
-                    for key, value in asdict(local_capture).items()
+                    for key, value in asdict(capture).items()
                     if key != "legacy_fingerprint"
                 },
                 sort_keys=True,
             ).encode()
         ).hexdigest()
-        context = contexts.get(local_capture.fingerprint)
+        context = contexts.get(capture.fingerprint)
         capture_day_id = _capture_study_day(
             context,
             chapter_study_days,
@@ -1292,52 +956,62 @@ def _collect_resource_pdf_annotations(
         sync_revision = (
             f"{source_version}:"
             f"{'pdf-paragraph-context-v1' if context else 'local-plain-v1'}:"
-            f"study-day-v1:{capture_day_id or '-'}"
+            f"study-day-v1:{capture_day_id or '-'}:"
+            f"roles:{json.dumps(roles, sort_keys=True)}"
         )
         command = _annotation_command(
             resource_id,
-            local_extraction.path,
-            local_capture,
+            extraction.path,
+            capture,
             context,
             sync_revision,
             capture_day_id,
+            cloud_document_id=cloud.document_id if cloud else None,
         )
-        if command.anchor is not None and local_capture.fingerprint in local_images:
-            command.anchor.metadata["contextImageUrl"] = local_images[local_capture.fingerprint]
-            command.anchor.metadata["annotatedPageImageUrl"] = local_pages[local_capture.page]
-            _attach_page_snapshots(command, local_pages)
-        workspace_repository.adopt_local_pdf_identity(
-            connection,
-            command,
-            local_capture.legacy_fingerprint,
-            previous_source_fingerprint=local_capture.previous_source_fingerprint,
-        )
+        if command.anchor is not None:
+            if capture.fingerprint in images:
+                command.anchor.metadata["contextImageUrl"] = images[capture.fingerprint]
+            if capture in preview_captures and capture.page in pages:
+                command.anchor.metadata["annotatedPageImageUrl"] = pages[capture.page]
+                _attach_page_snapshots(command, pages)
+        if cloud is None:
+            workspace_repository.adopt_local_pdf_identity(
+                connection,
+                command,
+                capture.legacy_fingerprint,
+                previous_source_fingerprint=capture.previous_source_fingerprint,
+            )
         kind_counts[command.kind] = kind_counts.get(command.kind, 0) + 1
         outcome = workspace_repository.upsert_imported_annotation(
             connection,
             command,
             source_revision=sync_revision,
         )
+        if capture.is_question and outcome != "existing":
+            workspace_repository.reconcile_imported_question_frame(
+                connection, resource_id, capture.fingerprint
+            )
         counts[outcome] += 1
         if outcome in {"created", "updated"}:
             changed_items.append(_collection_item(command, outcome, capture_day_id))
     return _logged_collection(
         PdfCollection(
             resource_id=resource_id,
-            path=str(local_extraction.path),
-            extracted_count=len(local_extraction.captures),
+            path=str(extraction.path),
+            extracted_count=len(extraction.captures),
             created_count=counts["created"],
             updated_count=counts["updated"],
             existing_count=counts["existing"],
             removed_count=workspace_repository.soft_delete_stale_imported_annotations(
                 connection,
                 resource_id,
-                local_extraction.source_fingerprints
-                if local_extraction.source_fingerprints is not None
-                else {capture.fingerprint for capture in local_extraction.captures},
-                origins=("pdf_import",),
+                extraction.source_fingerprints
+                if extraction.source_fingerprints is not None
+                else {capture.fingerprint for capture in extraction.captures},
+                origins=("drawboard_cloud", "drawboard_cloud_ink") if cloud else ("pdf_import",),
             ),
-            ignored=local_extraction.ignored,
+            ignored=extraction.ignored,
+            color_palette=color_palette,
             kind_counts=kind_counts,
             changed_items=changed_items,
         )

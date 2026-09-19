@@ -17,6 +17,7 @@ import httpx
 
 from ..config import get_settings
 from .annotation_color_service import annotation_color_name
+from .question_region_service import question_region_groups
 
 DRAWBOARD_API_BASE = "https://us-prod-prod.dbpdf.drawboard.com/api/v1"
 DRAWBOARD_IDENTITY_BASE = "https://sso.drawboard.com/api/v1"
@@ -25,11 +26,8 @@ DRAWBOARD_SHARE_PATH = re.compile(r"^/documents/links/([a-f0-9]+)/consume/?$")
 DRAWBOARD_DOCUMENT_PATH = re.compile(r"^/documents/([a-f0-9]+)")
 TEXT_MARKUP_TYPES = {"TextHighlight", "TextUnderline"}
 TEXT_ANNOTATION_TYPES = TEXT_MARKUP_TYPES | {"TextInsert"}
-INK_VERTICAL_OVERLAP_TOLERANCE = 2.0
 INK_VERTICAL_GUIDE_MIN_HEIGHT = 36.0
 INK_VERTICAL_GUIDE_ASPECT_RATIO = 3.0
-INK_GROUP_CONTAINMENT_THRESHOLD = 0.9
-INK_GROUP_VERTICAL_DUPLICATE_THRESHOLD = 0.82
 _STATE_LOCK = threading.Lock()
 logger = logging.getLogger("uvicorn.error")
 
@@ -451,7 +449,6 @@ def _capture(
     )
     color, rgb, opacity, blend_mode = _annotation_appearance(annotation)
     is_markup = annotation_kind in TEXT_MARKUP_TYPES
-    is_question = color == "red" or "??" in content or "todo!" in content.casefold()
     source_revision = str(item.get("revision") or annotation.get("revision") or "")
     if not source_revision:
         source_revision = hashlib.sha1(
@@ -471,7 +468,7 @@ def _capture(
         rgb=rgb,
         quote=content if is_markup else "",
         comment="" if is_markup else content,
-        is_question=is_question,
+        is_question=False,
         created_at=_timestamp(annotation.get("created") or item.get("created")),
         rect=_annotation_rect(annotation),
         opacity=opacity,
@@ -566,124 +563,6 @@ def _is_vertical_guide(ink: DrawboardInk) -> bool:
     )
 
 
-def _member_vertical_guide_bounds(ink: DrawboardInk) -> list[tuple[float, float]]:
-    """Return original guide bands even after several inks were grouped."""
-
-    bounds: list[tuple[float, float]] = []
-    for vertices in ink.ink_vertex_sets:
-        points = [point for point in vertices if len(point) >= 2]
-        if not points:
-            continue
-        xs = [float(point[0]) for point in points]
-        ys = [float(point[1]) for point in points]
-        width = max(xs) - min(xs)
-        height = max(ys) - min(ys)
-        if (
-            height >= INK_VERTICAL_GUIDE_MIN_HEIGHT
-            and height >= max(width, 1.0) * INK_VERTICAL_GUIDE_ASPECT_RATIO
-        ):
-            bounds.append((min(ys), max(ys)))
-    return bounds
-
-
-def ink_vertical_guide_bounds(ink: DrawboardInk) -> tuple[tuple[float, float], ...]:
-    """Expose the deliberate PDF y-axis guide bands for downstream grouping."""
-
-    return tuple(_member_vertical_guide_bounds(ink))
-
-
-def _vertical_ranges_overlap(
-    first: tuple[float, float],
-    second: tuple[float, float],
-    *,
-    tolerance: float,
-) -> bool:
-    return first[0] <= second[1] + tolerance and second[0] <= first[1] + tolerance
-
-
-def _vertical_overlap_amount(
-    first: tuple[float, float],
-    second: tuple[float, float],
-) -> float:
-    return max(0.0, min(first[1], second[1]) - max(first[0], second[0]))
-
-
-def _horizontal_distance(first: DrawboardInk, second: DrawboardInk) -> float:
-    if len(first.rect) != 4 or len(second.rect) != 4:
-        return float("inf")
-    if first.rect[2] < second.rect[0]:
-        return second.rect[0] - first.rect[2]
-    if second.rect[2] < first.rect[0]:
-        return first.rect[0] - second.rect[2]
-    return 0.0
-
-
-def _guide_assignment_key(
-    guide: DrawboardInk,
-    candidate: DrawboardInk,
-) -> tuple[float, float, float, str]:
-    guide_bounds = _ink_vertical_bounds(guide)
-    candidate_bounds = _ink_vertical_bounds(candidate)
-    if guide_bounds is None or candidate_bounds is None:
-        return (float("inf"), float("inf"), float("inf"), guide.fingerprint)
-    overlap = _vertical_overlap_amount(guide_bounds, candidate_bounds)
-    guide_center = sum(guide_bounds) / 2
-    candidate_center = sum(candidate_bounds) / 2
-    return (
-        -overlap,
-        abs(guide_center - candidate_center),
-        _horizontal_distance(guide, candidate),
-        guide.fingerprint,
-    )
-
-
-def _connected_vertical_groups(
-    inks: list[DrawboardInk],
-    *,
-    tolerance: float,
-) -> list[list[DrawboardInk]]:
-    remaining = sorted(
-        inks,
-        key=lambda ink: (
-            ink.rect[1] if len(ink.rect) == 4 else 0.0,
-            ink.rect[0] if len(ink.rect) == 4 else 0.0,
-            ink.fingerprint,
-        ),
-    )
-    groups: list[list[DrawboardInk]] = []
-    while remaining:
-        seed = remaining.pop(0)
-        seed_bounds = _ink_vertical_bounds(seed)
-        if seed_bounds is None:
-            groups.append([seed])
-            continue
-
-        members = [seed]
-        band = seed_bounds
-        changed = True
-        while changed:
-            changed = False
-            still_remaining: list[DrawboardInk] = []
-            for candidate in remaining:
-                candidate_bounds = _ink_vertical_bounds(candidate)
-                if candidate_bounds is not None and _vertical_ranges_overlap(
-                    band,
-                    candidate_bounds,
-                    tolerance=tolerance,
-                ):
-                    members.append(candidate)
-                    band = (
-                        min(band[0], candidate_bounds[0]),
-                        max(band[1], candidate_bounds[1]),
-                    )
-                    changed = True
-                else:
-                    still_remaining.append(candidate)
-            remaining = still_remaining
-        groups.append(members)
-    return groups
-
-
 def _group_anchor(members: list[DrawboardInk]) -> DrawboardInk:
     # The deliberately drawn vertical line should be the tallest/narrowest
     # member. Using it as the identity keeps the group stable when the user
@@ -769,171 +648,9 @@ def merge_ink_annotation_groups(groups: list[DrawboardInk]) -> DrawboardInk:
     return _merge_red_ink_group(groups)
 
 
-def _rect_area(rect: list[float]) -> float:
-    if len(rect) != 4:
-        return 0.0
-    return max(0.0, rect[2] - rect[0]) * max(0.0, rect[3] - rect[1])
-
-
-def _rect_intersection_area(first: list[float], second: list[float]) -> float:
-    if len(first) != 4 or len(second) != 4:
-        return 0.0
-    return max(0.0, min(first[2], second[2]) - max(first[0], second[0])) * max(
-        0.0,
-        min(first[3], second[3]) - max(first[1], second[1]),
-    )
-
-
-def _groups_are_near_duplicates(
-    first: DrawboardInk,
-    second: DrawboardInk,
-) -> bool:
-    if first.page != second.page:
-        return False
-    smaller_area = min(_rect_area(first.rect), _rect_area(second.rect))
-    area_containment = (
-        smaller_area > 0
-        and _rect_intersection_area(first.rect, second.rect) / smaller_area
-        >= INK_GROUP_CONTAINMENT_THRESHOLD
-    )
-    first_bounds = _ink_vertical_bounds(first)
-    second_bounds = _ink_vertical_bounds(second)
-    if first_bounds is None or second_bounds is None:
-        return area_containment
-    shorter_height = min(
-        first_bounds[1] - first_bounds[0],
-        second_bounds[1] - second_bounds[0],
-    )
-    vertical_duplicate = (
-        shorter_height > 0
-        and _vertical_overlap_amount(first_bounds, second_bounds) / shorter_height
-        >= INK_GROUP_VERTICAL_DUPLICATE_THRESHOLD
-    )
-    first_guides = _member_vertical_guide_bounds(first)
-    second_guides = _member_vertical_guide_bounds(second)
-    # If both groups have deliberate guide strokes, those strokes are the
-    # question boundary. Their horizontal position is irrelevant: any real
-    # overlap on the PDF y axis joins them, while even a small positive gap
-    # keeps them as separate questions. Aggregate crop rectangles must not
-    # override that decision merely because surrounding handwriting is wide.
-    if first_guides and second_guides:
-        return any(
-            _vertical_overlap_amount(first_guide, second_guide) > 0
-            for first_guide in first_guides
-            for second_guide in second_guides
-        )
-
-    # For unframed handwriting, retain the geometric fallback so nearby or
-    # contained fragments can still form one question automatically.
-    return area_containment or vertical_duplicate
-
-
-def _merge_contained_ink_groups(groups: list[DrawboardInk]) -> list[DrawboardInk]:
-    """Merge guide groups that describe the same screenshot region.
-
-    Deliberate guide bands merge only when their PDF y-ranges truly overlap.
-    Geometric containment remains a fallback for fragments without guides.
-    """
-
-    remaining = list(groups)
-    merged: list[DrawboardInk] = []
-    while remaining:
-        seed = remaining.pop(0)
-        members = [seed]
-        changed = True
-        while changed:
-            changed = False
-            still_remaining: list[DrawboardInk] = []
-            combined = _merge_red_ink_group(members)
-            for candidate in remaining:
-                if _groups_are_near_duplicates(combined, candidate):
-                    members.append(candidate)
-                    changed = True
-                else:
-                    still_remaining.append(candidate)
-            remaining = still_remaining
-        merged.append(_merge_red_ink_group(members))
-    return merged
-
-
-def group_red_ink_annotations(
-    inks: list[DrawboardInk],
-    *,
-    tolerance: float = INK_VERTICAL_OVERLAP_TOLERANCE,
-) -> list[DrawboardInk]:
-    """Merge red handwritten strokes into page-local question groups.
-
-    Drawboard may expose handwriting as many independent Ink annotations. The
-    user's deliberate red vertical guide is the stable group boundary. Strokes
-    are assigned to the best overlapping guide without expanding its band, so
-    two nearby questions cannot be joined transitively through their letters.
-    Pages without a guide retain the older connected-band fallback.
-    """
-
-    grouped: list[DrawboardInk] = []
-    by_page: dict[int, list[DrawboardInk]] = {}
-    for ink in inks:
-        by_page.setdefault(ink.page, []).append(ink)
-
-    for page in sorted(by_page):
-        page_inks = by_page[page]
-        guides = [ink for ink in page_inks if _is_vertical_guide(ink)]
-        if not guides:
-            grouped.extend(
-                _merge_red_ink_group(members)
-                for members in _connected_vertical_groups(
-                    page_inks,
-                    tolerance=tolerance,
-                )
-            )
-            continue
-
-        guide_members = {guide.fingerprint: [guide] for guide in guides}
-        unassigned: list[DrawboardInk] = []
-        for candidate in page_inks:
-            if candidate.fingerprint in guide_members:
-                continue
-            candidate_bounds = _ink_vertical_bounds(candidate)
-            matching_guides = [
-                guide
-                for guide in guides
-                if candidate_bounds is not None
-                and _ink_vertical_bounds(guide) is not None
-                and _vertical_ranges_overlap(
-                    _ink_vertical_bounds(guide) or (0.0, 0.0),
-                    candidate_bounds,
-                    tolerance=tolerance,
-                )
-            ]
-            if not matching_guides:
-                unassigned.append(candidate)
-                continue
-            guide = min(
-                matching_guides,
-                key=lambda item: _guide_assignment_key(item, candidate),
-            )
-            guide_members[guide.fingerprint].append(candidate)
-
-        page_groups = [
-            _merge_red_ink_group(guide_members[guide.fingerprint]) for guide in guides
-        ]
-        page_groups.extend(
-            _merge_red_ink_group(members)
-            for members in _connected_vertical_groups(
-                unassigned,
-                tolerance=tolerance,
-            )
-        )
-        grouped.extend(_merge_contained_ink_groups(page_groups))
-
-    grouped.sort(
-        key=lambda ink: (
-            ink.page,
-            ink.rect[1] if len(ink.rect) == 4 else 0.0,
-            ink.rect[0] if len(ink.rect) == 4 else 0.0,
-        )
-    )
-    return grouped
+def group_red_ink_annotations(inks: list[DrawboardInk]) -> list[DrawboardInk]:
+    """Compatibility projection using the shared, exact Y-overlap policy."""
+    return [_merge_red_ink_group(members) for members in question_region_groups(inks)]
 
 
 def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
@@ -946,7 +663,6 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
     pages = _page_numbers(document_payload)
     raw_annotations = _annotation_batches(credentials.document_id, access_token)
     captures: list[DrawboardCapture] = []
-    red_ink: list[DrawboardInk] = []
     all_ink: list[DrawboardInk] = []
     ignored: dict[str, int] = {}
     source_fingerprints: set[str] = set()
@@ -964,8 +680,6 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
             ink = _ink_capture(item, credentials.document_id, pages)
             if ink is not None:
                 all_ink.append(ink)
-                if ink.color == "red":
-                    red_ink.append(ink)
             else:
                 ignored[annotation_kind] = ignored.get(annotation_kind, 0) + 1
             continue
@@ -982,12 +696,11 @@ def extract_drawboard_annotations(source_url: str) -> DrawboardExtraction:
             capture.annotation_kind,
         )
     )
-    red_ink = group_red_ink_annotations(red_ink)
     return DrawboardExtraction(
         source_url=source_url,
         document_id=credentials.document_id,
         captures=captures,
-        red_ink=red_ink,
+        red_ink=[],  # Compatibility field; collection policy owns classification.
         ignored=ignored,
         all_ink=all_ink,
         source_fingerprints=source_fingerprints,
