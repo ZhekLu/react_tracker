@@ -2524,13 +2524,18 @@ def _refresh_imported_anchor(
         existing["selector_json"],
         {},
     )
-    # Keep tracker-owned identity and historical images when refreshing the source.
+    # Keep tracker-owned identity and historical images when refreshing a visual
+    # source. Text-only questions must not retain crops created by the former
+    # "every question needs a screenshot" import policy.
     for key in ("questionFrameId", "questionFrameLabel", "supersededByAnnotationId"):
         if key in previous_metadata:
             metadata[key] = previous_metadata[key]
-    for key in ("contextImageUrl", "annotatedPageImageUrl", "annotatedPageImageUrls"):
-        if key in previous_metadata and (existing["status"] != "open" or not metadata.get(key)):
-            metadata[key] = previous_metadata[key]
+    if metadata.get("sourceVisual") is not False:
+        for key in ("contextImageUrl", "annotatedPageImageUrl", "annotatedPageImageUrls"):
+            if key in previous_metadata and (
+                existing["status"] != "open" or not metadata.get(key)
+            ):
+                metadata[key] = previous_metadata[key]
     previous_created_day_id = previous_metadata.get("createdDayId")
     if isinstance(previous_created_day_id, str) and previous_created_day_id.strip():
         metadata["createdDayId"] = previous_created_day_id
@@ -2753,6 +2758,18 @@ def upsert_imported_annotation(
             }
         )
     next_metadata = command.anchor.metadata if command.anchor else {}
+    stale_nonvisual_images = bool(
+        command.anchor is not None
+        and next_metadata.get("sourceVisual") is False
+        and any(
+            previous_metadata.get(key)
+            for key in (
+                "contextImageUrl",
+                "annotatedPageImageUrl",
+                "annotatedPageImageUrls",
+            )
+        )
+    )
     next_color_role_revision = str(next_metadata.get("colorRoleRevision") or "")
     reclassify = bool(
         next_color_role_revision
@@ -2768,6 +2785,7 @@ def upsert_imported_annotation(
         existing["deleted_at"] is None
         and previous_sync_revision == source_revision
         and not images_changed
+        and not stale_nonvisual_images
     ):
         return "existing"
 

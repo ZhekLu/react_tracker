@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import stat
 from collections.abc import Iterator
 from pathlib import Path
@@ -25,7 +26,6 @@ from tracker_api.services.pdf_annotation_service import (
     _chapter_study_days,
     collect_resource_pdf_annotations,
 )
-from tracker_api.services.pdf_context_service import PdfAnnotationContext
 from tracker_api.services.resource_open_service import open_resource
 from tracker_api.services.study_plan_service import sync_study_plan
 
@@ -846,6 +846,77 @@ def test_red_highlight_inside_handwriting_group_is_not_a_second_question(
     ]
 
 
+def test_standalone_cloud_red_highlight_is_text_question_without_screenshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resource_id = _seed_cloud_resource(tmp_path)
+    highlight = DrawboardCapture(
+        fingerprint=f"drawboard-{DOCUMENT_ID}-standalone-red-highlight",
+        source_revision="highlight-1",
+        page=11,
+        annotation_kind="TextHighlight",
+        color="red",
+        rgb=[1.0, 0.0, 0.0],
+        quote="Why does target-policy smoothing reduce overestimation?",
+        comment="",
+        is_question=False,
+        created_at="2026-07-01T10:00:00Z",
+        rect=[80.0, 40.0, 260.0, 55.0],
+    )
+    extraction = DrawboardExtraction(
+        source_url=SHARE_URL,
+        document_id=DOCUMENT_ID,
+        captures=[highlight],
+        red_ink=[],
+        all_ink=[],
+        ignored={},
+    )
+    monkeypatch.setattr(
+        pdf_annotation_service,
+        "extract_drawboard_annotations",
+        lambda _source_url: extraction,
+    )
+
+    with transaction() as connection:
+        pdf_annotation_service.save_drawboard_color_roles(
+            connection,
+            resource_id,
+            {"#FF0000": "question"},
+        )
+        collected = collect_resource_pdf_annotations(connection, resource_id)
+        row = (
+            connection.execute(
+                text(
+                    """
+                    SELECT a.kind, d.plain_text, aa.quote, aa.selector_json,
+                           qi.readable_label
+                    FROM annotations a
+                    JOIN documents d ON d.id = a.body_document_id
+                    JOIN annotation_anchors aa ON aa.annotation_id = a.id
+                    JOIN annotation_question_identities aqi
+                      ON aqi.annotation_id = a.id
+                    JOIN question_identities qi
+                      ON qi.id = aqi.question_identity_id
+                    WHERE a.resource_id = :resource_id AND a.deleted_at IS NULL
+                    """
+                ),
+                {"resource_id": resource_id},
+            )
+            .mappings()
+            .one()
+        )
+
+    assert collected.kind_counts == {"question": 1}
+    assert row["kind"] == "question"
+    assert row["plain_text"] == row["quote"] == highlight.quote
+    assert row["readable_label"].startswith("Q-")
+    metadata = json.loads(row["selector_json"])
+    assert metadata["sourceVisual"] is False
+    assert "contextImageUrl" not in metadata
+    assert "annotatedPageImageUrl" not in metadata
+
+
 def test_book_chapters_map_to_their_explicit_study_days(tmp_path: Path) -> None:
     pdf_path = tmp_path / "book.pdf"
     pdf_path.write_bytes(b"%PDF-1.4")
@@ -949,9 +1020,10 @@ def test_collection_freezes_answered_images_and_reuses_open_images(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import json
     from dataclasses import replace
+
     import pymupdf
+
     from tracker_api.services import pdf_ink_image_service as images
 
     resource_id = _seed_cloud_resource(tmp_path)
@@ -1081,6 +1153,7 @@ def test_color_palette_confirmation_reuses_the_complete_download(tmp_path, monke
 
 def test_drawboard_transport_handles_compression_and_source_errors(monkeypatch):
     import gzip
+
     import httpx
 
     def handle(request):

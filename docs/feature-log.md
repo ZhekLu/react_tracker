@@ -1,5 +1,15 @@
 # Tracker feature and maintenance log
 
+## 2026-09-20 — text-only PDF highlights remain questions
+
+- Question-colour text highlights now import as questions with their extracted
+  text, while screenshots remain limited to handwriting and other visual marks.
+- Recollection upgrades previously misclassified highlights in place and removes
+  stale image metadata from text-only questions without changing answered state,
+  annotation IDs or stable question identities.
+- Validation: local and Drawboard connector regressions cover text questions,
+  screenshot suppression and ID-preserving repair; the full backend suite passes.
+
 ## 2026-09-20 — formula controls and highlight excerpt consistency
 
 - Formula actions stay with the toolbar; the preview dialog wraps and scrolls

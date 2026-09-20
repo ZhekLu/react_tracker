@@ -661,28 +661,6 @@ def _classify_question_annotations(
     for members in question_region_groups(questions, page_layouts):
         combined = merge_ink_annotation_groups([_capture_as_ink(member) for member in members])
         visuals = [member for member in members if member.annotation_kind in VISUAL_KINDS]
-        source_texts = [member.comment or member.quote for member in members]
-        explicit_text_question = any(
-            "??" in source_text or "todo!" in source_text.casefold()
-            for source_text in source_texts
-        )
-        preserves_existing_question = any(
-            member.fingerprint in tracked_members for member in members
-        )
-        plain_text_markup = all(
-            member.annotation_kind.removeprefix("Text") in MARKUP_KINDS
-            for member in members
-        )
-        if (
-            plain_text_markup
-            and not visuals
-            and not explicit_text_question
-            and not preserves_existing_question
-        ):
-            # A palette colour can mean "question ink", but a plain markup
-            # highlight already carries its text and does not need a screenshot.
-            result.extend(replace(member, is_question=False) for member in members)
-            continue
         anchor = merge_ink_annotation_groups(
             [_capture_as_ink(member) for member in (visuals or members)]
         )
@@ -790,6 +768,18 @@ def _annotation_command(
     kind: AnnotationKind = (
         "question" if capture.is_question else "highlight" if capture.quote else "note"
     )
+    text_question = (
+        capture.is_question and capture.annotation_kind not in VISUAL_KINDS
+    )
+    body = capture.comment or (
+        capture.quote
+        if text_question
+        else "Screenshot · handwriting"
+        if capture.annotation_kind == "Ink"
+        else f"Screenshot · {capture.annotation_kind}"
+        if capture.annotation_kind in VISUAL_KINDS
+        else ""
+    )
     metadata: dict[str, Any] = {
         "createdAt": capture.created_at,
         "sourceLabel": "Drawboard cloud PDF" if cloud_document_id else Path(source_path).name,
@@ -799,7 +789,7 @@ def _annotation_command(
         "colorRoleRevision": f"question-policy-v1:{capture.is_question}",
         "questionGrouping": "layout-lanes-y-overlap-v2",
         "highlightedText": capture.quote,
-        "sourceContent": capture.comment,
+        "sourceContent": capture.comment or (capture.quote if text_question else ""),
         "sourceVisual": capture.annotation_kind in VISUAL_KINDS,
         "pageLayout": capture.layout_mode,
         "layoutColumn": capture.layout_column,
@@ -818,13 +808,6 @@ def _annotation_command(
     if capture.member_fingerprints:
         metadata["inkMemberFingerprints"] = list(capture.member_fingerprints)
         metadata["inkGroupSize"] = len(capture.member_fingerprints)
-    body = capture.comment or (
-        "Screenshot · handwriting"
-        if capture.annotation_kind == "Ink"
-        else f"Screenshot · {capture.annotation_kind}"
-        if capture.annotation_kind in VISUAL_KINDS
-        else ""
-    )
     return AnnotationCreateCommand(
         resource_id=resource_id,
         kind=kind,
@@ -1000,7 +983,7 @@ def _collect_resource_pdf_annotations(
     preview_captures = [
         capture
         for capture in extraction.captures
-        if (capture.annotation_kind in VISUAL_KINDS or capture.is_question)
+        if capture.annotation_kind in VISUAL_KINDS
         and (capture.fingerprint not in states or states[capture.fingerprint]["status"] == "open")
     ]
     annotated_pages = {capture.page for capture in extraction.captures}

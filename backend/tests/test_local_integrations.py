@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -118,7 +119,7 @@ Stop when: the slides are read. {#day01-stop}
     return str(resource_id)
 
 
-def test_plain_red_highlight_imports_text_without_a_screenshot(
+def test_plain_red_highlight_imports_as_text_question_without_a_screenshot(
     tmp_path: Path,
 ) -> None:
     resource_id = _seed_pdf_resource(tmp_path)
@@ -130,9 +131,13 @@ def test_plain_red_highlight_imports_text_without_a_screenshot(
             connection.execute(
                 text(
                     """
-                SELECT a.kind, aa.page_number, aa.quote, aa.color, aa.selector_json
+                SELECT a.kind, a.id, aa.page_number, aa.quote, aa.color,
+                       aa.selector_json, d.plain_text, qi.readable_label
                 FROM annotations a
                 JOIN annotation_anchors aa ON aa.annotation_id = a.id
+                JOIN documents d ON d.id = a.body_document_id
+                JOIN annotation_question_identities aqi ON aqi.annotation_id = a.id
+                JOIN question_identities qi ON qi.id = aqi.question_identity_id
                 WHERE a.resource_id = :resource_id
                 """
                 ),
@@ -144,14 +149,132 @@ def test_plain_red_highlight_imports_text_without_a_screenshot(
 
     assert first.extracted_count == 1
     assert first.created_count == 1
-    assert first.kind_counts == {"highlight": 1}
+    assert first.kind_counts == {"question": 1}
     assert second.created_count == 0
     assert second.existing_count == 1
-    assert row["kind"] == "highlight"
+    assert row["kind"] == "question"
     assert row["page_number"] == 1
     assert row["quote"] == "Coverage is required for off-policy evaluation."
+    assert row["plain_text"] == row["quote"]
+    assert row["readable_label"].startswith("Q-")
     assert row["color"] == "red"
-    assert "contextImageUrl" not in row["selector_json"]
+    metadata = json.loads(row["selector_json"])
+    assert metadata["sourceVisual"] is False
+    assert "contextImageUrl" not in metadata
+    assert "annotatedPageImageUrl" not in metadata
+
+    with transaction() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE annotations
+                SET status = 'answered', answered_at = '2026-07-02T10:00:00Z'
+                WHERE id = :annotation_id
+                """
+            ),
+            {"annotation_id": row["id"]},
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE annotation_anchors
+                SET selector_json = json_set(
+                  selector_json,
+                  '$.contextImageUrl', '/stale-crop.png',
+                  '$.annotatedPageImageUrl', '/stale-page.png',
+                  '$.annotatedPageImageUrls', json('{"1":"/stale-page.png"}')
+                )
+                WHERE annotation_id = :annotation_id
+                """
+            ),
+            {"annotation_id": row["id"]},
+        )
+        cleaned_collection = collect_resource_pdf_annotations(connection, resource_id)
+        cleaned = (
+            connection.execute(
+                text(
+                    """
+                    SELECT a.id, a.status, aa.selector_json
+                    FROM annotations a
+                    JOIN annotation_anchors aa ON aa.annotation_id = a.id
+                    WHERE a.id = :annotation_id
+                    """
+                ),
+                {"annotation_id": row["id"]},
+            )
+            .mappings()
+            .one()
+        )
+
+    assert cleaned_collection.updated_count == 1
+    assert cleaned["id"] == row["id"]
+    assert cleaned["status"] == "answered"
+    cleaned_metadata = json.loads(cleaned["selector_json"])
+    assert "contextImageUrl" not in cleaned_metadata
+    assert "annotatedPageImageUrl" not in cleaned_metadata
+    assert "annotatedPageImageUrls" not in cleaned_metadata
+
+
+def test_reclassifying_imported_highlight_to_question_preserves_annotation_id(
+    tmp_path: Path,
+) -> None:
+    from tracker_api.services.pdf_annotation_service import save_drawboard_color_roles
+
+    resource_id = _seed_pdf_resource(tmp_path)
+    with transaction() as connection:
+        save_drawboard_color_roles(connection, resource_id, {"#FF0000": "regular"})
+        first = collect_resource_pdf_annotations(connection, resource_id)
+        original = (
+            connection.execute(
+                text(
+                    """
+                    SELECT id, kind
+                    FROM annotations
+                    WHERE resource_id = :resource_id AND deleted_at IS NULL
+                    """
+                ),
+                {"resource_id": resource_id},
+            )
+            .mappings()
+            .one()
+        )
+
+    with transaction() as connection:
+        save_drawboard_color_roles(connection, resource_id, {"#FF0000": "question"})
+        repaired = collect_resource_pdf_annotations(connection, resource_id)
+        current = (
+            connection.execute(
+                text(
+                    """
+                    SELECT a.id, a.kind, d.plain_text, qi.readable_label,
+                           aa.selector_json
+                    FROM annotations a
+                    JOIN documents d ON d.id = a.body_document_id
+                    JOIN annotation_anchors aa ON aa.annotation_id = a.id
+                    JOIN annotation_question_identities aqi
+                      ON aqi.annotation_id = a.id
+                    JOIN question_identities qi
+                      ON qi.id = aqi.question_identity_id
+                    WHERE a.resource_id = :resource_id AND a.deleted_at IS NULL
+                    """
+                ),
+                {"resource_id": resource_id},
+            )
+            .mappings()
+            .one()
+        )
+
+    assert first.kind_counts == {"highlight": 1}
+    assert original["kind"] == "highlight"
+    assert repaired.updated_count == 1
+    assert repaired.created_count == repaired.removed_count == 0
+    assert current["id"] == original["id"]
+    assert current["kind"] == "question"
+    assert current["plain_text"] == "Coverage is required for off-policy evaluation."
+    assert current["readable_label"].startswith("Q-")
+    metadata = json.loads(current["selector_json"])
+    assert "contextImageUrl" not in metadata
+    assert "annotatedPageImageUrl" not in metadata
 
 
 def test_capture_debug_mode_defaults_on_and_can_be_disabled(tmp_path: Path) -> None:
@@ -253,7 +376,9 @@ def test_local_source_identity_survives_recolor_and_deletion(tmp_path: Path) -> 
         )
         assert recolored.created_count == 0 and recolored.updated_count == 1
         assert row["id"] == saved["id"] and row["source_fingerprint"] == saved["source_fingerprint"]
-        assert row["kind"] == "highlight" and row["status"] == "answered"
+        # Once answered, a question remains a question even if the source mark
+        # is later recolored as a regular highlight.
+        assert row["kind"] == "question" and row["status"] == "answered"
     doc = pymupdf.open(path)
     page = doc[0]
     page.delete_annot(page.first_annot)
@@ -263,11 +388,13 @@ def test_local_source_identity_survives_recolor_and_deletion(tmp_path: Path) -> 
         removed = collect_resource_pdf_annotations(connection, resource_id)
         assert removed.removed_count == 1
         assert connection.execute(text("SELECT deleted_at FROM annotations")).scalar_one()
+        # Deleting the source mark hides the annotation but retains its stable
+        # question identity for historical answers and discussion references.
         assert (
             connection.execute(
                 text("SELECT COUNT(*) FROM annotation_question_identities")
             ).scalar_one()
-            == 0
+            == 1
         )
 
 
@@ -347,7 +474,7 @@ def test_local_icloud_annotations_import_without_cloud_and_repeat_safely(tmp_pat
     with transaction() as connection:
         second = collect_resource_pdf_annotations(connection, resource_id)
     assert first.created_count == 3
-    assert first.kind_counts == {"highlight": 1, "question": 1, "note": 1}
+    assert first.kind_counts == {"question": 2, "note": 1}
     assert first.ignored == {"non_question_visual": 2}
     assert second.existing_count == 3
     assert second.created_count == second.updated_count == second.removed_count == 0
@@ -670,7 +797,7 @@ def test_dark_red_local_guide_and_handwriting_are_one_question(tmp_path):
         doc.saveIncr()
     with transaction() as connection:
         result = collect_resource_pdf_annotations(connection, resource_id)
-        assert result.kind_counts == {"highlight": 1, "question": 1, "note": 1}
+        assert result.kind_counts == {"question": 2, "note": 1}
         assert (
             len(
                 [
@@ -688,7 +815,7 @@ def test_connectors_share_question_selection_grouping_and_persistence(
     tmp_path, monkeypatch, connector
 ):
     """Same actual PDF annotations, fed through each connector, same saved questions."""
-    import json
+
     from tracker_api.services import pdf_annotation_service as service
     from tracker_api.services.drawboard_service import (
         DrawboardCapture,
@@ -793,7 +920,8 @@ def test_connectors_share_question_selection_grouping_and_persistence(
         )
         connection.execute(
             text(
-                "UPDATE documents SET markdown='My explanation', plain_text='My explanation' WHERE id=:id"
+                "UPDATE documents SET markdown='My explanation', "
+                "plain_text='My explanation' WHERE id=:id"
             ),
             {"id": merged["body_document_id"]},
         )
