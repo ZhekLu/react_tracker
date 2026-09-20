@@ -13,14 +13,17 @@ import Italic from "@tiptap/extension-italic";
 import Strike from "@tiptap/extension-strike";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
+import Code from "@tiptap/extension-code";
 import StarterKit from "@tiptap/starter-kit";
 import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
 import Heading from "@tiptap/extension-heading";
 import { serializeDiscussionDocument } from "./serializeDiscussionDocument";
+import { BlockHighlights, blockHighlightPrefix } from "./blockHighlights";
+import { mathNodeView } from "./mathNodeView";
 import { Markdown } from "@tiptap/markdown";
 import { common, createLowlight } from "lowlight";
-import { Node } from "@tiptap/core";
+import { InputRule, Node } from "@tiptap/core";
 import type {
   MarkdownParseHelpers,
   MarkdownRendererHelpers,
@@ -137,10 +140,10 @@ const DiscussionInlineMath = InlineMath.extend({
   markdownTokenizer: {
     name: "inlineMath",
     level: "inline",
-    start: (source: string) => source.search(/(?<![$\\])\$(?!\$)(?:\\.|[^$\n\\])+\$(?!\$)/),
+    start: (source: string) => source.search(/(?<![$\\])\$(?!\$)(?:\\.|[^$\\])+\$(?!\$)/),
     tokenize(source: string) {
       // Never consume a display delimiter, a newline, or an escaped dollar.
-      const match = source.match(/^\$(?!\$)((?:\\.|[^$\n\\])+)\$(?!\$)/);
+      const match = source.match(/^\$(?!\$)((?:\\.|[^$\\])+)\$(?!\$)/);
       return match ? { type: "inlineMath", raw: match[0], latex: match[1].trim() } : undefined;
     },
   },
@@ -187,6 +190,7 @@ export function discussionEditorExtensions(
 ) {
   return [
     TutorReviewBoundary,
+    BlockHighlights,
     StarterKit.configure({
       document: false,
       paragraph: false,
@@ -194,6 +198,7 @@ export function discussionEditorExtensions(
       orderedList: false, listItem: false,
       bold: false, italic: false, strike: false, underline: false, link: false,
       heading: false,
+      code: false,
     }),
     Document.extend({renderMarkdown: serializeDiscussionDocument}),
     Paragraph.extend({renderMarkdown: (node, helpers, context) => node.content?.length
@@ -222,7 +227,15 @@ export function discussionEditorExtensions(
     Strike.extend({parseMarkdown: (token, helpers) => markInlineContent("strike", token, helpers)}),
     Underline.extend({parseMarkdown: (token, helpers) => markInlineContent("underline", token, helpers)}),
     Link.extend({parseMarkdown: (token, helpers) => markInlineContent("link", token, helpers, {href: token.href, title: token.title || null})}),
-    CodeBlockLowlight.configure({
+    Code.extend({excludes: "code bold italic strike underline link"}),
+    CodeBlockLowlight.extend({
+      renderMarkdown(node) {
+        const body = (node.content ?? []).map(child => child.text ?? "").join("");
+        const longest = Math.max(2, ...[...body.matchAll(/`+/g)].map(match => match[0].length));
+        const fence = "`".repeat(longest + 1);
+        return `${blockHighlightPrefix(node)}${fence}${node.attrs?.language ?? ""}\n${body}\n${fence}`;
+      },
+    }).configure({
       defaultLanguage: "plaintext",
       enableTabIndentation: true,
       lowlight,
@@ -234,23 +247,32 @@ export function discussionEditorExtensions(
     TaskItem.extend({renderMarkdown: (node, helpers) => renderListItem(node, helpers, `- [${node.attrs?.checked ? "x" : " "}] `, 2)}).configure({ nested: true }),
     TableKit,
     Image,
-    DiscussionInlineMath.configure({
-      onClick: (node, position) =>
-        onFormulaClick?.("inline", String(node.attrs.latex ?? ""), position),
+    DiscussionInlineMath.extend({
+      addNodeView() { return mathNodeView("inline", this.options.katexOptions, onFormulaClick); },
+      // Standard source delimiters; upstream unexpectedly required $$ for inline input.
+      addInputRules() { return [new InputRule({
+        find: /(?<![$\\])\$(?!\$)((?:\\.|[^$\n\\])+)\$(?!\$)$/,
+        handler: ({state, range, match}) => {
+          state.tr.replaceWith(range.from, range.to, this.type.create({latex: match[1]}, null, state.doc.resolve(range.from).marks()));
+        },
+      })]; },
+    }).configure({
       katexOptions: { throwOnError: false },
     }),
-    BlockMath.extend({markdownTokenizer: {
+    BlockMath.extend({
+      addNodeView() { return mathNodeView("block", this.options.katexOptions, onFormulaClick); },
+      addInputRules() { return []; },
+      renderMarkdown: node => `${blockHighlightPrefix(node)}$$\n${node.attrs?.latex ?? ""}\n$$`,
+      markdownTokenizer: {
       name: "blockMath", level: "block",
       // A start hint must identify a complete token. Hinting at an orphan $$
       // makes Marked split a prose paragraph even when tokenize rejects it.
-      start: (source: string) => source.search(/(?<!\\)\$\$[^$]+\$\$/),
+      start: (source: string) => source.search(/(?<!\\)\$\$(?:\\.|[^$\\])+\$\$/),
       tokenize(source: string) {
-        const match = source.match(/^\$\$([^$]+)\$\$/);
+        const match = source.match(/^\$\$((?:\\.|[^$\\])+)\$\$/);
         return match ? {type: "blockMath", raw: match[0], latex: match[1].trim()} : undefined;
       },
     }}).configure({
-      onClick: (node, position) =>
-        onFormulaClick?.("block", String(node.attrs.latex ?? ""), position),
       katexOptions: { throwOnError: false },
     }),
     Markdown.configure({

@@ -2846,6 +2846,18 @@
   max-width: 100%;
 }
 
+.discussionRichSurface .noteMath[data-type="inline-math"] { display: inline-block; border-radius: 3px; }
+.discussionRichSurface[contenteditable="true"] .noteMath { cursor: pointer; }
+.discussionRichSurface .noteMath.ProseMirror-selectednode { outline: 2px solid #4482b5; outline-offset: 3px; }
+.discussionRichSurface mark code { background: transparent; }
+.discussionRichSurface pre[data-block-highlight] code,
+.discussionRichSurface pre[data-block-highlight] .hljs-comment,
+.discussionRichSurface pre[data-block-highlight] .hljs-quote { color: #17251f; }
+.formulaSelectionActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; background: var(--blue-soft); border-radius: 8px; margin-bottom: 10px; }
+.formulaSelectionActions button { border: 1px solid var(--line); border-radius: 5px; padding: 4px 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.formulaSelectionActions small { color: var(--ink-soft); }
+.formulaLivePreview { width: 100%; padding: 12px; overflow: auto; background: var(--surface); }
+
 .entityNoteEditorBody .discussionMarkdownSurface {
   min-width: 0;
 }

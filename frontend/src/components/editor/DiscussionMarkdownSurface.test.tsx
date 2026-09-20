@@ -34,6 +34,38 @@ function Controlled() {
 }
 
 describe('controlled editor lifecycle', () => {
+  it('selects a clicked formula, highlights its rendered box, and deletes it with the keyboard', async () => {
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown={'Before $x$ after.'} />));
+    const formula = host.querySelector<HTMLElement>('[data-type="inline-math"]')!;
+    await act(async () => formula.click());
+    expect(host.querySelector('[aria-label="Selected formula"]')).not.toBeNull();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Yellow highlight"]')!.click());
+    expect(host.querySelector<HTMLElement>('[data-type="inline-math"]')!.style.backgroundColor).toBe('rgb(255, 240, 168)');
+    await act(async () => host.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent('keydown', {key: 'Backspace', bubbles: true, cancelable: true})));
+    expect(host.querySelector('[data-type="inline-math"]')).toBeNull();
+    expect(state.editor!.state.doc.textContent).toBe('Before  after.');
+    await act(async () => state.editor!.commands.undo());
+    expect(host.querySelector('[data-type="inline-math"]')).not.toBeNull();
+  });
+
+  it('edits by double-click, previews conversion, cancels safely, applies and deletes from the dialog', async () => {
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown={'$$\nx=1\n$$'} />));
+    async function open() {await act(async () => host.querySelector('[data-type="block-math"]')!.dispatchEvent(new MouseEvent('dblclick', {bubbles: true})));}
+    async function click(label: string) {await act(async () => [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(button => button.textContent === label)!.click());}
+    await open();
+    expect(host.querySelector('[aria-label="Formula preview"] .katex')).not.toBeNull();
+    await click('To inline'); await click('Cancel');
+    expect(host.querySelector('[data-type="block-math"]')).not.toBeNull();
+    await open(); await click('To inline'); await click('Apply');
+    expect(host.querySelector('[data-type="block-math"]')).toBeNull();
+    expect(host.querySelector('[data-type="inline-math"]')).not.toBeNull();
+    await act(async () => host.querySelector<HTMLElement>('[data-type="inline-math"]')!.click());
+    await act(async () => host.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true, cancelable: true})));
+    await click('Delete formula');
+    expect(host.querySelector('[data-type="inline-math"]')).toBeNull();
+  });
+
   it('pastes plain-text formulas directly into a note and reopens each formula once', async () => {
     await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown="" />));
     const paste = new Event('paste', {bubbles: true, cancelable: true});

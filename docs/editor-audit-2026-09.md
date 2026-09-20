@@ -90,14 +90,13 @@ Final checks:
   source editing; converting unsupported content through the visual schema can
   change it. Tables/images are supported, but their advanced editing controls
   are not yet exposed in the toolbar.
-- Inline highlights are stored in Markdown. Display-math/code review highlights
-  use the existing separate discussion review annotations; ordinary note text
-  marks do not provide a general block-highlighting format.
+- Inline highlights are stored in Markdown. The September 20 follow-up below
+  adds persistent whole-block highlights for display formulas and code.
 - Drafts survive failed saves and section switching within the mounted view.
   They are not durable autosaves across a browser reload or leaving the view.
 - Historical content already damaged by an earlier save cannot always be
   reconstructed. The follow-up [insert diagnostics and repair audit](editor-debug-and-repairs.md)
-  checked 670 current documents and repaired 24 in place with backups and history.
+checked 670 current documents and repaired 24 in place with backups and history.
 - Vite still reports the large shared-editor chunk (about 719 kB minified,
   224 kB gzip). It is lazy-loaded. Further bundle reduction and virtualization of
   very long open discussions remain performance work, separate from the data
@@ -107,3 +106,48 @@ Final checks:
 
 The [insert diagnostics and repair audit](editor-debug-and-repairs.md) supersedes
 the historical-repair status and validation counts above, and adds the Debug tab.
+
+## Follow-up: September 20 — selection, boxes, and formula layout
+
+The architecture decision still holds: keep one ProseMirror document while
+editing and serialize through the tested Markdown boundary. Changing editor
+libraries would not remove Markdown's limits. No database migration is needed.
+
+- **Formula interaction:** the upstream node view intercepted clicks to open the
+  composer. Shared math node views now select on click, edit on double-click or
+  Enter, and expose Edit / Delete / To inline / To display. Backspace/Delete
+  remove the selected atom; undo restores it. Drag selections remain available.
+- **Visible math highlighting:** the formula wrapper paints its entire rendered
+  area, including tall fractions and `\boxed{…}`, from the document's highlight.
+- **Literal boxes:** inline code previously excluded every other mark. It now
+  permits highlights without interpreting its literal content. Code blocks keep
+  their no-marks schema and accept a whole-block colour attribute. Selecting any
+  part of a code block (or putting the cursor inside it) colours the whole box.
+- **Block persistence:** display formulas/code use one standard HTML comment,
+  `<!-- note-highlight:yellow -->`, then a blank line and the unchanged literal
+  block. Other colour names are `blue`, `question`, and `todo`. The parser only
+  attaches it to an immediately following complete math/code block. Generic
+  Markdown readers ignore the comment and still show the content. This small
+  tracker extension is necessary because ordinary Markdown has no block colours.
+  Existing discussion review annotations remain available; visual colour no
+  longer depends on them. Integrity checks compare block colours as well.
+- **Conversion:** inline-to-display splits the paragraph around the formula;
+  display-to-inline creates a normal paragraph. Surrounding prose, LaTeX and
+  highlights survive; conversion uses one undoable document transaction.
+  Multiline inline LaTeX is preserved, including comments and row separators.
+  Blank lines in inline formulas and display formulas in GFM table cells are
+  blocked with an explanation, since their Markdown cannot round-trip safely.
+- **Other reproduced gaps:** inline typing uses `$…$` instead of upstream's
+  surprising `$$…$$` input rule; code serialization chooses a fence longer than
+  backticks inside its content; escaped dollar signs survive display math.
+
+Verification includes real-editor repeated save/reopen, mixed text/code/math
+selections, nested lists/quotes, recolouring, undo, multiline conversion, table
+guards, clicked-atom deletion, double-click editing, preview and cancellation.
+
+Remaining scope: highlights apply to an entire formula, not individual KaTeX
+glyphs; code blocks highlight as a whole. Advanced raw HTML, footnotes, arbitrary
+embeds and rich multiline table cells still exceed the supported visual schema.
+Source mode is an escape hatch, not a promise that unsupported syntax will
+survive switching to visual mode. No replacement architecture can promise full
+arbitrary Markdown/LaTeX fidelity without a source-first editing contract.

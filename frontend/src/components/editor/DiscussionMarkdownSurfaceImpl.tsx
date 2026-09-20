@@ -16,6 +16,8 @@ import {
   discussionEditorExtensions,
 } from "./discussionEditorExtensions";
 import { importWithDebug } from "../../lib/insertDebug";
+import { changeFormula, formulaLayoutError, highlightSelection, selectedFormula } from "./editorInteractions";
+import katex from "katex";
 import type { DiscussionMarkdownSurfaceProps } from "./DiscussionMarkdownSurface";
 import type { DiscussionReviewItem } from "./DiscussionMarkdownSurface";
 
@@ -101,6 +103,7 @@ export function DiscussionMarkdownSurfaceImpl({
   const onChangeRef = useRef(onChange);
   const onReviewItemsChangeRef = useRef(onReviewItemsChange);
   const [formulaDraft, setFormulaDraft] = useState<FormulaDraft | null>(null);
+  const [formulaSelection, setFormulaSelection] = useState<FormulaDraft | null>(null);
   const [followupDraft, setFollowupDraft] = useState("");
   const [pendingReviewItems, setPendingReviewItems] = useState<
     DiscussionReviewItem[]
@@ -131,7 +134,9 @@ export function DiscussionMarkdownSurfaceImpl({
         },
       },
       immediatelyRender: false,
+      onSelectionUpdate: ({editor: updatedEditor}) => setFormulaSelection(selectedFormula(updatedEditor)),
       onUpdate: ({ editor: updatedEditor, transaction }) => {
+        setFormulaSelection(selectedFormula(updatedEditor));
         if (!editable || !transaction.docChanged) return;
         const next = updatedEditor.getMarkdown();
         emittedMarkdownRef.current = next;
@@ -165,6 +170,8 @@ export function DiscussionMarkdownSurfaceImpl({
 
   if (!editor) return null;
   const activeEditor = editor;
+  const formulaError = formulaDraft ? formulaLayoutError(activeEditor, formulaDraft.position ?? activeEditor.state.selection.from, formulaDraft.kind, formulaDraft.latex) : "";
+  const conversionError = formulaSelection ? formulaLayoutError(activeEditor, formulaSelection.position!, formulaSelection.kind === "block" ? "inline" : "block", formulaSelection.latex) : "";
 
   async function save() {
     if (saving) return;
@@ -289,25 +296,22 @@ export function DiscussionMarkdownSurfaceImpl({
     color: string,
     toggle = true,
   ) {
-    // Use the same Tiptap command path as the toolbar. A hand-built
-    // transaction split text around inline-math atoms and could corrupt the
-    // visual line layout when a shortcut selection crossed a formula.
-    const chain = activeEditor
-      .chain()
-      .focus()
-      .setTextSelection({
+    // Preserve NodeSelection for formula atoms, including block formulas.
+    if (activeEditor.state.selection.from !== selection.fromPosition || activeEditor.state.selection.to !== selection.toPosition) {
+      activeEditor.commands.setTextSelection({
         from: selection.fromPosition,
         to: selection.toPosition,
       });
-    if (toggle) chain.toggleHighlight({ color }).run();
-    else chain.setHighlight({ color }).run();
+    }
+    highlightSelection(activeEditor, color, toggle);
+    activeEditor.commands.focus();
   }
 
   function applyHighlight(secondary: boolean) {
     const color = secondary ? SECONDARY_DISCUSSION_HIGHLIGHT : PRIMARY_DISCUSSION_HIGHLIGHT;
     const selection = selectionDetails();
     if (selection) highlightTextInsideSelection(selection, color);
-    else activeEditor.chain().focus().toggleHighlight({ color }).run();
+    else {highlightSelection(activeEditor, color); activeEditor.commands.focus();}
     if (reviewMode && selection?.structured) {
       queueStructuredHighlight(selection, secondary ? "secondary" : "primary");
     }
@@ -324,6 +328,14 @@ export function DiscussionMarkdownSurfaceImpl({
     }
     const key = event.key.toLowerCase();
     const command = event.metaKey || event.ctrlKey;
+
+    const formula = !sourceMode && selectedFormula(activeEditor);
+    if (formula && event.key === "Enter") {
+      event.preventDefault(); event.stopPropagation(); setFormulaDraft(formula); return;
+    }
+    if (formula && (event.key === "Delete" || event.key === "Backspace")) {
+      event.preventDefault(); event.stopPropagation(); activeEditor.commands.deleteSelection(); return;
+    }
 
     if (reviewMode && command && key === "d" && !sourceMode) {
       event.preventDefault();
@@ -391,25 +403,12 @@ export function DiscussionMarkdownSurfaceImpl({
   }
 
   function applyFormula() {
-    if (!formulaDraft?.latex.trim()) return;
+    if (!formulaDraft?.latex.trim() || formulaError) return;
     const chain = activeEditor.chain().focus();
     if (formulaDraft.position === undefined) {
-      if (formulaDraft.kind === "inline") chain.insertInlineMath({ latex: formulaDraft.latex.trim() }).run();
-      else chain.insertBlockMath({ latex: formulaDraft.latex.trim() }).run();
-    } else if (formulaDraft.kind === "inline") {
-      chain
-        .updateInlineMath({
-          latex: formulaDraft.latex.trim(),
-          pos: formulaDraft.position,
-        })
-        .run();
+      chain.insertContent({type: formulaDraft.kind === "inline" ? "inlineMath" : "blockMath", attrs: {latex: formulaDraft.latex.trim()}}).run();
     } else {
-      chain
-        .updateBlockMath({
-          latex: formulaDraft.latex.trim(),
-          pos: formulaDraft.position,
-        })
-        .run();
+      changeFormula(activeEditor, formulaDraft.position, formulaDraft.kind, formulaDraft.latex);
     }
     setFormulaDraft(null);
   }
@@ -424,7 +423,7 @@ export function DiscussionMarkdownSurfaceImpl({
       onPasteCapture={editable ? handlePaste : undefined}
     >
       {editable ? (
-        <header className="discussionEditorShortcuts discussionEditorToolbar" aria-label="Formatting">
+        <header inert={Boolean(formulaDraft)} className="discussionEditorShortcuts discussionEditorToolbar" aria-label="Formatting">
           {!sourceMode ? <>
             {[
               ["Undo", Undo2, () => activeEditor.chain().focus().undo().run()],
@@ -441,7 +440,7 @@ export function DiscussionMarkdownSurfaceImpl({
               return <button type="button" key={String(label)} aria-label={String(label)} title={String(label)}
                 onMouseDown={event => event.preventDefault()} onClick={action as () => void}><Component size={14} /></button>;
             })}
-            <button type="button" title="Yellow highlight (⌘H)" aria-label="Yellow highlight"
+            <button type="button" title="Yellow highlight (⌘/Ctrl H). Code blocks and display formulas highlight as a whole." aria-label="Yellow highlight"
               className={lastShortcut === "primary" ? "active" : ""}
               onMouseDown={event => event.preventDefault()}
               onClick={() => applyHighlight(false)}><Highlighter size={14} /></button>
@@ -460,6 +459,14 @@ export function DiscussionMarkdownSurfaceImpl({
           </button>
         </header>
       ) : null}
+      {editable && formulaSelection && !sourceMode && !formulaDraft ? <div className="formulaSelectionActions" aria-label="Selected formula">
+        <span>{formulaSelection.kind === "block" ? "Display" : "Inline"} formula selected</span>
+        <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => setFormulaDraft(formulaSelection)}>Edit formula</button>
+        <button type="button" disabled={Boolean(conversionError)} title={conversionError || undefined} onMouseDown={event => event.preventDefault()} onClick={() => changeFormula(activeEditor, formulaSelection.position!, formulaSelection.kind === "block" ? "inline" : "block", formulaSelection.latex)}>
+          {formulaSelection.kind === "block" ? "To inline" : "To display"}</button>
+        <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => activeEditor.chain().focus().deleteSelection().run()}>Delete formula</button>
+        <small>Enter to edit · Delete to remove</small>
+      </div> : null}
       {pendingReviewItems.length ? (
         <div className="discussionPendingReview" role="status">
           <span>
@@ -487,10 +494,10 @@ export function DiscussionMarkdownSurfaceImpl({
           setSourceDraft(event.target.value);
           emittedMarkdownRef.current = event.target.value;
           onChangeRef.current?.(event.target.value);
-        }} spellCheck={false} /> : <EditorContent editor={activeEditor} />}
+        }} spellCheck={false} /> : <div inert={Boolean(formulaDraft)}><EditorContent editor={activeEditor} /></div>}
       {saveError ? <p role="alert" className="editorSaveError">{saveError}</p> : null}
       {editable && showActions ? (
-        <footer className="discussionEditorActions">
+        <footer inert={Boolean(formulaDraft)} className="discussionEditorActions">
           <button className="commandButton" disabled={saving} onClick={() => void save()} type="button">
             <Save size={13} />
             {saving ? "Saving…" : "Save"}
@@ -509,12 +516,13 @@ export function DiscussionMarkdownSurfaceImpl({
         >
           <label>
             <span>Edit {formulaDraft.kind} formula</span>
-            {formulaDraft.position === undefined ? <select aria-label="Formula layout" value={formulaDraft.kind}
+            <select aria-label="Formula layout" value={formulaDraft.kind}
               onChange={event => setFormulaDraft({...formulaDraft, kind: event.target.value as "inline" | "block"})}>
               <option value="inline">Inline</option><option value="block">Display</option>
-            </select> : null}
+            </select>
             <textarea
               rows={3}
+              aria-label="Formula LaTeX"
               autoFocus
               onChange={(event) =>
                 setFormulaDraft((current) =>
@@ -531,12 +539,20 @@ export function DiscussionMarkdownSurfaceImpl({
               value={formulaDraft.latex}
             />
           </label>
-          <button onClick={applyFormula} type="button">
+          <div className="formulaLivePreview" aria-label="Formula preview" dangerouslySetInnerHTML={{__html: katex.renderToString(formulaDraft.latex, {throwOnError: false, displayMode: formulaDraft.kind === "block"})}} />
+          {formulaError ? <p role="alert">{formulaError}</p> : null}
+          <button type="button" onClick={() => setFormulaDraft({...formulaDraft, kind: formulaDraft.kind === "block" ? "inline" : "block"})}>
+            {formulaDraft.kind === "block" ? "To inline" : "To display"}
+          </button>
+          <button disabled={!formulaDraft.latex.trim() || Boolean(formulaError)} onClick={applyFormula} type="button">
             Apply
           </button>
           <button onClick={() => setFormulaDraft(null)} type="button">
             Cancel
           </button>
+          {formulaDraft.position !== undefined ? <button type="button" onClick={() => {
+            activeEditor.chain().focus().setNodeSelection(formulaDraft.position!).deleteSelection().run(); setFormulaDraft(null);
+          }}>Delete formula</button> : null}
         </div>
       ) : null}
       {reviewSelection ? (

@@ -1,5 +1,19 @@
 # Tracker feature and maintenance log
 
+## 2026-09-20 — selectable formulas and persistent box highlights
+
+- Formulas select on click; Enter/double-click opens a previewing LaTeX editor.
+  Delete/Backspace and explicit Delete remove them; To inline / To display and
+  undo preserve prose and colours. Unsupported table/blank-line conversions
+  explain why they cannot be applied.
+- Highlights cover rendered formulas (including `\boxed`), inline code, and
+  whole code/display-math blocks. Block colours use an ignorable
+  `<!-- note-highlight:yellow -->` comment immediately before the block; no DB
+  migration. Mixed selections use one transaction; integrity checks include
+  block colours. Code fences containing backticks now survive serialization.
+- Validation: all 225 frontend tests (43 editor/integrity), TypeScript and ESLint. Architecture,
+  syntax and remaining limits: [editor audit](editor-audit-2026-09.md).
+
 ## 2026-09-20 — prioritize QA answers and tame follow-ups
 
 - Tutor answers now receive conservative Core/High/Medium/Low badges from
