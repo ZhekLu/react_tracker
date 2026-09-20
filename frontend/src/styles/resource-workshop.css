@@ -2851,9 +2851,8 @@
 .discussionRichSurface .noteMath.ProseMirror-selectednode { outline: 2px solid #4482b5; outline-offset: 3px; }
 .discussionRichSurface mark code { background: transparent; }
 .discussionRichSurface pre[data-block-highlight] code,
-.discussionRichSurface pre[data-block-highlight] .hljs-comment,
-.discussionRichSurface pre[data-block-highlight] .hljs-quote { color: #17251f; }
-.formulaSelectionActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; background: var(--blue-soft); border-radius: 8px; margin-bottom: 10px; }
+.discussionRichSurface pre[data-block-highlight] code [class] { color: #17251f; }
+.formulaSelectionActions { display: flex; flex-basis: 100%; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; background: var(--blue-soft); border-radius: 8px; }
 .formulaSelectionActions button { border: 1px solid var(--line); border-radius: 5px; padding: 4px 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
 .formulaSelectionActions small { color: var(--ink-soft); }
 .formulaLivePreview { width: 100%; padding: 12px; overflow: auto; background: var(--surface); }
@@ -3301,6 +3300,9 @@
 }
 
 .discussionFormulaComposer {
+  flex-wrap: wrap;
+  max-height: 80vh;
+  overflow-y: auto;
   position: fixed;
   right: max(18px, env(safe-area-inset-right));
   bottom: max(18px, env(safe-area-inset-bottom));
@@ -3312,6 +3314,9 @@
   box-shadow: 0 18px 54px rgba(18, 43, 37, 0.22);
   backdrop-filter: blur(12px);
 }
+
+.discussionFormulaComposer > label { flex-basis: 100%; }
+.discussionFormulaComposer > .formulaLivePreview { flex-basis: 100%; }
 
 @media (max-width: 640px) {
   .discussionFormulaComposer {

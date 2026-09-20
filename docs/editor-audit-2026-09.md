@@ -129,8 +129,11 @@ libraries would not remove Markdown's limits. No database migration is needed.
   attaches it to an immediately following complete math/code block. Generic
   Markdown readers ignore the comment and still show the content. This small
   tracker extension is necessary because ordinary Markdown has no block colours.
-  Existing discussion review annotations remain available; visual colour no
-  longer depends on them. Integrity checks compare block colours as well.
+  Existing discussion review annotations remain available; new highlights use
+  the document alone, preventing duplicate or stale queued annotations after
+  recolouring/removing a highlight. Highlights-only excerpts include coloured
+  blocks and ignore literal delimiter strings inside code/math. Integrity checks
+  compare block colours as well.
 - **Conversion:** inline-to-display splits the paragraph around the formula;
   display-to-inline creates a normal paragraph. Surrounding prose, LaTeX and
   highlights survive; conversion uses one undoable document transaction.
@@ -144,6 +147,10 @@ libraries would not remove Markdown's limits. No database migration is needed.
 Verification includes real-editor repeated save/reopen, mixed text/code/math
 selections, nested lists/quotes, recolouring, undo, multiline conversion, table
 guards, clicked-atom deletion, double-click editing, preview and cancellation.
+Browser checks confirm boxed formula and code-block colours, conversion,
+Delete/Undo, and the responsive formula dialog. Formula actions stay with the
+toolbar; a dialog refuses Apply/Delete if an external source edit replaced its
+original formula. Code token colours remain readable on the highlight background.
 
 Remaining scope: highlights apply to an entire formula, not individual KaTeX
 glyphs; code blocks highlight as a whole. Advanced raw HTML, footnotes, arbitrary

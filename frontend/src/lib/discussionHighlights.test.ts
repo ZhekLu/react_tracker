@@ -5,6 +5,20 @@ import {
 } from "./discussionHighlights";
 
 describe("discussion highlight excerpts", () => {
+  it('includes coloured display/code blocks in highlights-only mode, including nested blocks', () => {
+    const source = '## Boxes\n\n<!-- note-highlight:blue -->\n\n$$\n\\boxed{x=1}\n$$\n\n> <!-- note-highlight:yellow -->\n>\n> ```text\n> ==literal==\n> ```';
+    const excerpts = discussionHighlights(source);
+    expect(excerpts).toHaveLength(2);
+    expect(excerpts.map(item => item.color)).toEqual(['secondary', 'primary']);
+    expect(excerpts[0].markdown).toBe('$$\n\\boxed{x=1}\n$$');
+    expect(excerpts[1].markdown).toBe('```text\n==literal==\n```');
+    expect(discussionHighlightsMarkdown(source)).toContain('note-highlight:blue');
+    expect(discussionHighlights(source.replace(/<!-- note-highlight:\w+ -->/g, ''))).toEqual([]);
+  });
+  it('ignores literal delimiters inside formulas and inline code while retaining their outer highlight', () => {
+    expect(discussionHighlights('`==literal==` and $a==b$.')).toEqual([]);
+    expect(discussionHighlights('Compare ==$a==b$== here.')[0].markdown).toBe('$a==b$');
+  });
   it("keeps the surrounding paragraph in highlights-only mode", () => {
     const markdown = [
       "Before paragraph.",

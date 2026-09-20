@@ -40,11 +40,12 @@ export function selectedFormula(editor: Editor) {
   if (!(selection instanceof NodeSelection)) return null;
   const {node, from} = selection;
   if (node.type.name !== "inlineMath" && node.type.name !== "blockMath") return null;
-  return {kind: node.type.name === "inlineMath" ? "inline" as const : "block" as const,
-    latex: String(node.attrs.latex), position: from};
+  const kind = node.type.name === "inlineMath" ? "inline" as const : "block" as const;
+  return {kind, latex: String(node.attrs.latex), position: from, originalKind: kind, originalLatex: String(node.attrs.latex)};
 }
 
 export function formulaLayoutError(editor: Editor, position: number, kind: "inline" | "block", latex: string) {
+  if (position < 0 || position > editor.state.doc.content.size) return "The document changed. Close and reopen the formula editor.";
   const $pos = editor.state.doc.resolve(position);
   const inTable = Array.from({length: $pos.depth + 1}, (_, depth) => $pos.node(depth).type.name)
     .some(type => type === "tableCell" || type === "tableHeader");
@@ -56,9 +57,9 @@ export function formulaLayoutError(editor: Editor, position: number, kind: "inli
 
 /** Replace in place using ProseMirror's schema-aware fitting, including list/table cells. */
 export function changeFormula(editor: Editor, position: number, kind: "inline" | "block", latex: string) {
+  if (formulaLayoutError(editor, position, kind, latex)) return false;
   const node = editor.state.doc.nodeAt(position);
   if (!node || !["inlineMath", "blockMath"].includes(node.type.name) || !latex.trim()) return false;
-  if (formulaLayoutError(editor, position, kind, latex)) return false;
   const type = editor.schema.nodes[kind === "inline" ? "inlineMath" : "blockMath"];
   const tr = editor.state.tr;
   if (node.type === type) tr.setNodeMarkup(position, type, {...node.attrs, latex: latex.trim()}, node.marks);

@@ -34,6 +34,16 @@ function Controlled() {
 }
 
 describe('controlled editor lifecycle', () => {
+  it('refuses a stale formula dialog after the document is replaced externally', async () => {
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown={'Before $x$ after.'}/>));
+    await act(async () => host.querySelector('[data-type="inline-math"]')!.dispatchEvent(new MouseEvent('dblclick', {bubbles: true})));
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown={'$y$'}/>));
+    expect(host.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain('document changed');
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')];
+    expect(buttons.find(button => button.textContent === 'Apply')?.disabled).toBe(true);
+    expect(buttons.find(button => button.textContent === 'Delete formula')?.disabled).toBe(true);
+    expect(state.editor!.getMarkdown()).toBe('$y$');
+  });
   it('selects a clicked formula, highlights its rendered box, and deletes it with the keyboard', async () => {
     await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown={'Before $x$ after.'} />));
     const formula = host.querySelector<HTMLElement>('[data-type="inline-math"]')!;

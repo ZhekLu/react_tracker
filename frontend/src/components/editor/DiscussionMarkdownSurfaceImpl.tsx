@@ -1,4 +1,4 @@
-import { EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import {
   Bold, Italic, Heading2, List, ListOrdered, Quote, Undo2, Redo2, Code2, Sigma,
   CornerDownLeft,
@@ -25,6 +25,8 @@ type FormulaDraft = {
   kind: "inline" | "block";
   latex: string;
   position?: number;
+  originalKind?: "inline" | "block";
+  originalLatex?: string;
 };
 
 type ReviewSelection = {
@@ -116,7 +118,7 @@ export function DiscussionMarkdownSurfaceImpl({
   const extensions = useMemo(
     () =>
       discussionEditorExtensions((kind, latex, position) => {
-        if (editable) setFormulaDraft({ kind, latex, position });
+        if (editable) setFormulaDraft({ kind, latex, position, originalKind: kind, originalLatex: latex });
       }, placeholder),
     [editable, placeholder],
   );
@@ -146,6 +148,8 @@ export function DiscussionMarkdownSurfaceImpl({
     [editable, placeholder],
   );
 
+  useEditorState({editor, selector: state => state.editor?.state.doc});
+
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
@@ -170,7 +174,9 @@ export function DiscussionMarkdownSurfaceImpl({
 
   if (!editor) return null;
   const activeEditor = editor;
-  const formulaError = formulaDraft ? formulaLayoutError(activeEditor, formulaDraft.position ?? activeEditor.state.selection.from, formulaDraft.kind, formulaDraft.latex) : "";
+  const draftNode = formulaDraft?.position !== undefined && formulaDraft.position <= activeEditor.state.doc.content.size ? activeEditor.state.doc.nodeAt(formulaDraft.position) : null;
+  const staleFormula = formulaDraft?.position !== undefined && (draftNode?.attrs.latex !== formulaDraft.originalLatex || draftNode?.type.name !== `${formulaDraft.originalKind}Math`);
+  const formulaError = staleFormula ? "The document changed. Close and reopen the formula editor." : formulaDraft ? formulaLayoutError(activeEditor, formulaDraft.position ?? activeEditor.state.selection.from, formulaDraft.kind, formulaDraft.latex) : "";
   const conversionError = formulaSelection ? formulaLayoutError(activeEditor, formulaSelection.position!, formulaSelection.kind === "block" ? "inline" : "block", formulaSelection.latex) : "";
 
   async function save() {
@@ -275,22 +281,6 @@ export function DiscussionMarkdownSurfaceImpl({
     });
   }
 
-  function queueStructuredHighlight(
-    selection: ReviewSelection,
-    color: "primary" | "secondary",
-  ) {
-    queueReviewItem({
-      color,
-      contextAfter: selection.contextAfter,
-      contextBefore: selection.contextBefore,
-      fromPosition: selection.fromPosition,
-      kind: "highlight",
-      markdown: selection.structuredMarkdown,
-      quote: selection.structuredMarkdown,
-      toPosition: selection.toPosition,
-    });
-  }
-
   function highlightTextInsideSelection(
     selection: ReviewSelection,
     color: string,
@@ -312,9 +302,6 @@ export function DiscussionMarkdownSurfaceImpl({
     const selection = selectionDetails();
     if (selection) highlightTextInsideSelection(selection, color);
     else {highlightSelection(activeEditor, color); activeEditor.commands.focus();}
-    if (reviewMode && selection?.structured) {
-      queueStructuredHighlight(selection, secondary ? "secondary" : "primary");
-    }
     setLastShortcut(secondary ? "secondary" : "primary");
   }
 
@@ -457,8 +444,6 @@ export function DiscussionMarkdownSurfaceImpl({
           <button type="button" className="discussionSourceToggle" aria-pressed={sourceMode} onClick={toggleSourceMode}>
             {sourceMode ? "Visual editor" : "Markdown"}
           </button>
-        </header>
-      ) : null}
       {editable && formulaSelection && !sourceMode && !formulaDraft ? <div className="formulaSelectionActions" aria-label="Selected formula">
         <span>{formulaSelection.kind === "block" ? "Display" : "Inline"} formula selected</span>
         <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => setFormulaDraft(formulaSelection)}>Edit formula</button>
@@ -467,6 +452,8 @@ export function DiscussionMarkdownSurfaceImpl({
         <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => activeEditor.chain().focus().deleteSelection().run()}>Delete formula</button>
         <small>Enter to edit · Delete to remove</small>
       </div> : null}
+        </header>
+      ) : null}
       {pendingReviewItems.length ? (
         <div className="discussionPendingReview" role="status">
           <span>
@@ -550,7 +537,7 @@ export function DiscussionMarkdownSurfaceImpl({
           <button onClick={() => setFormulaDraft(null)} type="button">
             Cancel
           </button>
-          {formulaDraft.position !== undefined ? <button type="button" onClick={() => {
+          {formulaDraft.position !== undefined ? <button type="button" disabled={staleFormula} onClick={() => {
             activeEditor.chain().focus().setNodeSelection(formulaDraft.position!).deleteSelection().run(); setFormulaDraft(null);
           }}>Delete formula</button> : null}
         </div>

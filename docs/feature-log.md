@@ -1,5 +1,16 @@
 # Tracker feature and maintenance log
 
+## 2026-09-20 — formula controls and highlight excerpt consistency
+
+- Formula actions stay with the toolbar; the preview dialog wraps and scrolls
+  on small windows. Stale dialogs refuse Apply/Delete after external document
+  replacement. Highlighted code uses readable dark text.
+- New review highlights live in the document, avoiding stale duplicate queued
+  annotations when recolouring/removing them. Highlights-only excerpts include
+  code/math blocks and ignore literal marker strings inside code and formulas.
+- Validation: 15 focused React/excerpt tests, TypeScript/ESLint; browser checks
+  for boxed highlighting, conversion, keyboard deletion/undo and code colours.
+
 ## 2026-09-20 — selectable formulas and persistent box highlights
 
 - Formulas select on click; Enter/double-click opens a previewing LaTeX editor.
