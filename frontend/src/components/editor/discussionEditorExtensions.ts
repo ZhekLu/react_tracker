@@ -50,7 +50,7 @@ const TutorReviewBoundary = Node.create({
   renderMarkdown: node => `<!-- ${node.attrs?.end ? "/" : ""}tutor-review:${node.attrs?.reviewId} -->`,
   parseMarkdown: token => ({type: "tutorReviewBoundary", attrs: {reviewId: token.reviewId, end: token.end}}),
   markdownTokenizer: {name: "tutorReviewBoundary", level: "block",
-    start: source => source.search(/<!-- \/?tutor-review:/),
+    start: source => source.search(/^<!-- \/?tutor-review:/m),
     tokenize(source) {
       const match = source.match(/^<!-- (\/)?tutor-review:([a-zA-Z0-9-]+) -->[ \t]*(?:\n|$)/);
       return match ? {type: "tutorReviewBoundary", raw: match[0], reviewId: match[2], end: Boolean(match[1])} : undefined;
@@ -267,9 +267,9 @@ export function discussionEditorExtensions(
       name: "blockMath", level: "block",
       // A start hint must identify a complete token. Hinting at an orphan $$
       // makes Marked split a prose paragraph even when tokenize rejects it.
-      start: (source: string) => source.search(/(?<!\\)\$\$(?:\\.|[^$\\])+\$\$/),
+      start: (source: string) => source.search(/^ {0,3}\$\$(?:\\.|[^$\\])+\$\$(?=[ \t]*(?:\n|$))/m),
       tokenize(source: string) {
-        const match = source.match(/^\$\$((?:\\.|[^$\\])+)\$\$/);
+        const match = source.match(/^ {0,3}\$\$((?:\\.|[^$\\])+)\$\$(?=[ \t]*(?:\n|$))/);
         return match ? {type: "blockMath", raw: match[0], latex: match[1].trim()} : undefined;
       },
     }}).configure({

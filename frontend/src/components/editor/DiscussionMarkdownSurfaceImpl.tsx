@@ -94,6 +94,7 @@ export function DiscussionMarkdownSurfaceImpl({
   reviewMode = false,
   initialReviewItems = [],
   showActions = true,
+  showSourceToggle = true,
 }: DiscussionMarkdownSurfaceProps) {
   const surfaceRef = useRef<HTMLElement | null>(null);
   const receivedMarkdownRef = useRef(markdown);
@@ -441,9 +442,9 @@ export function DiscussionMarkdownSurfaceImpl({
               onClick={() => { setFollowupDraft(""); setReviewSelection(selectionDetails()); }}
               title="Select text, then ask a follow-up (⌘D)"><MessageCircleQuestion size={14} /> Ask</button> : null}
           </> : <span>Edit original Markdown and LaTeX</span>}
-          <button type="button" className="discussionSourceToggle" aria-pressed={sourceMode} onClick={toggleSourceMode}>
+          {showSourceToggle ? <button type="button" className="discussionSourceToggle" aria-pressed={sourceMode} onClick={toggleSourceMode}>
             {sourceMode ? "Visual editor" : "Markdown"}
-          </button>
+          </button> : null}
       {editable && formulaSelection && !sourceMode && !formulaDraft ? <div className="formulaSelectionActions" aria-label="Selected formula">
         <span>{formulaSelection.kind === "block" ? "Display" : "Inline"} formula selected</span>
         <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => setFormulaDraft(formulaSelection)}>Edit formula</button>

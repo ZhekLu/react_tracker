@@ -19,7 +19,7 @@ export const BlockHighlights = Extension.create({
   },
   markdownTokenizer: {
     name: "noteBlockHighlight", level: "block",
-    start: source => source.search(/<!-- note-highlight:(?:yellow|blue|question|todo) -->/),
+    start: source => source.search(/^<!-- note-highlight:(?:yellow|blue|question|todo) -->/m),
     tokenize(source, _tokens, lexer) {
       const prefix = source.match(/^<!-- note-highlight:(yellow|blue|question|todo) -->\n[ \t]*\n/);
       if (!prefix) return;

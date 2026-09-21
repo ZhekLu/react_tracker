@@ -97,8 +97,8 @@ Final checks:
 - Historical content already damaged by an earlier save cannot always be
   reconstructed. The follow-up [insert diagnostics and repair audit](editor-debug-and-repairs.md)
 checked 670 current documents and repaired 24 in place with backups and history.
-- Vite still reports the large shared-editor chunk (about 719 kB minified,
-  224 kB gzip). It is lazy-loaded. Further bundle reduction and virtualization of
+- Vite still reports the large shared-editor chunk (about 731 kB minified,
+  229 kB gzip after September 21). It is lazy-loaded. Further bundle reduction and virtualization of
   very long open discussions remain performance work, separate from the data
   integrity fixes.
 
@@ -158,3 +158,25 @@ embeds and rich multiline table cells still exceed the supported visual schema.
 Source mode is an escape hatch, not a promise that unsupported syntax will
 survive switching to visual mode. No replacement architecture can promise full
 arbitrary Markdown/LaTeX fidelity without a source-first editing contract.
+
+## September 21 — first-parse fidelity and the writing playground
+
+The writing guide's first visual render exposed a distinct failure: a display
+math tokenizer start hint found dollar pairs inside an inline code example and
+split its prose paragraph. Restricting block math and metadata hints to block
+line boundaries fixes this without changing inline math syntax. A regression
+checks the initial document against the source's intended structure; the actual
+guide must contain no math nodes because its math syntax is shown as literal
+code. Save/reopen tests alone cannot detect a mistake already made during the
+first parse. That is a limit of the automatic Debug check, now also stated in
+the guide.
+
+The [writing guide](editor-guide.md) and [course-note example](course-note-example.md)
+are available in **Debug → Note playground** with editable Markdown and visual
+panes, local practice-draft retention, downloads and integrity checks. No study
+documents are migrated or edited by the playground.
+
+Final validation: 233 frontend tests pass, plus TypeScript, ESLint and the
+production build. Desktop and narrow-window browser checks cover the playground,
+literal guide rendering, the worker check, formula conversion/selection/deletion,
+undo, boxed highlights and code-block highlights.

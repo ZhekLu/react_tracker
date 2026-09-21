@@ -18,6 +18,16 @@ function editor(markdown: string) {
 }
 
 describe('editor document integrity', () => {
+  it('does not let block-token hints break paragraphs containing literal formula or metadata syntax', () => {
+    const source = 'Write `$x$` or `$$x$$` in source. Keep `<!-- note-highlight:yellow -->` and `<!-- tutor-review:abc -->` literal.\n\n$$\nx=1\n$$';
+    const e = editor(source);
+    expect(nodes(e.getJSON(), 'blockMath')).toHaveLength(1);
+    expect(nodes(e.getJSON(), 'inlineMath')).toHaveLength(0);
+    expect(nodes(e.getJSON(), 'tutorReviewBoundary')).toHaveLength(0);
+    expect(e.getJSON().content?.[0].type).toBe('paragraph');
+    expect(e.state.doc.child(0).textContent).toBe('Write $x$ or $$x$$ in source. Keep <!-- note-highlight:yellow --> and <!-- tutor-review:abc --> literal.');
+    e.destroy();
+  });
   it('parses marks in loose lists instead of escaping their literal source on every save', () => {
     const source = '1. **Why $\\pi_\\theta$ matters.**\n\n   Another paragraph.\n\n2. **Next** $G_t$.\n\n   $$\n   x=1\n   $$';
     let e = editor(source);

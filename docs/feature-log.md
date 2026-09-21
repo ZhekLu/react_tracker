@@ -1,5 +1,15 @@
 # Tracker feature and maintenance log
 
+## 2026-09-21 — preserve literal math syntax on the first parse
+
+- Display-math and metadata token hints now start only at block boundaries.
+  Inline-code examples such as `$$…$$` no longer split prose into fake formulas.
+- Validation checks the intended initial document, including a literal guide
+  with zero formula nodes, as well as repeated save/reopen. The automatic Debug
+  check cannot by itself detect corruption already present in the first parse.
+  All 233 frontend tests, TypeScript, ESLint and the production build pass;
+  the guide's corrected first render was verified in the browser.
+
 ## 2026-09-20 — text-only PDF highlights remain questions
 
 - Question-colour text highlights now import as questions with their extracted
@@ -9,6 +19,23 @@
   annotation IDs or stable question identities.
 - Validation: local and Drawboard connector regressions cover text questions,
   screenshot suppression and ID-preserving repair; the full backend suite passes.
+
+## 2026-09-20 — course-note guide and practice workspace
+
+- **Debug → Note playground** provides Markdown beside the shared visual editor
+  (stacked on narrow screens), a realistic editable course note, an in-app guide,
+  `.md` downloads and a save/reopen integrity check. Visual edits update source;
+  Apply Markdown explicitly parses source edits without reparsing partial input.
+- Practice drafts persist in local browser storage, including unapplied source;
+  browser-storage failures are visible. Load example/Start blank can be undone.
+  This workspace does not change course notes or create Q&A records.
+- [Writing guide](editor-guide.md) covers prose, supported Markdown extensions,
+  LaTeX, boxes, highlights, code, tables, checklists, images and tutor workflows.
+  [Course-note example](course-note-example.md) exercises the supported features.
+- Validation completed September 21: all 233 frontend tests, ESLint, TypeScript
+  and production build; actual guide/example integrity checks, React tests for
+  apply/echo/reset/draft retention, and desktop/narrow-window browser checks.
+  The browser worker successfully checks the complete example.
 
 ## 2026-09-20 — formula controls and highlight excerpt consistency
 

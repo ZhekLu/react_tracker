@@ -2,7 +2,7 @@ import { Editor, type JSONContent } from "@tiptap/core";
 import { renderToString } from "katex";
 import { discussionEditorExtensions } from "../components/editor/discussionEditorExtensions";
 
-export const EDITOR_PARSER_VERSION = "tiptap-3.27.0/tracker-block-highlights-v4";
+export const EDITOR_PARSER_VERSION = "tiptap-3.27.0/tracker-block-boundaries-v5";
 
 export function noteContentType(value: string): "html" | "markdown" {
   return /^\s*<(?:p|h[1-6]|ul|ol|pre|blockquote)\b/i.test(value) ? "html" : "markdown";

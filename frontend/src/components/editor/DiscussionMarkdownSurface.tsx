@@ -16,6 +16,7 @@ export type DiscussionMarkdownSurfaceProps = {
   reviewMode?: boolean;
   initialReviewItems?: DiscussionReviewItem[];
   showActions?: boolean;
+  showSourceToggle?: boolean;
 };
 
 const DiscussionMarkdownSurfaceImpl = lazy(() =>
