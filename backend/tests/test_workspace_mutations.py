@@ -2339,6 +2339,33 @@ Stop when: both chapter scopes are reviewed. {#day01-stop}
     assert len(book.annotations) == 2
 
 
+def test_discussion_priority_persists_and_syncs_logical_captures(tmp_path: Path) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    with transaction() as connection:
+        captures = [create_annotation(connection, AnnotationCreateCommand(
+            resource_id=resource_id, kind="question", markdown=f"Capture {index}",
+            anchor=AnnotationAnchorCreate(metadata={"contextGroupId": "priority-group"}),
+        )) for index in (1, 2)]
+    for value in ("core", "medium", "low", "high", "auto"):
+        with transaction() as connection:
+            question = next(a for a in get_workspace(connection, course_id).annotations if a.id == captures[0].id)
+            update_annotation(connection, question.id, AnnotationCommand(
+                revision=question.revision, discussion_priority=value,
+            ))
+        with transaction() as connection:
+            saved = [a for a in get_workspace(connection, course_id).annotations if a.id in {c.id for c in captures}]
+            assert len(saved) == 2
+            assert {a.discussion_priority for a in saved} == {value}
+            assert {a.priority for a in saved} == {"normal"}
+    with pytest.raises(WorkspaceRepositoryError):
+        with transaction() as connection:
+            update_annotation(connection, captures[0].id, AnnotationCommand(
+                revision=1, discussion_priority="core",
+            ))
+    with transaction() as connection:
+        assert {a.discussion_priority for a in get_workspace(connection, course_id).annotations if a.id in {c.id for c in captures}} == {"auto"}
+
+
 def test_postponed_question_groups_leave_active_counts_without_losing_state(
     tmp_path: Path,
 ) -> None:

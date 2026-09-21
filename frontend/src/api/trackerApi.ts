@@ -114,6 +114,7 @@ type ApiAnnotation = {
   postponed: boolean;
   skipped?: boolean;
   priority: "low" | "normal" | "high";
+  discussion_priority?: Annotation["discussionPriority"];
   origin: string;
   revision: number;
   body?: ApiDocumentContent | null;
@@ -791,6 +792,7 @@ function annotation(api: ApiAnnotation): Annotation {
     postponed: api.postponed,
     skipped: api.skipped ?? false,
     priority: api.priority,
+    discussionPriority: api.discussion_priority,
     origin: api.origin,
     revision: api.revision,
     body: api.body ? documentContent(api.body) : null,
@@ -1227,6 +1229,7 @@ export async function updateAnnotation(
     postponed?: boolean;
     skipped?: boolean;
     priority?: "low" | "normal" | "high";
+    discussionPriority?: Annotation["discussionPriority"];
     markdown?: string;
     plainText?: string;
     documentRevision?: number;
@@ -1240,6 +1243,7 @@ export async function updateAnnotation(
       postponed: changes.postponed,
       skipped: changes.skipped,
       priority: changes.priority,
+      discussion_priority: changes.discussionPriority,
       markdown: changes.markdown,
       plain_text: changes.plainText,
       document_revision: changes.documentRevision,

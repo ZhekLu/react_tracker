@@ -1606,6 +1606,7 @@ export function App() {
       postponed?: boolean;
       skipped?: boolean;
       priority?: Course["annotations"][number]["priority"];
+      discussionPriority?: Course["annotations"][number]["discussionPriority"];
       markdown?: string;
       plainText?: string;
       documentRevision?: number;

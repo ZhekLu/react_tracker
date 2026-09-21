@@ -1,4 +1,5 @@
 import { StudyPassProgress } from "../../components/StudyPassProgress";
+import { trackedQuestionGroups } from "../../lib/questionIdentity";
 import { sourcePageSnapshot } from "../../lib/annotationSnapshots";
 import {
   Archive,
@@ -94,6 +95,7 @@ type DiscussionQaReviewProps = {
       postponed?: boolean;
       skipped?: boolean;
       priority?: Annotation["priority"];
+      discussionPriority?: Annotation["discussionPriority"];
       markdown?: string;
       plainText?: string;
       documentRevision?: number;
@@ -1291,20 +1293,18 @@ export function DiscussionQaReview({
                       <select
                         aria-label="Question priority"
                         onChange={(event) => {
-                          const priority = event.target.value as Annotation["priority"];
-                          activeRootQuestions.forEach((question) =>
-                            onAnnotationChange(question, { priority }),
+                          const discussionPriority = event.target.value as Annotation["discussionPriority"];
+                          trackedQuestionGroups(activeRootQuestions).forEach((group) =>
+                            onAnnotationChange(group.annotations[0], { discussionPriority }),
                           );
                         }}
-                        title="Set your priority; tutor priority language is detected automatically"
-                        value={
-                          activeSavedPriority === "medium"
-                            ? "normal"
-                            : activeSavedPriority
-                        }
+                        title="Auto follows the tutor’s wording. Your choice overrides it everywhere."
+                        value={activeSavedPriority}
                       >
+                        <option value="auto">Auto · tutor guidance</option>
+                        <option value="core">Core</option>
                         <option value="high">High</option>
-                        <option value="normal">Medium</option>
+                        <option value="medium">Medium</option>
                         <option value="low">Low</option>
                       </select>
                     </label>

@@ -128,6 +128,7 @@ export type Annotation = {
   postponed: boolean;
   skipped?: boolean;
   priority: "low" | "normal" | "high";
+  discussionPriority?: "auto" | "core" | "high" | "medium" | "low" | null;
   origin: string;
   revision: number;
   body?: DocumentContent | null;

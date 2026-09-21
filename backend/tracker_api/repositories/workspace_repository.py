@@ -385,7 +385,7 @@ def _annotations(
         """
         SELECT
           a.id, qi.readable_label AS stable_label,
-          a.resource_id, a.body_document_id, a.kind, a.status, a.priority,
+          a.resource_id, a.body_document_id, a.kind, a.status, a.priority, a.discussion_priority,
           a.origin, a.postponed_at, a.skipped_at, a.created_at, a.updated_at, a.revision,
           aa.anchor_type, aa.quote, aa.section_title, aa.source_line_start,
           aa.source_line_end, aa.page_number, aa.rect_json, aa.color,
@@ -431,6 +431,7 @@ def _annotations(
             postponed=row["postponed_at"] is not None,
             skipped=row["skipped_at"] is not None,
             priority=cast(Any, row["priority"]),
+            discussion_priority=cast(Any, row["discussion_priority"]),
             origin=str(row["origin"]),
             revision=int(row["revision"]),
             body=(
@@ -1980,6 +1981,7 @@ def _sync_question_identity_state(
         for value in (
             command.status,
             command.priority,
+            command.discussion_priority,
             command.postponed,
             command.skipped,
         )
@@ -2000,6 +2002,7 @@ def _sync_question_identity_state(
             UPDATE annotations
             SET status = COALESCE(:status, status),
                 priority = COALESCE(:priority, priority),
+                discussion_priority = COALESCE(:discussion_priority, discussion_priority),
                 answered_at = CASE
                   WHEN :status = 'answered' THEN :now
                   ELSE answered_at
@@ -2036,6 +2039,7 @@ def _sync_question_identity_state(
             "question_identity_id": str(identity_id),
             "status": command.status,
             "priority": command.priority,
+            "discussion_priority": command.discussion_priority,
             "postponed": command.postponed,
             "skipped": command.skipped,
             "now": timestamp,
@@ -2075,6 +2079,7 @@ def update_annotation(
         "kind = COALESCE(:kind, kind)",
         "status = COALESCE(:status, status)",
         "priority = COALESCE(:priority, priority)",
+        "discussion_priority = COALESCE(:discussion_priority, discussion_priority)",
         "answered_at = CASE WHEN :status = 'answered' THEN :now ELSE answered_at END",
         "archived_at = CASE WHEN :status = 'archived' THEN :now ELSE archived_at END",
         """postponed_at = CASE
@@ -2104,6 +2109,7 @@ def update_annotation(
             "kind": command.kind,
             "status": command.status,
             "priority": command.priority,
+            "discussion_priority": command.discussion_priority,
             "postponed": command.postponed,
             "skipped": command.skipped,
             "now": now,

@@ -121,6 +121,7 @@ type DiscussionsViewProps = {
       postponed?: boolean;
       skipped?: boolean;
       priority?: Annotation["priority"];
+      discussionPriority?: Annotation["discussionPriority"];
       markdown?: string;
       plainText?: string;
       documentRevision?: number;

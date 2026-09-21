@@ -76,6 +76,7 @@ class Annotation(StrictModel):
     postponed: bool = False
     skipped: bool = False
     priority: Literal["low", "normal", "high"]
+    discussion_priority: Literal["auto", "core", "high", "medium", "low"] | None = None
     origin: str
     revision: int
     body: DocumentContent | None = None
@@ -532,6 +533,7 @@ class AnnotationCommand(RevisionCommand):
     postponed: bool | None = None
     skipped: bool | None = None
     priority: Literal["low", "normal", "high"] | None = None
+    discussion_priority: Literal["auto", "core", "high", "medium", "low"] | None = None
     markdown: str | None = None
     plain_text: str | None = None
     document_revision: int | None = Field(default=None, ge=1)

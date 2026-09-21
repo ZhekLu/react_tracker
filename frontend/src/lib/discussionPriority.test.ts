@@ -20,6 +20,21 @@ describe("discussion priority", () => {
   it("lets an explicit saved priority override tutor inference", () => {
     expect(discussionPriority("This is low-priority.", [question("high")])).toBe("high");
     expect(discussionPriority("This is a core concept.", [question()])).toBe("core");
-    expect(discussionPriority("No priority guidance.", [question()])).toBe("medium");
+    expect(discussionPriority("No priority guidance.", [question()])).toBe("unrated");
+  });
+
+  it("recognizes real tutor labels before incidental prose and ignores literal examples", () => {
+    expect(tutorPriorityFromMarkdown("**Priority: VERY CORE.**\n\nA low-priority implementation detail follows.")).toBe("core");
+    expect(tutorPriorityFromMarkdown("Priority: CORE intuition, LOW implementation detail.")).toBe("core");
+    expect(tutorPriorityFromMarkdown("Priority: medium / low")).toBe("medium");
+    expect(tutorPriorityFromMarkdown("~~~text\nPriority: Core\n~~~\n> Priority: High\n\n`Priority: low` $\\text{Priority: high}$")).toBeNull();
+    expect(tutorPriorityFromMarkdown("This is not a core concept.")).toBeNull();
+  });
+
+  it("saves every level including medium and can restore automatic detection", () => {
+    for (const priority of ["core", "high", "medium", "low"] as const) {
+      expect(discussionPriority("Priority: CORE", [{...question(), discussionPriority: priority}])).toBe(priority);
+    }
+    expect(discussionPriority("Priority: LOW", [{...question("high"), discussionPriority: "auto"}])).toBe("low");
   });
 });

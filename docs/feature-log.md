@@ -490,3 +490,8 @@ Keep a concise record of behavior, special handling, known gaps, and validation.
   and PyMuPDF binding deprecation advisories remain.
 - Details and known limits: [PDF collection](pdf-annotation-collection.md) and
   [Zotero integration](zotero-integration.md).
+# 2026-09-21 — Reliable study priorities
+
+- Q&A now saves Core / High / Medium / Low as an explicit study priority; Auto restores tutor detection. Medium can override Core, and legacy capture priorities are preserved. Migration 0028 adds one nullable, validated column; revision checks and logical-question synchronization apply.
+- Tutor labels such as “Priority: VERY CORE” take precedence over incidental details. Mixed labels use their first level; code, math and quotes are excluded. Answers without guidance show Untagged. Detection remains a conservative heuristic, with manual correction always available.
+- Validation: targeted priority detection and persistence tests, including sibling captures and stale-revision rejection; frontend typecheck/lint.
