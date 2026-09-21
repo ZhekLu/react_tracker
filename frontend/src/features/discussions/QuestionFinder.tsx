@@ -4,6 +4,8 @@ import type { Course } from "../../types/tracker";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { buildQuestionIndex, finderSnippet, finderStatusLabels, searchQuestions, type FinderEntry } from "./questionSearchModel";
 import { trackUsage } from "../../lib/usageLog";
+import { importantAnswerNote, studyPreview } from "./discussionStudyModel";
+import { discussionPriority, discussionPriorityLabel, discussionPriorityRank } from "../../lib/discussionPriority";
 import "./question-finder.css";
 
 export function QuestionFinder({course, onOpen, onOpenSource, onPrepare}: {
@@ -14,8 +16,16 @@ export function QuestionFinder({course, onOpen, onOpenSource, onPrepare}: {
   const [sourceId, setSourceId] = useState("");
   const [expanded, setExpanded] = useState("");
   const [limit, setLimit] = useState(30);
+  const [priorityFilter, setPriorityFilter] = useState("all");
   const index = useMemo(() => buildQuestionIndex(course), [course]);
-  const results = useMemo(() => searchQuestions(index, query, status, sourceId), [index, query, status, sourceId]);
+  const priorities = useMemo(() => new Map(index.map(entry => [entry.id, {
+    priority: discussionPriority(entry.answers.map(a => a.section.bodyMarkdown).join("\n\n"), entry.questions),
+    pinned: Boolean(importantAnswerNote(course.notes, entry.questions, entry.answers.map(a => a.section))),
+  }])), [course.notes, index]);
+  const results = useMemo(() => searchQuestions(index, query, status, sourceId)
+    .filter(entry => priorityFilter === "all" || (priorityFilter === "pinned" ? priorities.get(entry.id)?.pinned : priorities.get(entry.id)?.priority === priorityFilter))
+    .sort((a,b) => Number(priorities.get(b.id)!.pinned) - Number(priorities.get(a.id)!.pinned) || discussionPriorityRank(priorities.get(b.id)!.priority) - discussionPriorityRank(priorities.get(a.id)!.priority)),
+    [index, query, status, sourceId, priorities, priorityFilter]);
   useEffect(() => {
     if (!query.trim()) return;
     const timer = window.setTimeout(() => trackUsage("question.search", {result_count: results.length}), 800);
@@ -33,17 +43,23 @@ export function QuestionFinder({course, onOpen, onOpenSource, onPrepare}: {
       <select aria-label="Question source" value={sourceId} data-track="question.source" onChange={e => {setSourceId(e.target.value); setLimit(30);}}>
         <option value="">All sources</option>{sources.map(r => <option key={r.id} value={r.id}>{r.title}</option>)}
       </select>
+      <select aria-label="Question importance" value={priorityFilter} onChange={e => {setPriorityFilter(e.target.value); setLimit(30);}}>
+        <option value="all">All priorities</option><option value="pinned">Pinned notes</option>
+        {(["core", "high", "medium", "low", "unrated"] as const).map(priority => <option key={priority} value={priority}>{discussionPriorityLabel(priority)}</option>)}
+      </select>
     </div>
     <p className="questionResultCount" role="status">{results.length} {results.length === 1 ? "result" : "results"} · {index.filter(e => e.questions.length && e.status !== "archived").length} active questions in this course</p>
-    {!results.length && <div className="questionFinderEmpty"><h3>No matching questions or answers</h3><p>Try fewer words, another source, or include archived questions.</p><button className="commandButton subtle" onClick={() => {setQuery(""); setStatus("all"); setSourceId("");}}>Clear filters and include archived</button></div>}
+    {!results.length && <div className="questionFinderEmpty"><h3>No matching questions or answers</h3><p>Try fewer words, another source, or include archived questions.</p><button className="commandButton subtle" onClick={() => {setQuery(""); setStatus("all"); setSourceId(""); setPriorityFilter("all");}}>Clear filters and include archived</button></div>}
     <div className="questionResults">{results.slice(0,limit).map(entry => {
       const answer = entry.answers.find(a => query.trim() && a.section.bodyMarkdown.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) ?? entry.answers.at(-1);
       const conversationSource = course.discussions.some(d => d.resourceId === entry.sourceIds[0]);
-      return <article key={entry.id} className="questionResult">
+      const importance = priorities.get(entry.id)!;
+      return <article key={entry.id} className={`questionResult priority-${importance.priority}${importance.pinned ? " isPinned" : ""}`}>
+        <div className="questionPriorityMeta"><span className={`qaPriorityBadge priority-${importance.priority}`}>{discussionPriorityLabel(importance.priority)}</span>{importance.pinned && <span>Pinned study note</span>}</div>
         <div className="questionResultMeta"><strong>{entry.label}</strong><span className={`questionState ${entry.status}`}>{finderStatusLabels[entry.status]}</span><span>{entry.answers.length} {entry.answers.length === 1 ? "response" : "responses"}</span></div>
-        <h3><button data-track="question.preview" aria-expanded={expanded === entry.id} onClick={() => setExpanded(expanded === entry.id ? "" : entry.id)}><MarkdownMath>{finderSnippet(entry.text || entry.context, query) || "Question captured from source"}</MarkdownMath></button></h3>
+        <h3><button data-track="question.preview" aria-expanded={expanded === entry.id} onClick={() => setExpanded(expanded === entry.id ? "" : entry.id)}>{studyPreview(entry.text || entry.context, 180) || "Question captured from source"}</button></h3>
         <p className="questionResultContext">{entry.context}</p>
-        {answer && <div className="questionAnswerPreview"><strong>Answer</strong><MarkdownMath>{finderSnippet(answer.section.bodyMarkdown, query)}</MarkdownMath></div>}
+        {answer && <div className="questionAnswerPreview"><strong>Answer</strong><p>{finderSnippet(answer.section.bodyMarkdown, query)}</p></div>}
         {expanded === entry.id && <div className="questionExpanded"><MarkdownMath>{entry.text || "Open the source to see this capture."}</MarkdownMath></div>}
         <footer>{entry.answers.length ? <button className="commandButton" data-track="question.open_answer" onClick={() => onOpen(entry)}><ArrowUpRight size={14}/>{entry.questions.length ? "Open in Q&A" : "Open response"}</button> : entry.status === "no-response" && !conversationSource ? <button className="commandButton" data-track="question.prepare" title="Copy the pending question queue for this source" onClick={() => onPrepare(entry.sourceIds[0])}>Copy source’s next questions</button> : null}
           {entry.sourceIds[0] && <button className="commandButton subtle" data-track="question.open_source" onClick={() => onOpenSource(entry.sourceIds[0])}><BookOpen size={14}/>{conversationSource ? "Open conversation" : "Open source"}</button>}

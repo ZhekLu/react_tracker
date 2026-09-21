@@ -92,8 +92,8 @@ make dev-api
 make dev-ui
 ```
 
-The development frontend loads courses from the backend API at
-`http://127.0.0.1:8787/api`.
+The frontend uses same-origin `/api`; the development server proxies it to
+`http://127.0.0.1:8787/api`. A separately served preview therefore keeps its own database.
 Use `VITE_TRACKER_API_BASE` only if the API host changes. The active course is
 selected in the compact sidebar dropdown; Roadmap, Resources, Exams, Notes, and
 Discussions all use the same API-owned workspace.

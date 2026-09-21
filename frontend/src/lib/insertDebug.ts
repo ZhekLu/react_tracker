@@ -1,7 +1,7 @@
 import { importPastedMarkdown } from "./discussionImport";
 import { checkEditorInWorker } from "./checkEditorInWorker";
 
-const API_BASE = import.meta.env.VITE_TRACKER_API_BASE ?? "http://127.0.0.1:8787/api";
+const API_BASE = import.meta.env.VITE_TRACKER_API_BASE ?? "/api";
 export type DebugFixture = {title: string; kind: "paste" | "roundtrip"; input: string; expected: string};
 export type InsertSummary = {id: string; created_at: string; source: string; status: "pending" | "incorrect" | "improvement"; feedback: string; checks: string[]; outcome: string};
 export type InsertRecord = InsertSummary & {input: string; parsed: string; serialized: string; reopened: string; location: string; parser_version: string};

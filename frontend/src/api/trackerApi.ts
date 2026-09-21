@@ -33,7 +33,7 @@ import type {
   TodoCounts,
 } from "../types/tracker";
 
-const API_BASE = import.meta.env.VITE_TRACKER_API_BASE ?? "http://127.0.0.1:8787/api";
+const API_BASE = import.meta.env.VITE_TRACKER_API_BASE ?? "/api";
 
 type ApiCourseStats = {
   day_count: number;

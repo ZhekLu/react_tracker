@@ -27,4 +27,10 @@
 .questionResult h3 .markdownMath p { margin:0; }
 .questionAnswerPreview .markdownMath p { margin:4px 0; }
 .questionAnswerPreview .katex-display { margin:0; }
+.questionPriorityMeta { display:flex; align-items:center; gap:9px; margin-bottom:9px; font-size:11px; color:#8358a6; }
+.questionResult.priority-core { border-left:3px solid #b75c77; }
+.questionResult.priority-high { border-left:3px solid #cb9455; }
+.questionResult.priority-medium { border-left:3px solid #7198b3; }
+.questionResult.priority-low { border-left:3px solid #99b3a1; }
+.questionResult.isPinned { border-color:#dfcfee; border-left:3px solid #9771bd; background:#f8f3fc; }
 .questionResult h3, .questionAnswerPreview { max-height:9em; overflow:hidden; }

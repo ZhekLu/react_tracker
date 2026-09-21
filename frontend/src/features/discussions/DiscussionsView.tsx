@@ -1,4 +1,5 @@
 import { QuestionFinder } from "./QuestionFinder";
+import { DiscussionStudyOverview } from "./DiscussionStudyOverview";
 import type { FinderEntry } from "./questionSearchModel";
 import { useMemo, useState, type CSSProperties } from "react";
 import {
@@ -748,7 +749,8 @@ export function DiscussionsView({
   onQuestionLink,
   onQaViewed,
 }: DiscussionsViewProps) {
-  const [mode, setMode] = useState<"questions" | "conversations">(focusedResourceId ? "conversations" : "questions");
+  const [mode, setMode] = useState<"questions" | "conversations">("conversations");
+  const [contentMode, setContentMode] = useState<"study" | "history">("study");
   const [conversationQuery, setConversationQuery] = useState("");
   const [includeArchived, setIncludeArchived] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Discussion | null>(null);
@@ -997,6 +999,7 @@ export function DiscussionsView({
     } else {
       setQaReviewScope(null);
       setMode("conversations");
+      setContentMode("history");
       setMessageExpansion(previous => new Map(previous).set(answer.section.messageId, true));
       window.setTimeout(() => document.getElementById(`discussion-message-${answer.section.messageId}`)?.scrollIntoView({block: "center", behavior: "smooth"}), 100);
     }
@@ -1033,8 +1036,8 @@ export function DiscussionsView({
   return (
     <div className="discussionLayout">
       <nav className="discussionViewModes" aria-label="Discussion views">
+        <button className="commandButton subtle" data-track="discussion.conversations" aria-pressed={mode === "conversations"} onClick={() => setMode("conversations")}>Study discussions</button>
         <button className="commandButton subtle" data-track="discussion.finder" aria-pressed={mode === "questions"} onClick={() => setMode("questions")}>Find questions & answers</button>
-        <button className="commandButton subtle" data-track="discussion.conversations" aria-pressed={mode === "conversations"} onClick={() => setMode("conversations")}>Conversations</button>
       </nav>
       <div hidden={mode !== "questions"}><QuestionFinder course={course} onOpen={openSearchResult} onOpenSource={id => {
         const target = course.discussions.find(d => d.resourceId === id);
@@ -1083,7 +1086,7 @@ export function DiscussionsView({
             <button
               className={item.id === discussion?.id ? "active" : ""}
               key={item.id}
-              data-track="discussion.open" onClick={() => {onTaskQaClose?.(); setQaReviewScope(null); onFocusResource(item.id);}}
+              data-track="discussion.open" onClick={() => {onTaskQaClose?.(); setQaReviewScope(null); setContentMode("study"); onFocusResource(item.id);}}
               type="button"
             >
               <strong>{item.title}</strong>
@@ -1103,18 +1106,66 @@ export function DiscussionsView({
               <Plus size={14} /> New discussion
             </button>
           ) : null}
-          {workshop}
+          <details className="discussionCaptureTools"><summary>Questions & captures</summary>{workshop}</details>
         </aside>
 
         <section className="discussionMain">
           <header className="discussionHeader">
             <div>
-              <p className="eyebrow">Linked source</p>
+              <p className="eyebrow">{discussion?.scopeType === "day" ? "Your daily study space" : "Your study collection"}</p>
               <h2>{discussion?.title ?? selectedSource?.title ?? "Choose a resource"}</h2>
-              {selectedSource ? <span>{selectedSource.title}</span> : null}
+              {discussion?.status === "archived" ? <span>Archived discussion</span> : null}
             </div>
             {discussion || selectedSource ? (
               <div className="discussionHeaderActions">
+                {discussion ? (
+                  <button
+                    className="commandButton qaReviewLaunch"
+                    onClick={() => {
+                      onTaskQaClose?.();
+                      const resourceQuestionIds =
+                        discussion.scopeType === "resource"
+                          ? coverageQuestions
+                              .filter(
+                                (annotation) =>
+                                  isTrackedQuestion(annotation) &&
+                                  annotation.status !== "archived",
+                              )
+                              .map((annotation) => annotation.id)
+                          : undefined;
+                      setQaReviewScope({
+                        discussionId: discussion.id,
+                        initialFilter:
+                          discussion.scopeType === "resource" ? "new" : undefined,
+                        label:
+                          discussion.scopeType === "resource" && selectedSource
+                            ? `${selectedSource.title} · all chapters`
+                            : undefined,
+                        questionIds: resourceQuestionIds,
+                        scopeKind:
+                          discussion.scopeType === "resource" ? "resource" : undefined,
+                      });
+                    }}
+                    title="Review answers and open questions in a focused workspace"
+                    type="button"
+                  >
+                    <Sparkles size={14} />
+                    <span>Review in Q&A</span>
+                  </button>
+                ) : null}
+                <button
+                  className="commandButton"
+                  data-track="discussion.import" onClick={() =>
+                    onImportClipboard(
+                      discussion?.id ?? selectedSource?.id ?? "",
+                    )
+                  }
+                  type="button"
+                >
+                  <ClipboardPaste size={14} />
+                  <span>Paste response</span>
+                </button>
+                <details className="discussionMoreActions"><summary>More ···</summary><div>
                 {selectedSource ? (
                   <button
                     className="commandButton subtle"
@@ -1175,41 +1226,6 @@ export function DiscussionsView({
                 ) : null}
                 {discussion ? (
                   <button
-                    className="commandButton qaReviewLaunch"
-                    onClick={() => {
-                      onTaskQaClose?.();
-                      const resourceQuestionIds =
-                        discussion.scopeType === "resource"
-                          ? coverageQuestions
-                              .filter(
-                                (annotation) =>
-                                  isTrackedQuestion(annotation) &&
-                                  annotation.status !== "archived",
-                              )
-                              .map((annotation) => annotation.id)
-                          : undefined;
-                      setQaReviewScope({
-                        discussionId: discussion.id,
-                        initialFilter:
-                          discussion.scopeType === "resource" ? "new" : undefined,
-                        label:
-                          discussion.scopeType === "resource" && selectedSource
-                            ? `${selectedSource.title} · all chapters`
-                            : undefined,
-                        questionIds: resourceQuestionIds,
-                        scopeKind:
-                          discussion.scopeType === "resource" ? "resource" : undefined,
-                      });
-                    }}
-                    title="Review answers and open questions in a focused workspace"
-                    type="button"
-                  >
-                    <Sparkles size={14} />
-                    <span>QA</span>
-                  </button>
-                ) : null}
-                {discussion ? (
-                  <button
                     className={
                       discussion.attention === "professor"
                         ? "commandButton professorAttention active"
@@ -1262,11 +1278,12 @@ export function DiscussionsView({
                         ? "commandButton discussionHighlightMode active"
                         : "commandButton discussionHighlightMode subtle"
                     }
-                    onClick={() =>
+                    onClick={() => {
+                      setContentMode("history");
                       setHighlightOnlyDiscussionId(
                         highlightsOnly ? "" : discussion.id,
-                      )
-                    }
+                      );
+                    }}
                     type="button"
                   >
                     <Highlighter size={14} />
@@ -1287,30 +1304,24 @@ export function DiscussionsView({
                     <span>Delete</span>
                   </button>
                 ) : null}
-                <button
-                  className="commandButton"
-                  data-track="discussion.import" onClick={() =>
-                    onImportClipboard(
-                      discussion?.id ?? selectedSource?.id ?? "",
-                    )
-                  }
-                  type="button"
-                >
-                  <ClipboardPaste size={14} />
-                  <span>Paste response</span>
-                </button>
+                </div></details>
               </div>
             ) : null}
           </header>
 
-          {discussion?.scopeType === "resource" && resourceChapterGroups.length ? (
+          {discussion ? <nav className="discussionContentModes" aria-label="Discussion content">
+            <button type="button" aria-pressed={contentMode === "study"} onClick={() => setContentMode("study")}><BookOpen size={15}/> Study overview</button>
+            <button type="button" aria-pressed={contentMode === "history"} onClick={() => setContentMode("history")}><MessageSquareText size={15}/> Response history <span>{discussion.messages.length}</span></button>
+          </nav> : null}
+
+          {contentMode === "study" && discussion?.scopeType === "resource" && resourceChapterGroups.length ? (
             <section className="resourceDiscussionMap">
               <header>
                 <div>
-                  <p className="eyebrow">Resource question map</p>
-                  <h3>Answers organized by chapter</h3>
+                  <p className="eyebrow">Pick a chapter</p>
+                  <h3>One focused review at a time</h3>
                 </div>
-                <span>{coverageQuestions.length} captures · one canonical history</span>
+                <span>Open a tile to enter chapter Q&A</span>
               </header>
               <div className="resourceDiscussionChapterGrid">
                 {resourceChapterGroups.map((group, index) => {
@@ -1372,7 +1383,7 @@ export function DiscussionsView({
             </section>
           ) : null}
 
-          {taskContext ? (
+          {contentMode === "history" && taskContext ? (
             <section className="discussionTaskPin">
               <Pin aria-hidden="true" size={16} />
               <div className="discussionTaskPinBody">
@@ -1406,8 +1417,26 @@ export function DiscussionsView({
             </section>
           ) : null}
 
+          {discussion ? <div hidden={contentMode !== "study"}>
+            <DiscussionStudyOverview key={discussion.id} course={course} discussion={discussion}
+              questionIds={discussion.scopeType === "resource" ? coverageQuestions.filter(q => isTrackedQuestion(q) && q.status !== "archived").map(q => q.id) : undefined}
+              onToggleImportantAnswer={onToggleImportantAnswer}
+              onReview={(questionIds, label) => {
+                onTaskQaClose?.();
+                setQaReviewScope({discussionId: discussion.id, questionIds, label, initialFilter: "all", scopeKind: "resource"});
+              }}
+              onHistory={(messageId, targetDiscussionId) => {
+                if (targetDiscussionId && targetDiscussionId !== discussion.id) onFocusResource(targetDiscussionId);
+                setContentMode("history"); setHighlightOnlyDiscussionId("");
+                if (messageId) {
+                  setMessageExpansion(previous => new Map(previous).set(messageId, true));
+                  window.setTimeout(() => document.getElementById(`discussion-message-${messageId}`)?.scrollIntoView({block: "start", behavior: "smooth"}), 100);
+                }
+              }}/>
+          </div> : null}
+
           {discussion ? (
-            <div className="discussionContentGrid">
+            <div className="discussionContentGrid" hidden={contentMode !== "history"}>
               <div>
                 <div className="messageStream">
                   {visibleMessages.map((message, messageIndex) => {

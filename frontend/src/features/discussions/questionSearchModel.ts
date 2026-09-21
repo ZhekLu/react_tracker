@@ -2,6 +2,7 @@ import type { Annotation, Course, Discussion } from "../../types/tracker";
 import { discussionQaSections, type DiscussionQaSection } from "../../lib/discussionQa";
 import { trackedQuestionGroups } from "../../lib/questionIdentity";
 import { annotationChapter } from "../../components/annotations/annotationDisplay";
+import { studyPreview } from "./discussionStudyModel";
 
 export type FinderAnswer = { discussion: Discussion; section: DiscussionQaSection };
 export type FinderEntry = {
@@ -62,15 +63,10 @@ export function searchQuestions(entries: FinderEntry[], query: string, status = 
     .sort((a,b) => Number(searchableText(b.label) === searchableText(query)) - Number(searchableText(a.label) === searchableText(query)));
 }
 export function finderSnippet(text: string, query: string) {
-  const math: string[] = [];
-  const protectedText = text.replace(/\$\$[^]*?\$\$|\$(?:\\.|[^$\n])+\$/g, value => {
-    math.push(value.replace(/^\$\$|\$\$$/g, "$"));
-    return String.fromCharCode(0xe000 + math.length - 1);
-  });
-  const plain = protectedText.replace(/<!--[^]*?-->/g, "").replace(/[#*_`>]/g, "").replace(/\s+/g, " ").trim();
+  const plain = studyPreview(text, Number.MAX_SAFE_INTEGER);
   const term = query.trim().split(/\s+/).find(t => t.length > 2);
   const hit = term ? plain.toLocaleLowerCase().indexOf(term.toLocaleLowerCase()) : -1;
   const start = Math.max(0, hit - 65);
-  const excerpt = plain.slice(start, start + 280).replace(/[\ue000-\uf8ff]/g, token => math[token.charCodeAt(0) - 0xe000] ?? token);
+  const excerpt = plain.slice(start, start + 280);
   return `${start ? "…" : ""}${excerpt}${plain.length > start + 280 ? "…" : ""}`;
 }

@@ -671,10 +671,13 @@ export function qaReviewThreads(
   const activeSectionQuestionIds = sectionRecords
     .filter(({ discussionId }) => discussionId === activeDiscussion.id)
     .flatMap(({ section }) => section.questionIds);
+  const scopedComponents = scopedQuestionIds?.length ? new Set(
+    scopedQuestionIds.flatMap(id => rootsByAnnotationId.get(id) ?? []).map(id => components.find(id)),
+  ) : null;
   const mappedFollowupIds = activeSectionQuestionIds.filter(
     (id) =>
       annotationById.get(id)?.origin === "discussion_review_followup" &&
-      (rootsByAnnotationId.get(id) ?? []).length > 0,
+      (rootsByAnnotationId.get(id) ?? []).some(root => !scopedComponents || scopedComponents.has(components.find(root))),
   );
   // Prompt-batch items are the immutable boundary. Historical message links and
   // the denormalized discussion.questionIds list can contain captures imported
@@ -706,7 +709,7 @@ export function qaReviewThreads(
       .filter((id): id is string => Boolean(id)),
   );
   sectionRecords
-    .filter(({ section }) => parentResponseMessageIds.has(section.messageId))
+    .filter(({ section }) => !scopedComponents && parentResponseMessageIds.has(section.messageId))
     .forEach(({ section }) =>
       section.questionIds.forEach((id) =>
         (rootsByAnnotationId.get(id) ?? []).forEach((rootId) =>

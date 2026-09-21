@@ -1,4 +1,5 @@
 import { StudyPassProgress } from "../../components/StudyPassProgress";
+import { importantAnswerNote } from "./discussionStudyModel";
 import { trackedQuestionGroups } from "../../lib/questionIdentity";
 import { sourcePageSnapshot } from "../../lib/annotationSnapshots";
 import {
@@ -817,34 +818,7 @@ export function DiscussionQaReview({
       ],
     [activeRootQuestions],
   );
-  const activeImportantNote = activeItem
-    ? course.notes.find(
-        (note) =>
-          note.kind === "important_answer" &&
-          note.links.some(
-            (link) =>
-              link.entityType === "annotation" &&
-              activeItem.questions.some((question) => question.id === link.entityId),
-          ),
-      ) ?? (activeItem.section ? course.notes.find(
-        (note) =>
-          note.kind === "important_answer" &&
-          note.document.plainText.includes(
-            `qa-section:${activeItem.section!.messageId}:${activeItem.section!.label}`,
-          ),
-      ) ?? course.notes.find(
-        (note) =>
-          note.kind === "important_answer" &&
-          note.links.some(
-            (link) =>
-              link.entityType === "discussion_message" &&
-              link.entityId === activeItem.section!.messageId,
-          ) &&
-          (note.document.markdown ?? "").includes(
-            `qa-section:${activeItem.section!.messageId}:${activeItem.section!.label}`,
-          ),
-      ) : undefined)
-    : undefined;
+  const activeImportantNote = activeItem ? importantAnswerNote(course.notes, activeItem.questions, activeAnswerRecords.map(answer => answer.section)) : undefined;
   const activePriority = activeItem
     ? discussionPriority(
         activeAnswerRecords.map((answer) => answer.section.bodyMarkdown).join("\n\n"),

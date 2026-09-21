@@ -16,7 +16,7 @@ function prose(node: Node): string {
 }
 
 export function tutorPriorityFromMarkdown(markdown: string): DiscussionPriority | null {
-  const text = prose(parser.parse(markdown)).toLowerCase().replace(/[=^!%]/g, "");
+  const text = prose(parser.parse(markdown)).toLowerCase().replace(/==|\^\^|!!|%%/g, "");
   // The first explicit verdict wins, even when later details have a lower rank.
   // Ranges use their first value: “medium / low” => medium.
   const explicit = text.match(/\b(?:priority|importance)\s*(?::|—|–|=|is)\s*(?:very\s+)?(core|high|medium|low)\b/);

@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { Annotation, Course, Discussion } from "../../types/tracker";
-import { buildQuestionIndex, searchQuestions } from "./questionSearchModel";
+import { buildQuestionIndex, finderSnippet, searchQuestions } from "./questionSearchModel";
 const question = (id: string, stableLabel: string, body: string): Annotation => ({id, stableLabel, resourceId:"book", kind:"question", status:"open", origin:"manual", createdAt:"2026-09-01", updatedAt:"2026-09-01", body:{markdown:body, plainText:body}, anchor:{metadata:{}}} as Annotation);
 const thread = (id: string, questionId: string, markdown: string): Discussion => ({id, title:id, sourceResourceIds:["book"], status:"active", scopeType:"resource", questionIds:[questionId], questionLabels:[{label:"Q-001",annotationIds:[questionId]}], qaReviews:[], messages:[{id:`m-${id}`, role:"assistant", createdAt:"2026-09-02", sequenceNumber:1, body:{markdown,plainText:markdown}, annotationLinks:[{annotationId:questionId,relation:"references"}]}]} as unknown as Discussion);
 const course = (annotations: Annotation[], discussions: Discussion[]): Course => ({annotations,discussions,resources:[{id:"book",title:"Learning theory"}]} as Course);
 
 describe("course-wide question finder", () => {
+  it("bounds previews without turning display math into malformed Markdown", () => {
+    const snippet = finderSnippet("An answer.\n\n$$\nx = y\n$$\n\n" + "Explanation ".repeat(100), "answer");
+    expect(snippet).toContain("[formula]");
+    expect(snippet).not.toContain("$");
+    expect(snippet.length).toBeLessThanOrEqual(282);
+  });
   it("finds unreviewed answers and keeps reused prompt aliases scoped by UUID", () => {
     const index = buildQuestionIndex(course([question("a","RL-Q-010","Why converge?"),question("b","RL-Q-020","What is entropy?")],[thread("first","a","## Q-001\n\nA contraction mapping."),thread("second","b","## Q-001\n\nAn information measure.")]));
     expect(searchQuestions(index,"contraction").map(e => e.label)).toEqual(["RL-Q-010"]);
