@@ -17,8 +17,10 @@ describe("discussion priority", () => {
       .toBeNull();
   });
 
-  it("lets an explicit saved priority override tutor inference", () => {
-    expect(discussionPriority("This is low-priority.", [question("high")])).toBe("high");
+  it("uses legacy capture priorities only when no tutor label is present", () => {
+    expect(discussionPriority("This is low-priority.", [question("high")])).toBe("low");
+    expect(discussionPriority("Priority: VERY CORE", [question("high")])).toBe("core");
+    expect(discussionPriority("No priority guidance.", [question("high")])).toBe("high");
     expect(discussionPriority("This is a core concept.", [question()])).toBe("core");
     expect(discussionPriority("No priority guidance.", [question()])).toBe("unrated");
   });
@@ -36,5 +38,6 @@ describe("discussion priority", () => {
       expect(discussionPriority("Priority: CORE", [{...question(), discussionPriority: priority}])).toBe(priority);
     }
     expect(discussionPriority("Priority: LOW", [{...question("high"), discussionPriority: "auto"}])).toBe("low");
+    expect(discussionPriority("No priority guidance.", [{...question("high"), discussionPriority: "auto"}])).toBe("unrated");
   });
 });

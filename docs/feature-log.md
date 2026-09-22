@@ -1,5 +1,10 @@
 # Tracker feature and maintenance log
 
+## 2026-09-22 — tutor labels take precedence over legacy capture flags
+
+- Live-data verification found imported High capture flags masking explicit tutor Core labels. Unset study priorities now prefer tutor guidance, retaining legacy High/Low only as a fallback. New manual Q&A choices remain authoritative; Auto removes that fallback. Existing capture data is unchanged.
+- Validated precedence and Auto regression tests, discussion model tests, lint and production build; confirmed the combined overview on the running app.
+
 ## 2026-09-21 — preserve literal math syntax on the first parse
 
 - Display-math and metadata token hints now start only at block boundaries.

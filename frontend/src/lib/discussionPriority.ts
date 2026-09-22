@@ -35,14 +35,22 @@ export function tutorPriorityFromMarkdown(markdown: string): DiscussionPriority 
 export function savedDiscussionPriority(questions: readonly Annotation[]): Exclude<DiscussionPriority, "unrated"> | "auto" {
   const explicit = questions.map(q => q.discussionPriority).filter((p): p is NonNullable<Annotation["discussionPriority"]> => Boolean(p));
   if (explicit.length) return [...explicit].sort((a, b) => (b === "auto" ? 0 : PRIORITY_RANK[b]) - (a === "auto" ? 0 : PRIORITY_RANK[a]))[0];
-  if (questions.some(q => q.priority === "high")) return "high";
-  if (questions.length && questions.every(q => q.priority === "low")) return "low";
   return "auto";
 }
 
 export function discussionPriority(markdown: string, questions: readonly Annotation[]): DiscussionPriority {
   const saved = savedDiscussionPriority(questions);
-  return saved === "auto" ? tutorPriorityFromMarkdown(markdown) ?? "unrated" : saved;
+  if (saved !== "auto") return saved;
+  const tutor = tutorPriorityFromMarkdown(markdown);
+  if (tutor) return tutor;
+  // Old capture queue flags were often assigned by importers. Retain them as a
+  // fallback, never let them mask an explicit tutor label. Choosing Auto in the
+  // new study control also clears this fallback without altering capture data.
+  if (!questions.some(q => q.discussionPriority)) {
+    if (questions.some(q => q.priority === "high")) return "high";
+    if (questions.length && questions.every(q => q.priority === "low")) return "low";
+  }
+  return "unrated";
 }
 
 export function discussionPriorityRank(priority: DiscussionPriority): number { return PRIORITY_RANK[priority]; }

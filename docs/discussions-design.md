@@ -33,8 +33,10 @@ other discussions remain accessible through that question's existing history.
 Q&A offers Auto, Core, High, Medium and Low. Explicit choices persist in
 `annotations.discussion_priority` and synchronize across captures of the same
 logical question, with revision checks. Migration 0028 adds a nullable column;
-existing capture queue priority and content are unchanged. NULL retains legacy
-priority behavior; Auto explicitly opts back into tutor inference.
+existing capture queue priority and content are unchanged. A NULL study priority
+uses tutor guidance, falling back to legacy High/Low only when the tutor gives no
+label. Auto explicitly uses tutor guidance alone. New manual study choices always
+override inference; old capture flags cannot mask an explicit tutor Core label.
 
 Auto recognizes explicit labels such as `Priority: VERY CORE`, `Priority: High`
 and `Importance: medium`. The first explicit label wins: `CORE intuition, LOW
