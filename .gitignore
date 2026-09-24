@@ -24,6 +24,7 @@ frontend/vite.config.d.ts
 frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
+frontend/src/features/algorithm-map/map.generated.json
 
 # Machine-local state, credentials, logs, screenshots, and backups
 data/

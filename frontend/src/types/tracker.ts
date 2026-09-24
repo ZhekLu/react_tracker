@@ -28,6 +28,7 @@ export type ResourceKind =
   | string;
 
 export type TrackerView =
+  | "map"
   | "roadmap"
   | "resources"
   | "skills"

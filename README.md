@@ -19,6 +19,14 @@ Goals:
 - Serve the built React UI and FastAPI from one low-overhead local process.
 - Make installation, checks, rebuilds, and the always-on service reproducible.
 
+## RL algorithm map
+
+The TORL **Algorithm map** tab connects Day 12 papers to earlier course methods,
+with indented procedures, optional explanations, shared-mechanism links, a
+gradient demonstration, and the five-method decision matrix. Content lives in
+JSON and Markdown; see [editing and extension instructions](content/rl-map/README.md)
+and [research scope](content/rl-map/RESEARCH.md).
+
 ## Structure
 
 ```text

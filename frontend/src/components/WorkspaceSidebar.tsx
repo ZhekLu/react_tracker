@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  GitBranch,
   Bug,
   CalendarDays,
   FileQuestion,
@@ -47,6 +48,7 @@ const navItems: Array<{
   { view: "roadmap", label: "Roadmap", icon: CalendarDays },
   { view: "resources", label: "Resources", icon: BookOpen },
   { view: "skills", label: "Skills", icon: ScanSearch },
+  { view: "map", label: "Algorithm map", icon: GitBranch },
   { view: "exams", label: "Exams", icon: FileQuestion },
   { view: "notes", label: "Notes", icon: StickyNote },
   { view: "discussions", label: "Discussions", icon: MessageSquareText },
@@ -143,6 +145,7 @@ export function WorkspaceSidebar({
 
       <nav className="workspaceNav" aria-label="Main navigation">
         {navItems.map((item) => {
+          if (item.view === "map" && course.shortCode !== "TORL") return null;
           if (item.view === "exams" && course.exams.length === 0) return null;
           const Icon = item.icon;
           return (
@@ -228,6 +231,7 @@ export function WorkspaceSidebar({
         </>
       ) : (
         <div className="sidebarViewHint">
+          {view === "map" ? <GitBranch size={18} /> : null}
           {view === "resources" ? <BookOpen size={18} /> : null}
           {view === "skills" ? <ScanSearch size={18} /> : null}
           {view === "exams" ? <FileQuestion size={18} /> : null}
@@ -237,6 +241,7 @@ export function WorkspaceSidebar({
           {view === "debug" ? <Bug size={18} /> : null}
           <div>
             <strong>
+              {view === "map" ? "From Bellman to actor-critic" : null}
               {view === "resources" ? "Library map" : null}
               {view === "skills" ? "Objective coverage" : null}
               {view === "exams" ? "Practice map" : null}

@@ -1,0 +1,1020 @@
+{
+  "version": 1,
+  "title": "From Bellman to modern actor-critic",
+  "courseCode": "TORL",
+  "nodes": [
+    {
+      "id": "bandits",
+      "title": "Bandits · ε-greedy / UCB",
+      "family": "foundation",
+      "day": 2,
+      "summary": "Immediate reward; explore to learn.",
+      "file": "nodes/bandits.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "bellman",
+      "title": "MDPs & Bellman",
+      "family": "foundation",
+      "day": 3,
+      "summary": "Define return, value, and a backup.",
+      "file": "nodes/bellman.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "dp",
+      "title": "DP · policy / value iteration",
+      "family": "foundation",
+      "day": 4,
+      "summary": "Evaluate and improve with a model.",
+      "file": "nodes/dp.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "mc",
+      "title": "Monte Carlo",
+      "family": "foundation",
+      "day": 5,
+      "summary": "Fit complete sampled returns.",
+      "file": "nodes/mc.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "ope",
+      "title": "Importance sampling / OPE",
+      "family": "foundation",
+      "day": 5,
+      "summary": "Evaluate a different target policy.",
+      "file": "nodes/ope.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "td",
+      "title": "TD(0)",
+      "family": "foundation",
+      "day": 7,
+      "summary": "Bootstrap from one next-state value.",
+      "file": "nodes/td.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "nstep",
+      "title": "n-step TD",
+      "family": "foundation",
+      "day": 8,
+      "summary": "Wait longer before bootstrapping.",
+      "file": "nodes/nstep.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "traces",
+      "title": "TD(λ) & traces",
+      "family": "foundation",
+      "day": 8,
+      "summary": "Mix horizons; spread credit backwards.",
+      "file": "nodes/traces.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "approximation",
+      "title": "Approximation & deadly triad",
+      "family": "foundation",
+      "day": 9,
+      "summary": "Shared parameters change the guarantees.",
+      "file": "nodes/approximation.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "sarsa",
+      "title": "SARSA",
+      "family": "value",
+      "day": 7,
+      "summary": "Use the actual exploratory next action.",
+      "file": "nodes/sarsa.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "expected-sarsa",
+      "title": "Expected SARSA",
+      "family": "value",
+      "day": 7,
+      "summary": "Average under the target policy.",
+      "file": "nodes/expected-sarsa.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "qlearning",
+      "title": "Q-learning",
+      "family": "value",
+      "day": 7,
+      "summary": "Learn a greedy target from exploratory data.",
+      "file": "nodes/qlearning.md",
+      "overview": true,
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "double-q",
+      "title": "Double Q-learning",
+      "family": "value",
+      "day": 7,
+      "summary": "Select with one table; evaluate with another.",
+      "file": "nodes/double-q.md",
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "dqn",
+      "title": "DQN",
+      "family": "value",
+      "day": 10,
+      "summary": "Neural Q + replay + target network.",
+      "file": "nodes/dqn.md",
+      "overview": true,
+      "core": true,
+      "policy": "Implicit greedy",
+      "actions": "Discrete",
+      "data": "Off-policy",
+      "value": "Q + target Q",
+      "replay": "Yes",
+      "gradient": "Value semi-gradient",
+      "control": "Replay and stable targets",
+      "sources": [
+        {
+          "label": "Mnih et al. · Nature 2015",
+          "url": "https://www.nature.com/articles/nature14236"
+        }
+      ]
+    },
+    {
+      "id": "double-dqn",
+      "title": "Double DQN",
+      "family": "value",
+      "day": 10,
+      "summary": "Online Q selects; target Q evaluates.",
+      "file": "nodes/double-dqn.md",
+      "sources": [
+        {
+          "label": "Double DQN · paper",
+          "url": "https://arxiv.org/abs/1509.06461"
+        }
+      ]
+    },
+    {
+      "id": "reinforce",
+      "title": "REINFORCE",
+      "family": "score",
+      "day": 11,
+      "summary": "Weight log-probability by sampled return.",
+      "file": "nodes/reinforce.md",
+      "overview": true,
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "actor-critic",
+      "title": "Actor-critic bridge",
+      "family": "score",
+      "day": 11,
+      "summary": "Replace full returns with a learned evaluator.",
+      "file": "nodes/actor-critic.md",
+      "overview": true,
+      "sources": [
+        {
+          "label": "Sutton & Barto · course copy",
+          "resourceId": "59d79a10-740a-57a3-9b57-ec92c613fde6",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "a2c",
+      "title": "A2C / A3C",
+      "family": "score",
+      "day": 11,
+      "summary": "Synchronous / asynchronous advantage AC.",
+      "file": "nodes/a2c.md",
+      "sources": [
+        {
+          "label": "Asynchronous methods · paper",
+          "url": "https://proceedings.mlr.press/v48/mniha16.html"
+        }
+      ]
+    },
+    {
+      "id": "gae",
+      "title": "GAE",
+      "family": "score",
+      "day": 12,
+      "summary": "Mix TD residuals into an advantage.",
+      "file": "nodes/gae.md",
+      "sources": [
+        {
+          "label": "GAE · paper",
+          "url": "https://arxiv.org/abs/1506.02438"
+        }
+      ]
+    },
+    {
+      "id": "trpo",
+      "title": "TRPO",
+      "family": "score",
+      "day": 12,
+      "summary": "Constrain policy change with KL.",
+      "file": "nodes/trpo.md",
+      "sources": [
+        {
+          "label": "TRPO · paper",
+          "url": "https://proceedings.mlr.press/v37/schulman15.html"
+        }
+      ]
+    },
+    {
+      "id": "ppo",
+      "title": "PPO",
+      "family": "score",
+      "day": 12,
+      "summary": "Clip incentives for large ratio changes.",
+      "file": "nodes/ppo.md",
+      "overview": true,
+      "core": true,
+      "policy": "Stochastic",
+      "actions": "Discrete or continuous",
+      "data": "On-policy; recent batch reuse",
+      "value": "Usually V / advantage",
+      "replay": "No long-lived replay",
+      "gradient": "Score / likelihood ratio",
+      "control": "Clipped policy surrogate",
+      "sources": [
+        {
+          "label": "Your PPO paper · p. 3",
+          "resourceId": "f0d5fba5-2e92-5e79-803d-dbec3fa0b2a9",
+          "page": 3
+        },
+        {
+          "label": "Original paper · public",
+          "url": "https://arxiv.org/abs/1707.06347"
+        }
+      ]
+    },
+    {
+      "id": "dpg",
+      "title": "Deterministic PG",
+      "family": "path",
+      "day": 12,
+      "summary": "Use the critic’s slope in action space.",
+      "file": "nodes/dpg.md",
+      "overview": true,
+      "sources": [
+        {
+          "label": "Silver et al. · DPG",
+          "url": "https://proceedings.mlr.press/v32/silver14.html"
+        }
+      ]
+    },
+    {
+      "id": "ddpg",
+      "title": "DDPG",
+      "family": "path",
+      "day": 12,
+      "summary": "Learn a continuous-action maximizer.",
+      "file": "nodes/ddpg.md",
+      "overview": true,
+      "core": true,
+      "policy": "Deterministic",
+      "actions": "Continuous",
+      "data": "Off-policy",
+      "value": "Q + target Q",
+      "replay": "Yes",
+      "gradient": "Deterministic action path",
+      "control": "Replay + soft targets",
+      "notation": "ddpg",
+      "sources": [
+        {
+          "label": "Lillicrap et al. · Algorithm 1",
+          "url": "https://arxiv.org/pdf/1509.02971#page=5"
+        }
+      ]
+    },
+    {
+      "id": "td3",
+      "title": "TD3",
+      "family": "path",
+      "day": 12,
+      "summary": "Twin critics + delay + target smoothing.",
+      "file": "nodes/td3.md",
+      "overview": true,
+      "core": true,
+      "policy": "Deterministic",
+      "actions": "Continuous",
+      "data": "Off-policy",
+      "value": "Twin Q + target Qs",
+      "replay": "Yes",
+      "gradient": "Action path through Q₁",
+      "control": "Three critic-error controls",
+      "notation": "swap",
+      "sources": [
+        {
+          "label": "Your TD3 paper · Algorithm 1",
+          "resourceId": "82c9d972-bc3f-50d6-87bb-a0b6049c82c8",
+          "page": 6
+        },
+        {
+          "label": "Original paper · public",
+          "url": "https://proceedings.mlr.press/v80/fujimoto18a.html"
+        }
+      ]
+    },
+    {
+      "id": "sac",
+      "title": "SAC · original 2018",
+      "family": "path",
+      "day": 12,
+      "summary": "Replay + stochastic actor + soft values.",
+      "file": "nodes/sac.md",
+      "overview": true,
+      "core": true,
+      "policy": "Stochastic",
+      "actions": "Continuous (this version)",
+      "data": "Off-policy",
+      "value": "Twin Q, V + target V",
+      "replay": "Yes",
+      "gradient": "Reparameterized action path",
+      "control": "Entropy in actor and values",
+      "notation": "swap",
+      "sources": [
+        {
+          "label": "Your SAC paper · p. 5",
+          "resourceId": "7dcde9ab-40f5-57e4-9d7a-ef538707e69f",
+          "page": 5
+        },
+        {
+          "label": "Original paper · public",
+          "url": "https://proceedings.mlr.press/v80/haarnoja18b.html"
+        }
+      ]
+    },
+    {
+      "id": "sac-modern",
+      "title": "SAC · later version",
+      "family": "path",
+      "day": 12,
+      "summary": "Remove V; optionally learn temperature.",
+      "file": "nodes/sac-modern.md",
+      "notation": "swap",
+      "sources": [
+        {
+          "label": "Algorithms and Applications",
+          "url": "https://arxiv.org/abs/1812.05905"
+        }
+      ]
+    },
+    {
+      "id": "offline",
+      "title": "Offline RL bridge",
+      "family": "bridge",
+      "day": 12,
+      "summary": "Fixed data makes unsupported actions critical.",
+      "file": "nodes/offline.md",
+      "sources": [
+        {
+          "label": "Offline RL tutorial",
+          "url": "https://arxiv.org/abs/2005.01643"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "bandits",
+      "target": "bellman",
+      "label": "add action-dependent future states",
+      "kind": "bridge"
+    },
+    {
+      "source": "bellman",
+      "target": "dp",
+      "label": "compute backups with a model",
+      "kind": "builds-on"
+    },
+    {
+      "source": "bellman",
+      "target": "mc",
+      "label": "estimate values from full returns",
+      "kind": "builds-on"
+    },
+    {
+      "source": "bellman",
+      "target": "td",
+      "label": "estimate a one-step backup",
+      "kind": "builds-on"
+    },
+    {
+      "source": "mc",
+      "target": "ope",
+      "label": "correct target / behavior mismatch",
+      "kind": "builds-on"
+    },
+    {
+      "source": "mc",
+      "target": "td",
+      "label": "bootstrap before episode end",
+      "kind": "contrast"
+    },
+    {
+      "source": "td",
+      "target": "nstep",
+      "label": "extend the sampled horizon",
+      "kind": "builds-on"
+    },
+    {
+      "source": "nstep",
+      "target": "traces",
+      "label": "mix horizons with λ",
+      "kind": "builds-on"
+    },
+    {
+      "source": "td",
+      "target": "sarsa",
+      "label": "evaluate sampled next action",
+      "kind": "builds-on"
+    },
+    {
+      "source": "sarsa",
+      "target": "expected-sarsa",
+      "label": "average next-action sampling",
+      "kind": "builds-on"
+    },
+    {
+      "source": "expected-sarsa",
+      "target": "qlearning",
+      "label": "choose a greedy target policy",
+      "kind": "builds-on"
+    },
+    {
+      "source": "qlearning",
+      "target": "double-q",
+      "label": "separate selection / evaluation",
+      "kind": "builds-on"
+    },
+    {
+      "source": "qlearning",
+      "target": "dqn",
+      "label": "add neural Q, replay, target copy",
+      "kind": "builds-on"
+    },
+    {
+      "source": "approximation",
+      "target": "dqn",
+      "label": "nonlinear value generalization",
+      "kind": "ingredient"
+    },
+    {
+      "source": "dqn",
+      "target": "double-dqn",
+      "label": "separate selection / evaluation",
+      "kind": "builds-on"
+    },
+    {
+      "source": "double-q",
+      "target": "double-dqn",
+      "label": "adapt double estimation to DQN",
+      "kind": "ingredient"
+    },
+    {
+      "source": "mc",
+      "target": "reinforce",
+      "label": "use returns to weight policy scores",
+      "kind": "ingredient"
+    },
+    {
+      "source": "reinforce",
+      "target": "actor-critic",
+      "label": "use a bootstrapped evaluator",
+      "kind": "builds-on"
+    },
+    {
+      "source": "td",
+      "target": "actor-critic",
+      "label": "supply a TD learning signal",
+      "kind": "ingredient"
+    },
+    {
+      "source": "actor-critic",
+      "target": "a2c",
+      "label": "parallel advantage actor-critic",
+      "kind": "builds-on"
+    },
+    {
+      "source": "actor-critic",
+      "target": "trpo",
+      "label": "control policy movement",
+      "kind": "builds-on"
+    },
+    {
+      "source": "trpo",
+      "target": "ppo",
+      "label": "replace constrained step with a simpler surrogate",
+      "kind": "builds-on"
+    },
+    {
+      "source": "actor-critic",
+      "target": "ppo",
+      "label": "stochastic policy + value critic",
+      "kind": "ingredient"
+    },
+    {
+      "source": "traces",
+      "target": "gae",
+      "label": "reuse λ-weighted residuals",
+      "kind": "shared-idea"
+    },
+    {
+      "source": "gae",
+      "target": "ppo",
+      "label": "estimate rollout advantages",
+      "kind": "ingredient"
+    },
+    {
+      "source": "actor-critic",
+      "target": "dpg",
+      "label": "use Q’s action derivative",
+      "kind": "contrast"
+    },
+    {
+      "source": "dpg",
+      "target": "ddpg",
+      "label": "add deep networks, replay, targets",
+      "kind": "builds-on"
+    },
+    {
+      "source": "dqn",
+      "target": "ddpg",
+      "label": "reuse replay / target stabilization",
+      "kind": "shared-idea"
+    },
+    {
+      "source": "ddpg",
+      "target": "td3",
+      "label": "add minimum, delay, smoothing",
+      "kind": "builds-on"
+    },
+    {
+      "source": "double-q",
+      "target": "td3",
+      "label": "adapt double estimation; add a minimum",
+      "kind": "shared-idea"
+    },
+    {
+      "source": "expected-sarsa",
+      "target": "td3",
+      "label": "neighborhood expectation in target",
+      "kind": "shared-idea"
+    },
+    {
+      "source": "dpg",
+      "target": "sac",
+      "label": "stochastic pathwise extension + entropy",
+      "kind": "shared-idea"
+    },
+    {
+      "source": "td3",
+      "target": "sac",
+      "label": "share twin-min critic idea",
+      "kind": "shared-idea"
+    },
+    {
+      "source": "sac",
+      "target": "sac-modern",
+      "label": "replace explicit V with sampled soft target",
+      "kind": "builds-on"
+    },
+    {
+      "source": "dp",
+      "target": "sac",
+      "label": "soft evaluation / improvement",
+      "kind": "shared-idea"
+    },
+    {
+      "source": "td3",
+      "target": "offline",
+      "label": "critic exploitation without new corrections",
+      "kind": "bridge"
+    },
+    {
+      "source": "sac",
+      "target": "offline",
+      "label": "actor can leave dataset coverage",
+      "kind": "bridge"
+    },
+    {
+      "source": "ope",
+      "target": "offline",
+      "label": "evaluation requires coverage too",
+      "kind": "bridge"
+    }
+  ],
+  "mechanisms": [
+    {
+      "id": "replay",
+      "title": "Experience replay",
+      "question": "Which old data are being reused?",
+      "summary": "An environment transition remains useful for a conditional Bellman regression even when the behavior policy changes. A replay buffer mixes experience across time and permits multiple training updates per interaction.",
+      "distinction": "PPO reuses one recent rollout for a bounded optimization phase. Its frozen old-policy probabilities and advantages serve a different purpose from long-lived off-policy replay. More updates per transition are not automatically more useful information.",
+      "uses": [
+        {
+          "node": "dqn",
+          "role": "Stored state/action/reward/next-state trains Q; greedy target can differ from behavior."
+        },
+        {
+          "node": "ddpg",
+          "role": "Stored actions train Q; current actor actions at replay states train the actor."
+        },
+        {
+          "node": "td3",
+          "role": "Same data separation as DDPG; target actions are additionally smoothed."
+        },
+        {
+          "node": "sac",
+          "role": "Stored actions train Q; fresh current-policy actions at replay states train V and the actor."
+        },
+        {
+          "node": "ppo",
+          "role": "Contrast: reuse the current rollout over K epochs, then collect a new rollout."
+        }
+      ]
+    },
+    {
+      "id": "targets",
+      "title": "Target networks",
+      "question": "Which learned quantities are allowed to move slowly?",
+      "summary": "The critic predicts a label that itself uses learned values. A lagged copy slows how that label changes; stop-gradient separately fixes it during one optimizer step.",
+      "distinction": "A target copy is not an independently trained second critic. Slow targets do not make a function approximator unbiased. Target updates copy or average weights; they are not backpropagation.",
+      "uses": [
+        {
+          "node": "dqn",
+          "role": "One target Q; hard copy every C steps."
+        },
+        {
+          "node": "double-dqn",
+          "role": "Same target copy, but online Q selects its next action."
+        },
+        {
+          "node": "ddpg",
+          "role": "Target actor + target Q; Polyak update after each training step."
+        },
+        {
+          "node": "td3",
+          "role": "Target actor + two target Qs; all update only in the delayed block."
+        },
+        {
+          "node": "sac",
+          "role": "Original 2018: target V only."
+        },
+        {
+          "node": "sac-modern",
+          "role": "Later version: two target Qs, no V network and no target actor."
+        }
+      ]
+    },
+    {
+      "id": "bootstrap",
+      "title": "Bootstrapping",
+      "question": "What estimate completes the target after the observed reward?",
+      "summary": "TD replaces an unobserved future return with a current estimate. Each method specifies what next-state value is being evaluated.",
+      "distinction": "This is distinct from policy improvement. Sharing a Bellman-regression critic does not make DDPG or SAC identical to discrete Q-learning.",
+      "uses": [
+        {
+          "node": "td",
+          "role": "Next-state V of the evaluated policy."
+        },
+        {
+          "node": "sarsa",
+          "role": "Q at an actually sampled next behavior action."
+        },
+        {
+          "node": "expected-sarsa",
+          "role": "Q averaged over target-policy next actions."
+        },
+        {
+          "node": "qlearning",
+          "role": "Maximum over next-action Q values."
+        },
+        {
+          "node": "dqn",
+          "role": "Maximum over a delayed neural Q."
+        },
+        {
+          "node": "ddpg",
+          "role": "Target Q at target actor output."
+        },
+        {
+          "node": "td3",
+          "role": "Minimum of target Qs at a perturbed target actor action."
+        },
+        {
+          "node": "sac",
+          "role": "Target soft V: future reward plus future entropy."
+        },
+        {
+          "node": "ppo",
+          "role": "Value bootstrap helps construct advantage/return targets, not the clipped ratio itself."
+        }
+      ]
+    },
+    {
+      "id": "double-estimation",
+      "title": "Double estimation / twin minimum",
+      "question": "Who chooses the action, and who evaluates it?",
+      "summary": "Action selection favors estimates that happen to be high. Separate estimators reduce that selection/evaluation coupling; a minimum adds a deliberately pessimistic choice.",
+      "distinction": "Double Q, Double DQN, and clipped double Q are related but different. The minimum is neither an average nor a statistical confidence bound. Correlated critics can agree on the same mistake.",
+      "uses": [
+        {
+          "node": "double-q",
+          "role": "Two tables: select with the table being updated, evaluate with the other."
+        },
+        {
+          "node": "double-dqn",
+          "role": "One online Q selects; its target copy evaluates."
+        },
+        {
+          "node": "td3",
+          "role": "Two online critics + targets; use the target minimum for critic fitting, but Q1 for the actor."
+        },
+        {
+          "node": "sac",
+          "role": "Original SAC: minimum in both soft-V target and actor loss."
+        },
+        {
+          "node": "sac-modern",
+          "role": "Later SAC: minimum in Q target and actor loss."
+        }
+      ]
+    },
+    {
+      "id": "score",
+      "title": "Score-function gradient",
+      "question": "How does the probability of a recorded action change?",
+      "summary": "Return or advantage weights the derivative of the log policy. The action is held fixed: this estimator does not need a differentiable reward or a derivative of Q with respect to action.",
+      "distinction": "A Gaussian actor can use a score estimator or a pathwise estimator. The policy being stochastic does not decide this. PPO’s probability ratio is not the same operation as reparameterizing a new action.",
+      "uses": [
+        {
+          "node": "reinforce",
+          "role": "Sampled return, optionally minus a state baseline, weights the policy score."
+        },
+        {
+          "node": "actor-critic",
+          "role": "A critic supplies a bootstrapped advantage estimate as the weight."
+        },
+        {
+          "node": "a2c",
+          "role": "Parallel rollout advantages weight the same kind of score."
+        },
+        {
+          "node": "trpo",
+          "role": "The likelihood-ratio surrogate is optimized with a trust-region step."
+        },
+        {
+          "node": "ppo",
+          "role": "The old/new ratio and clipped surrogate gate this score signal."
+        }
+      ]
+    },
+    {
+      "id": "action-gradient",
+      "title": "Differentiate through action",
+      "question": "How do weights move an action, and how does that change Q?",
+      "summary": "The critic provides an action-space slope. The actor Jacobian maps that slope back to policy parameters. Critic weights stay fixed during the actor update, while its input remains differentiable.",
+      "distinction": "This is not differentiation through the environment. “Frozen critic” and “detached Q output” are different: detaching the output would remove the Q-based actor signal.",
+      "uses": [
+        {
+          "node": "dpg",
+          "role": "The deterministic policy-gradient theorem supplies the basic chain rule with policy occupancy."
+        },
+        {
+          "node": "ddpg",
+          "role": "Use a learned Q and replay states in a practical deep deterministic actor update."
+        },
+        {
+          "node": "td3",
+          "role": "Keep the same actor gradient, using Q1, but update it less frequently."
+        },
+        {
+          "node": "sac",
+          "role": "Hold noise fixed, transform it into a stochastic action, and differentiate both Q and log-density paths."
+        }
+      ]
+    },
+    {
+      "id": "gae",
+      "title": "λ-return machinery / GAE",
+      "question": "How much sampled future information supplies the learning signal?",
+      "summary": "One-step TD, n-step returns, lambda-returns, and GAE arrange the tradeoff between sampled future outcomes and value bootstrapping.",
+      "distinction": "GAE is an advantage estimator, not the PPO optimizer. Standard accumulating TD(lambda) and every online forward-view variant are not exactly interchangeable.",
+      "uses": [
+        {
+          "node": "nstep",
+          "role": "Pick one sampled horizon before bootstrapping."
+        },
+        {
+          "node": "traces",
+          "role": "Mix horizons in the forward view; carry eligibility in the backward view."
+        },
+        {
+          "node": "gae",
+          "role": "Mix TD residuals into an advantage estimate."
+        },
+        {
+          "node": "ppo",
+          "role": "Use fixed rollout advantages in the policy-ratio objective."
+        }
+      ]
+    },
+    {
+      "id": "policy-control",
+      "title": "Control policy movement",
+      "question": "What prevents repeatedly over-optimizing the same rollout?",
+      "summary": "Even a locally useful policy-gradient estimate can become unreliable after the policy moves far from the distribution that generated the batch.",
+      "distinction": "PPO’s clipped minimum is pessimistic relative to its unclipped surrogate. TD3’s minimum compares Q estimates. The shared word “pessimism” does not make them the same mechanism.",
+      "uses": [
+        {
+          "node": "trpo",
+          "role": "Approximately enforce an average KL trust-region constraint."
+        },
+        {
+          "node": "ppo",
+          "role": "Remove the sampled incentive for excessive beneficial ratio changes; no hard global ratio/KL bound."
+        }
+      ]
+    },
+    {
+      "id": "exploration",
+      "title": "Exploration behavior",
+      "question": "What creates the actions sent to the environment?",
+      "summary": "The behavior rule determines which transitions become available. Exploration and optimization can use different distributions in off-policy methods.",
+      "distinction": "TD3 target noise never touches the environment. SAC’s policy randomness is part of its learned stochastic policy and objective, whereas DDPG/TD3 exploration noise is added to a deterministic actor.",
+      "uses": [
+        {
+          "node": "bandits",
+          "role": "Epsilon-greedy or a UCB uncertainty bonus chooses actions to learn about rewards."
+        },
+        {
+          "node": "dqn",
+          "role": "Epsilon-greedy over discrete Q values."
+        },
+        {
+          "node": "ppo",
+          "role": "Sample the stochastic rollout policy; an entropy bonus can encourage diversity."
+        },
+        {
+          "node": "ddpg",
+          "role": "Add a separate exploration process, originally OU noise."
+        },
+        {
+          "node": "td3",
+          "role": "Add exploration noise independently of target-smoothing noise."
+        },
+        {
+          "node": "sac",
+          "role": "Sample from the learned stochastic policy; entropy affects learning too."
+        }
+      ]
+    },
+    {
+      "id": "entropy",
+      "title": "Entropy regularization",
+      "question": "Is randomness a local bonus or part of the value being propagated?",
+      "summary": "Entropy rewards a distribution for not collapsing too quickly. In maximum-entropy RL, future entropy contributes to the value of visiting a state.",
+      "distinction": "SAC is not just PPO’s entropy bonus with replay attached. Its soft Bellman evaluation and actor objective are matched. The original and later SAC papers also differ in temperature treatment.",
+      "uses": [
+        {
+          "node": "ppo",
+          "role": "Optional entropy bonus in the policy objective; usual V targets predict ordinary rewards."
+        },
+        {
+          "node": "sac",
+          "role": "Entropy appears in soft V and actor loss; original paper uses reward scaling / fixed temperature."
+        },
+        {
+          "node": "sac-modern",
+          "role": "Entropy appears directly in Q targets; automatic temperature can match a target entropy."
+        }
+      ]
+    },
+    {
+      "id": "smoothing",
+      "title": "Target policy smoothing",
+      "question": "Could a narrow erroneous Q peak dominate the backup?",
+      "summary": "Perturb the target actor’s next action, clip the perturbation and action bounds, then evaluate that neighborhood through repeated sampled backups.",
+      "distinction": "The link to Expected SARSA is a mechanism analogy, not a claim that TD3 evaluates its exploratory behavior policy. One sampled perturbation per transition approximates the noise expectation over training.",
+      "uses": [
+        {
+          "node": "expected-sarsa",
+          "role": "Average values under a specified target action distribution."
+        },
+        {
+          "node": "td3",
+          "role": "Use independently chosen smoothing noise around the target actor inside the Q backup."
+        }
+      ]
+    },
+    {
+      "id": "delay",
+      "title": "Delayed improvement",
+      "question": "How quickly should an actor chase a changing evaluator?",
+      "summary": "Let the critic take more updates before using its slope to change the actor. TD3 delays target updates with the actor, slowing the feedback loop too.",
+      "distinction": "The delay is a fixed update schedule. It does not check a convergence certificate. DDPG already had target networks; TD3 changes the relative timing and adds its other two controls.",
+      "uses": [
+        {
+          "node": "ddpg",
+          "role": "Baseline: actor and critic update in every training iteration."
+        },
+        {
+          "node": "td3",
+          "role": "Critics update each iteration; actor and all targets update every k iterations."
+        }
+      ]
+    }
+  ]
+}

@@ -3,6 +3,8 @@ import { useUsageLog } from "../lib/usageLog";
 import { DebugView } from "../features/debug/DebugView";
 import { applyDayStatus, applyTaskStatus } from "../lib/workspaceProgress";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -149,7 +151,10 @@ import type {
   TrackerSettings,
 } from "../api/trackerApi";
 
+const AlgorithmMapView = lazy(() => import("../features/algorithm-map/AlgorithmMapView").then(module => ({ default: module.AlgorithmMapView })));
+
 const trackerViews = new Set<TrackerView>([
+  "map",
   "roadmap",
   "resources",
   "skills",
@@ -2388,6 +2393,7 @@ export function App() {
         </div>
       ) : null}
       {mutating ? <div className="savingPill">Saving...</div> : null}
+      {view === "map" ? <Suspense fallback={<p>Loading algorithm map…</p>}><AlgorithmMapView key={workspace.id} courseId={workspace.id} courseCode={workspace.shortCode}/></Suspense> : null}
       {view === "settings" ? (
         <SettingsView
           onCaptureDebugModeChange={handleCaptureDebugModeChange}

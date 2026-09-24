@@ -11,7 +11,14 @@
     "preview": "vite preview --config vite.config.ts --host 127.0.0.1 --port 4174",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "map:build": "node ../scripts/build-rl-map.mjs",
+    "map:check": "node ../scripts/build-rl-map.mjs --check",
+    "prebuild": "npm run map:build",
+    "predev": "npm run map:build",
+    "pretest": "npm run map:build",
+    "pretest:watch": "npm run map:build",
+    "pretypecheck": "npm run map:build"
   },
   "dependencies": {
     "@tiptap/core": "3.27.0",

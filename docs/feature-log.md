@@ -1,5 +1,28 @@
 # Tracker feature and maintenance log
 
+## 2026-09-24 — connected RL algorithm map for Day 12
+
+- TORL gains **Algorithm map**: 27 authored nodes, 38 labeled relationships,
+  12 cross-paper mechanisms, the five-method decision matrix, and an interactive
+  score/pathwise/critic-gradient demonstration. Original SAC and later SAC remain
+  separate, with source/version boundaries and personal question themes.
+- Paper-style procedures use numbered lines and nested indentation. Explanations,
+  symbol guide, and paper notation are optional. Mechanism links open another
+  procedure with matching steps highlighted. Expanding a procedure scrolls to its
+  heading, including on narrow screens; long equations scroll within the card.
+- [JSON/Markdown editing workflow](../content/rl-map/README.md) and
+  [research scope](../content/rl-map/RESEARCH.md) document extension and coverage.
+  The build validates formulas, node/edge/mechanism references, and sections.
+  Content is bundled locally; map preferences do not write study records.
+- Validation: all 250 frontend tests, including every card in both notation
+  conventions and numerical gradient checks; ESLint, TypeScript, production
+  build, and fresh-content check. Browser checks covered 1440px/390px layouts,
+  mechanism navigation, controls, source-reader link, and existing Roadmap,
+  Resources, and Exams. No new console errors or page-level horizontal overflow.
+- Limit: saved text annotations and tutor discussions were available, but direct
+  annotated iCloud PDF access was denied. The map is a curated synthesis, not a
+  complete transcription of handwriting; sources remain linked for review.
+
 ## 2026-09-22 — tutor labels take precedence over legacy capture flags
 
 - Live-data verification found imported High capture flags masking explicit tutor Core labels. Unset study priorities now prefer tutor guidance, retaining legacy High/Low only as a fallback. New manual Q&A choices remain authoritative; Auto removes that fallback. Existing capture data is unchanged.

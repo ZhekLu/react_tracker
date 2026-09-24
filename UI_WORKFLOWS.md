@@ -19,6 +19,21 @@ record.
 - Collapse the left sidebar when zooming notes or discussions. Its view icons
   remain available at the narrow width.
 
+## Algorithm map (TORL)
+
+Open **Algorithm map** in the sidebar. Start with TD3 → **Algorithm** for the
+paper-style numbered procedure. **Step explanations** adds commentary beside
+the operations; **Paper notation** and **Symbol guide** help decode the symbols.
+Click a mechanism label to compare its role across papers, then another method
+to highlight that mechanism in its procedure. **Where gradients flow** makes
+the fixed action versus moving action distinction interactive. The decision
+matrix keeps the five Day 12 algorithms side by side.
+
+**Show earlier methods & branches** reveals the course foundations. Each card
+keeps source links, personal question themes, and recall prompts in separate
+sections. Map reading preferences are local; study progress is unchanged.
+[Add or edit nodes from JSON/Markdown](content/rl-map/README.md).
+
 ## Roadmap: complete one task loop
 
 1. Click the time badge (`45m`, for example) on a task. It starts Toggl with the

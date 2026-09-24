@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  GitBranch,
   Bug,
   CalendarDays,
   FileQuestion,
@@ -56,6 +57,7 @@ type AppShellProps = {
 };
 
 const viewMeta = {
+  map: { label: "Map", icon: GitBranch },
   roadmap: { label: "Roadmap", icon: CalendarDays },
   resources: { label: "Resources", icon: BookOpen },
   skills: { label: "Skills", icon: ScanSearch },
