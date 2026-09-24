@@ -719,6 +719,7 @@ class PromptBatchCreateCommand(StrictModel):
     question_label_start: int = Field(default=1, ge=1)
     question_labels: dict[str, str] = Field(default_factory=dict)
     annotation_ids: list[str] = Field(default_factory=list)
+    supporting_annotation_ids: list[str] = Field(default_factory=list)
     attachment_limit: int | None = Field(default=None, ge=1, le=100)
 
 
@@ -726,6 +727,7 @@ class PromptAttachmentPreviewResponse(StrictModel):
     attachment_count: int = Field(ge=0)
     resource_file_count: int = Field(ge=0)
     question_image_count: int = Field(ge=0)
+    note_image_count: int = Field(ge=0)
 
 
 class MaccyImageImportCommand(StrictModel):
@@ -760,7 +762,7 @@ class DiscussionAnswerImportResponse(MutationResponse):
 
 class PromptAttachmentItem(StrictModel):
     name: str
-    kind: Literal["resource", "question_image", "manifest"]
+    kind: Literal["resource", "question_image", "note_image", "manifest"]
     path: str
     resource_id: str | None = None
     annotation_id: str | None = None

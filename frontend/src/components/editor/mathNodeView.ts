@@ -1,5 +1,6 @@
 import type { NodeViewRenderer } from "@tiptap/core";
 import katex, { type KatexOptions } from "katex";
+import { changeFormula } from "./editorInteractions";
 
 /** Leave formula contents atomic; selection/undo remain native ProseMirror operations. */
 export function mathNodeView(kind: "inline" | "block", options: KatexOptions | undefined,
@@ -11,6 +12,13 @@ export function mathNodeView(kind: "inline" | "block", options: KatexOptions | u
     dom.className = "noteMath";
     dom.contentEditable = "false";
     dom.setAttribute("role", "math");
+    const renderedFormula = document.createElement("span");
+    renderedFormula.className = "noteMathRendered";
+    const layoutToggle = document.createElement("button");
+    layoutToggle.className = "noteMathLayoutToggle";
+    layoutToggle.contentEditable = "false";
+    layoutToggle.type = "button";
+    dom.append(renderedFormula, layoutToggle);
     let startX = 0, startY = 0;
     function render() {
       dom.dataset.latex = node.attrs.latex;
@@ -18,18 +26,44 @@ export function mathNodeView(kind: "inline" | "block", options: KatexOptions | u
       dom.style.backgroundColor = highlight ?? "";
       dom.setAttribute("aria-label", `${kind === "inline" ? "Inline" : "Display"} formula: ${node.attrs.latex}`);
       dom.title = editor.isEditable ? "Click to select · Enter or double-click to edit · Delete to remove" : "";
-      katex.render(node.attrs.latex, dom, {...options, displayMode: kind === "block", throwOnError: false});
+      layoutToggle.hidden = !editor.isEditable;
+      layoutToggle.textContent = kind === "block" ? "I" : "D";
+      layoutToggle.title = kind === "block"
+        ? "Make inline (⌘/Ctrl Shift M)"
+        : "Make display (⌘/Ctrl Shift M)";
+      layoutToggle.setAttribute(
+        "aria-label",
+        kind === "block" ? "Convert formula to inline" : "Convert formula to display",
+      );
+      katex.render(node.attrs.latex, renderedFormula, {...options, displayMode: kind === "block", throwOnError: false});
     }
+    layoutToggle.addEventListener("mousedown", event => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    layoutToggle.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const pos = getPos();
+      if (!editor.isEditable || typeof pos !== "number") return;
+      changeFormula(
+        editor,
+        pos,
+        kind === "block" ? "inline" : "block",
+        String(node.attrs.latex),
+      );
+      editor.commands.focus();
+    });
     dom.addEventListener("mousedown", event => {startX = event.clientX; startY = event.clientY;});
     dom.addEventListener("click", event => {
       const pos = getPos();
-      if (!editor.isEditable || pos === undefined || event.shiftKey || Math.hypot(event.clientX - startX, event.clientY - startY) > 4) return;
+      if (!editor.isEditable || typeof pos !== "number" || event.shiftKey || Math.hypot(event.clientX - startX, event.clientY - startY) > 4) return;
       event.preventDefault();
       editor.chain().focus().setNodeSelection(pos).run();
     });
     dom.addEventListener("dblclick", event => {
       const pos = getPos();
-      if (!editor.isEditable || pos === undefined) return;
+      if (!editor.isEditable || typeof pos !== "number") return;
       event.preventDefault();
       edit?.(kind, node.attrs.latex, pos);
     });

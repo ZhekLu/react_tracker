@@ -2290,7 +2290,7 @@ def _ensure_question_identity(
         """
         SELECT
           a.kind, a.resource_id, r.course_id, r.kind AS resource_kind,
-          r.metadata_json, aa.section_title, aa.selector_json
+          r.metadata_json, aa.page_number, aa.section_title, aa.selector_json
         FROM annotations a
         JOIN resources r ON r.id = a.resource_id AND r.deleted_at IS NULL
         LEFT JOIN annotation_anchors aa ON aa.annotation_id = a.id
@@ -2312,10 +2312,10 @@ def _ensure_question_identity(
     resource_id = str(annotation["resource_id"])
     context_group_id = anchor_metadata.get("contextGroupId")
     if isinstance(context_group_id, str) and context_group_id.strip():
-        grouped = _one_or_none(
+        grouped_candidates = _rows(
             connection,
             """
-            SELECT aqi.question_identity_id
+            SELECT aqi.question_identity_id, grouped_anchor.selector_json
             FROM annotations grouped_annotation
             JOIN annotation_anchors grouped_anchor
               ON grouped_anchor.annotation_id = grouped_annotation.id
@@ -2323,14 +2323,37 @@ def _ensure_question_identity(
               ON aqi.annotation_id = grouped_annotation.id
             WHERE grouped_annotation.resource_id = :resource_id
               AND grouped_annotation.deleted_at IS NULL
+              AND grouped_anchor.page_number IS :page_number
               AND json_extract(grouped_anchor.selector_json, '$.contextGroupId') = :context_group_id
             ORDER BY grouped_annotation.created_at, grouped_annotation.id
-            LIMIT 1
             """,
             {
                 "resource_id": resource_id,
+                "page_number": annotation["page_number"],
                 "context_group_id": context_group_id,
             },
+        )
+        current_lane = str(anchor_metadata.get("layoutColumn") or "full").casefold()
+        current_lane = current_lane if current_lane in {"left", "right"} else "full"
+        grouped = next(
+            (
+                candidate
+                for candidate in grouped_candidates
+                if (
+                    (candidate_lane := str(
+                        _json_loads(candidate["selector_json"], {}).get(
+                            "layoutColumn"
+                        )
+                        or "full"
+                    ).casefold())
+                    == current_lane
+                    or (
+                        current_lane == "full"
+                        and candidate_lane not in {"left", "right"}
+                    )
+                )
+            ),
+            None,
         )
         if grouped is not None:
             connection.execute(

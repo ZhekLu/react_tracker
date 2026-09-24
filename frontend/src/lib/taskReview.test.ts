@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { taskReviewParts } from "./taskReview";
-import { taskTutorPrompt, taskScopedAnnotations } from "./prompts";
-import type { Annotation, Course, Discussion, StudyDay, Task } from "../types/tracker";
+import { taskTutorPrompt, taskScopedAnnotations, taskSupportingNotes } from "./prompts";
+import type { Annotation, Course, Discussion, Resource, StudyDay, Task } from "../types/tracker";
 
 const discussion = {questionLabels: [{label: "Q-001", annotationIds: ["q1"]}], messages: []} as unknown as Discussion;
 describe("task tutor workflow", () => {
@@ -32,5 +32,25 @@ describe("task tutor workflow", () => {
     expect(payload.markdown).toContain("My attempt: $G_t$.");
     expect(payload.markdown).toContain("Explain $J(\\theta)$.");
     expect(payload.markdown).toContain("Why is the baseline unbiased?");
+  });
+  it("can include current-day resource notes as supporting N-items without turning them into questions", () => {
+    const task = {id: "task", title: "Read lecture", resourceIds: ["lecture"], chapterNumbers: [], notes: []} as unknown as Task;
+    const day = {id: "day", number: 15} as StudyDay;
+    const resource = {id: "lecture", title: "Lecture 18", kind: "lecture"} as Resource;
+    const question = {id: "q1", kind: "question", status: "open", resourceId: "lecture", notes: [],
+      body: {plainText: "Why is this conservative?"}, anchor: {pageNumber: 4}, createdAt: "2026-01-01"} as unknown as Annotation;
+    const note = {id: "n1", kind: "note", status: "open", resourceId: "lecture", notes: [],
+      body: {markdown: "This branch constrains the actor."}, anchor: {pageNumber: 9, metadata: {createdDayId: "day"}}, createdAt: "2026-01-02"} as unknown as Annotation;
+    const oldNote = {id: "n-old", kind: "note", status: "open", resourceId: "lecture", notes: [],
+      body: {plainText: "Old idea"}, anchor: {pageNumber: 2, metadata: {createdDayId: "old-day"}}, createdAt: "2025-01-01"} as unknown as Annotation;
+    const course = {title: "RL", shortCode: "RL", resources: [resource], annotations: [oldNote, question, note]} as unknown as Course;
+
+    expect(taskSupportingNotes(course, day, task).map(item => item.id)).toEqual(["n1"]);
+    const payload = taskTutorPrompt(course, day, task, {includeResourceNotes: true});
+    expect(payload.annotationIds).toEqual(["q1"]);
+    expect(payload.supportingAnnotationIds).toEqual(["n1"]);
+    expect(payload.markdown).toContain("### N-001 · Lecture 18 · page 9");
+    expect(payload.markdown).toContain("This branch constrains the actor.");
+    expect(payload.markdown).not.toContain("Old idea");
   });
 });

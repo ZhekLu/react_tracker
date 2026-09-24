@@ -43,7 +43,7 @@ _WINDOWS_RESERVED = {
 @dataclass(frozen=True, slots=True)
 class PreparedPromptAttachment:
     name: str
-    kind: Literal["resource", "question_image", "manifest"]
+    kind: Literal["resource", "question_image", "note_image", "manifest"]
     path: str
     resource_id: str | None = None
     annotation_id: str | None = None
@@ -275,6 +275,7 @@ def _prompt_resource_ids(
         *_task_resource_ids(connection, command.source_task_id),
         *_day_resource_ids(connection, command.source_day_id),
         *_annotation_resource_ids(connection, command.annotation_ids),
+        *_annotation_resource_ids(connection, command.supporting_annotation_ids),
     ]
     return list(dict.fromkeys(ordered))
 
@@ -531,7 +532,11 @@ def _question_image_path(row: RowMapping) -> Path | None:
     return path if path.is_file() else None
 
 
-def _question_image_bytes(row: RowMapping) -> bytes | None:
+def _annotation_image_bytes(
+    row: RowMapping,
+    *,
+    render_page_fallback: bool = False,
+) -> bytes | None:
     image_path = _question_image_path(row)
     if image_path is not None:
         try:
@@ -540,7 +545,10 @@ def _question_image_bytes(row: RowMapping) -> bytes | None:
             return None
 
     metadata = _json_object(row["selector_json"])
-    if not metadata.get("includeSlideScreenshot") or row["page_number"] is None:
+    if (
+        not render_page_fallback
+        and not metadata.get("includeSlideScreenshot")
+    ) or row["page_number"] is None:
         return None
     paths = _resource_paths(row)
     if not paths:
@@ -554,7 +562,7 @@ def _question_image_bytes(row: RowMapping) -> bytes | None:
 def preview_prompt_attachments(
     connection: Connection,
     command: PromptBatchCreateCommand,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     """Count source files and question images without touching the attachment folder."""
 
     resource_ids = _expand_parent_resources(
@@ -587,7 +595,13 @@ def preview_prompt_attachments(
             and bool(_resource_paths(row))
         )
     )
-    return resource_file_count, question_image_count
+    note_image_count = sum(
+        1
+        for row in _question_rows(connection, command.supporting_annotation_ids)
+        if _question_image_path(row) is not None
+        or (row["page_number"] is not None and bool(_resource_paths(row)))
+    )
+    return resource_file_count, question_image_count, note_image_count
 
 
 def _resource_attachment_name(
@@ -629,12 +643,24 @@ def _question_attachment_name(
     return f"{question_label}__{title}{page}__handwriting.png"
 
 
+def _note_attachment_name(
+    *,
+    note_label: str,
+    resource_title: str,
+    page_number: int | None,
+) -> str:
+    title = _sanitize_stem(resource_title, fallback="resource")
+    page = f"__p-{page_number}" if page_number else ""
+    return f"{note_label}__{title}{page}__note.png"
+
+
 def _render_manifest(
     attachments: list[PreparedPromptAttachment],
     warnings: list[str],
 ) -> str:
     resources = [item for item in attachments if item.kind == "resource"]
     screenshots = [item for item in attachments if item.kind == "question_image"]
+    note_screenshots = [item for item in attachments if item.kind == "note_image"]
     lines = [
         "# ChatGPT prompt attachments",
         "",
@@ -645,6 +671,12 @@ def _render_manifest(
         for item in screenshots:
             lines.append(
                 f"- `{item.name}` — screenshot for {item.question_label or 'a question'}"
+            )
+    if note_screenshots:
+        lines += ["", "## Resource-note screenshots", ""]
+        for item in note_screenshots:
+            lines.append(
+                f"- `{item.name}` — screenshot for {item.question_label or 'a resource note'}"
             )
     if resources:
         lines += ["", "## Source resources", ""]
@@ -664,18 +696,25 @@ def _append_attachment_section(
         return markdown
     resources = [item for item in attachments if item.kind == "resource"]
     screenshots = [item for item in attachments if item.kind == "question_image"]
+    note_screenshots = [item for item in attachments if item.kind == "note_image"]
     lines = [
         "## Attached files",
         "",
         "I will upload the following files from the prepared attachment folder. "
         "Use them as source material and keep each screenshot associated with its "
-        "matching question label.",
+        "matching Q-… or N-… label.",
     ]
     if screenshots:
         lines += ["", "### Question screenshots", ""]
         lines.extend(
             f"- `{item.name}` → {item.question_label}"
             for item in screenshots
+        )
+    if note_screenshots:
+        lines += ["", "### Resource-note screenshots", ""]
+        lines.extend(
+            f"- `{item.name}` → {item.question_label}"
+            for item in note_screenshots
         )
     if resources:
         lines += ["", "### Resource files", ""]
@@ -716,7 +755,14 @@ def prepare_prompt_attachments(
         copied_source_paths: set[str] = set()
         resource_rows = _resource_file_rows(connection, resource_ids)
         question_rows = _question_rows(connection, command.annotation_ids)
-        total_work = max(1, len(resource_rows) + len(question_rows))
+        note_rows = _question_rows(
+            connection,
+            command.supporting_annotation_ids,
+        )
+        total_work = max(
+            1,
+            len(resource_rows) + len(question_rows) + len(note_rows),
+        )
         completed_work = 0
         for row in resource_rows:
             if command.attachment_limit and len(attachments) >= command.attachment_limit:
@@ -818,7 +864,7 @@ def prepare_prompt_attachments(
         ):
             if command.attachment_limit and len(attachments) >= command.attachment_limit:
                 break
-            image_bytes = _question_image_bytes(row)
+            image_bytes = _annotation_image_bytes(row)
             if image_bytes is None:
                 completed_work += 1
                 continue
@@ -858,8 +904,52 @@ def prepare_prompt_attachments(
                 "Reusing or preparing question screenshots",
             )
 
+        for index, row in enumerate(note_rows, start=1):
+            if command.attachment_limit and len(attachments) >= command.attachment_limit:
+                break
+            image_bytes = _annotation_image_bytes(
+                row,
+                render_page_fallback=True,
+            )
+            if image_bytes is None:
+                completed_work += 1
+                continue
+            annotation_id = str(row["annotation_id"])
+            note_label = f"N-{index:03d}"
+            preferred_name = _note_attachment_name(
+                note_label=note_label,
+                resource_title=str(row["resource_title"]),
+                page_number=(
+                    int(row["page_number"])
+                    if row["page_number"] is not None
+                    else None
+                ),
+            )
+            target = _write_bytes(
+                image_bytes,
+                destination,
+                preferred_name,
+                used_names,
+            )
+            attachments.append(
+                PreparedPromptAttachment(
+                    name=target.name,
+                    kind="note_image",
+                    path=str(target),
+                    resource_id=str(row["resource_id"]),
+                    annotation_id=annotation_id,
+                    question_label=note_label,
+                )
+            )
+            completed_work += 1
+            notify(
+                10 + round(75 * completed_work / total_work),
+                "Reusing or preparing resource-note screenshots",
+            )
+
         if command.attachment_limit and (
-            len(resource_rows) + len(question_rows) > command.attachment_limit
+            len(resource_rows) + len(question_rows) + len(note_rows)
+            > command.attachment_limit
         ):
             warnings.append(
                 f"Attachment package was limited to the first {command.attachment_limit} files."

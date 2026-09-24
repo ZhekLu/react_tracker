@@ -149,7 +149,14 @@ export function DiscussionMarkdownSurfaceImpl({
     [editable, placeholder],
   );
 
-  useEditorState({editor, selector: state => state.editor?.state.doc});
+  useEditorState({
+    editor,
+    selector: state => state.editor?.state.doc,
+    // Documents from two editor instances own different cyclic schemas. The
+    // default deep comparison can recurse forever when read mode becomes edit
+    // mode; document identity is the intended transaction signal here.
+    equalityFn: (previous, next) => previous === next,
+  });
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -324,6 +331,17 @@ export function DiscussionMarkdownSurfaceImpl({
     if (formula && (event.key === "Delete" || event.key === "Backspace")) {
       event.preventDefault(); event.stopPropagation(); activeEditor.commands.deleteSelection(); return;
     }
+    if (formula && command && event.shiftKey && key === "m") {
+      event.preventDefault();
+      event.stopPropagation();
+      changeFormula(
+        activeEditor,
+        formula.position!,
+        formula.kind === "block" ? "inline" : "block",
+        formula.latex,
+      );
+      return;
+    }
 
     if (reviewMode && command && key === "d" && !sourceMode) {
       event.preventDefault();
@@ -451,7 +469,7 @@ export function DiscussionMarkdownSurfaceImpl({
         <button type="button" disabled={Boolean(conversionError)} title={conversionError || undefined} onMouseDown={event => event.preventDefault()} onClick={() => changeFormula(activeEditor, formulaSelection.position!, formulaSelection.kind === "block" ? "inline" : "block", formulaSelection.latex)}>
           {formulaSelection.kind === "block" ? "To inline" : "To display"}</button>
         <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => activeEditor.chain().focus().deleteSelection().run()}>Delete formula</button>
-        <small>Enter to edit · Delete to remove</small>
+        <small>Enter to edit · ⌘/Ctrl Shift M to change layout · Delete to remove</small>
       </div> : null}
         </header>
       ) : null}

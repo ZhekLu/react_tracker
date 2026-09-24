@@ -762,11 +762,13 @@ export function App() {
     });
 
     const sourceAnnotationIds = payload.annotationIds ?? [];
+    const supportingAnnotationIds = payload.supportingAnnotationIds ?? [];
     let attachmentPreview: Awaited<ReturnType<typeof previewPromptBatch>> | null = null;
     if (sourceAnnotationIds.length > 20 && !options.selectionConfirmed) {
       try {
         attachmentPreview = await previewPromptBatch({
           annotationIds: sourceAnnotationIds,
+          supportingAnnotationIds,
           courseId: workspace.id,
           markdown: payload.markdown,
           sourceDayId: payload.sourceDayId,
@@ -783,7 +785,7 @@ export function App() {
       }
     }
     const previewSummary = attachmentPreview
-      ? ` The full package contains ${attachmentPreview.attachmentCount} attachment file${attachmentPreview.attachmentCount === 1 ? "" : "s"} (${attachmentPreview.resourceFileCount} source, ${attachmentPreview.questionImageCount} question image${attachmentPreview.questionImageCount === 1 ? "" : "s"}).`
+      ? ` The full package contains ${attachmentPreview.attachmentCount} attachment file${attachmentPreview.attachmentCount === 1 ? "" : "s"} (${attachmentPreview.resourceFileCount} source, ${attachmentPreview.questionImageCount} question image${attachmentPreview.questionImageCount === 1 ? "" : "s"}, ${attachmentPreview.noteImageCount} note image${attachmentPreview.noteImageCount === 1 ? "" : "s"}).`
       : "";
     const limitQuestions =
       sourceAnnotationIds.length > 20 &&
@@ -802,6 +804,7 @@ export function App() {
     try {
       batch = await createPromptBatch({
         annotationIds,
+        supportingAnnotationIds,
         attachmentLimit: limitQuestions ? 20 : undefined,
         courseId: workspace.id,
         markdown,
@@ -1003,6 +1006,36 @@ export function App() {
       if (!discussion) await createDiscussion({courseId: workspace.id, initialPromptBatchId: batchId, title: `Day ${day.number} · Task reviews`});
     });
     if (saved) setActionMessage("Task, note, and linked questions copied. Use Import review for the tutor’s response.");
+  }
+
+  async function handleCopyTaskWithNotes(dayId: string, task: Task) {
+    if (!workspace) return;
+    const day = workspace.days.find(d => d.id === dayId);
+    if (!day) return;
+    const annotations = taskScopedAnnotations(workspace, day, task);
+    const discussion = discussionForTaskQuestions(day, annotations.map(a => a.id));
+    const payload = taskTutorPrompt(workspace, day, task, {
+      includeResourceNotes: true,
+      parentDiscussionId: discussion?.id,
+      questionLabels: questionLabelsForDiscussion(discussion, annotations),
+    });
+    const noteCount = payload.supportingAnnotationIds?.length ?? 0;
+    const batchId = await savePromptBatch(
+      payload,
+      `Task, ${noteCount} resource note${noteCount === 1 ? "" : "s"}, and linked questions copied.`,
+      {selectionConfirmed: true},
+    );
+    if (!batchId) return;
+    const saved = await runMutation(async () => {
+      if (!discussion) await createDiscussion({
+        courseId: workspace.id,
+        initialPromptBatchId: batchId,
+        title: `Day ${day.number} · Task reviews`,
+      });
+    });
+    if (saved) setActionMessage(
+      `Task and ${noteCount} resource note${noteCount === 1 ? "" : "s"} copied. Use Import review for the tutor’s response.`,
+    );
   }
 
   function handleInsertTaskReview(dayId: string, task: Task) {
@@ -2426,6 +2459,7 @@ export function App() {
           }
           onOpenTaskQa={handleOpenTaskQa}
           onCopyTask={(dayId, task) => { void handleCopyTask(dayId, task).catch(caught => setError(String(caught))); }}
+          onCopyTaskWithNotes={(dayId, task) => { void handleCopyTaskWithNotes(dayId, task).catch(caught => setError(String(caught))); }}
           onInsertTaskReview={handleInsertTaskReview}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
           onPrepareExerciseScreenshots={handlePrepareExerciseScreenshots}

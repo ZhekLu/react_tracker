@@ -564,12 +564,13 @@ export type PromptBatchInput = {
   questionLabelStart?: number;
   questionLabels?: Record<string, string>;
   annotationIds?: string[];
+  supportingAnnotationIds?: string[];
   attachmentLimit?: number;
 };
 
 export type PromptAttachment = {
   name: string;
-  kind: "resource" | "question_image" | "manifest";
+  kind: "resource" | "question_image" | "note_image" | "manifest";
   path: string;
   resourceId?: string | null;
   annotationId?: string | null;
@@ -585,6 +586,7 @@ export type PromptBatchResult = MutationResponse & {
 
 export type PromptAttachmentPreview = {
   attachmentCount: number;
+  noteImageCount: number;
   questionImageCount: number;
   resourceFileCount: number;
 };
@@ -609,7 +611,7 @@ type ApiPromptBatchResult = {
   attachment_directory: string;
   attachments: {
     name: string;
-    kind: "resource" | "question_image" | "manifest";
+    kind: "resource" | "question_image" | "note_image" | "manifest";
     path: string;
     resource_id?: string | null;
     annotation_id?: string | null;
@@ -1340,6 +1342,7 @@ export async function uploadImageQuestions(input: {
 function promptBatchCommand(input: PromptBatchInput) {
   return {
     annotation_ids: input.annotationIds ?? [],
+    supporting_annotation_ids: input.supportingAnnotationIds ?? [],
     attachment_limit: input.attachmentLimit,
     course_id: input.courseId,
     markdown: input.markdown,
@@ -1360,6 +1363,7 @@ export async function previewPromptBatch(
 ): Promise<PromptAttachmentPreview> {
   const result = await requestJson<{
     attachment_count: number;
+    note_image_count: number;
     question_image_count: number;
     resource_file_count: number;
   }>("/prompt-batches/preview", {
@@ -1368,6 +1372,7 @@ export async function previewPromptBatch(
   });
   return {
     attachmentCount: result.attachment_count,
+    noteImageCount: result.note_image_count,
     questionImageCount: result.question_image_count,
     resourceFileCount: result.resource_file_count,
   };

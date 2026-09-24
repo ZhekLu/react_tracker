@@ -2849,6 +2849,25 @@
 .discussionRichSurface .noteMath[data-type="inline-math"] { display: inline-block; border-radius: 3px; }
 .discussionRichSurface[contenteditable="true"] .noteMath { cursor: pointer; }
 .discussionRichSurface .noteMath.ProseMirror-selectednode { outline: 2px solid #4482b5; outline-offset: 3px; }
+.discussionRichSurface .noteMathRendered { display: inline; }
+.discussionRichSurface .noteMathLayoutToggle {
+  display: none;
+  margin-left: 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, #4482b5);
+  border-radius: 4px;
+  padding: 0 3px;
+  min-width: 17px;
+  min-height: 17px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font: 700 9px/15px ui-sans-serif, system-ui, sans-serif;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.discussionRichSurface[contenteditable="true"] .noteMath:hover > .noteMathLayoutToggle,
+.discussionRichSurface[contenteditable="true"] .noteMath.ProseMirror-selectednode > .noteMathLayoutToggle,
+.discussionRichSurface[contenteditable="true"] .noteMathLayoutToggle:focus-visible { display: inline-block; }
+.discussionRichSurface [data-type="block-math"] > .noteMathLayoutToggle { vertical-align: top; }
 .discussionRichSurface mark code { background: transparent; }
 .discussionRichSurface pre[data-block-highlight] code,
 .discussionRichSurface pre[data-block-highlight] code [class] { color: #17251f; }

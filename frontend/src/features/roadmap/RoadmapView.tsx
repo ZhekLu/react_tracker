@@ -140,6 +140,7 @@ type RoadmapViewProps = {
   onCopyNextQuestions: (dayId: string, task: Task) => void;
   onOpenTaskQa: (dayId: string, task: Task) => void;
   onCopyTask: (dayId: string, task: Task) => void;
+  onCopyTaskWithNotes: (dayId: string, task: Task) => void;
   onInsertTaskReview: (dayId: string, task: Task) => void;
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: (task: Task) => void;
@@ -181,6 +182,7 @@ type TaskRowProps = {
   onCopyNextQuestions: RoadmapViewProps["onCopyNextQuestions"];
   onOpenTaskQa: RoadmapViewProps["onOpenTaskQa"];
   onCopyTask: RoadmapViewProps["onCopyTask"];
+  onCopyTaskWithNotes: RoadmapViewProps["onCopyTaskWithNotes"];
   onInsertTaskReview: RoadmapViewProps["onInsertTaskReview"];
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
@@ -231,6 +233,7 @@ function TaskRow({
   onCopyNextQuestions,
   onOpenTaskQa,
   onCopyTask,
+  onCopyTaskWithNotes,
   onInsertTaskReview,
   onOpenResource,
   onPrepareExerciseScreenshots,
@@ -297,6 +300,18 @@ function TaskRow({
       ["question", "todo"].includes(annotation.kind) &&
       annotation.status !== "archived" &&
       (annotation.discussionResponseCount ?? 0) > 0,
+  );
+  const taskResourceNotes = taskCaptures.filter(
+    ({ annotation }) => {
+      if (annotation.kind !== "note") return false;
+      const metadata = annotationMetadata(annotation);
+      const createdDayId = metadata.createdDayId;
+      const createdTaskId = metadata.createdTaskId ?? metadata.sourceTaskId;
+      return (
+        (typeof createdDayId !== "string" || createdDayId === dayId) &&
+        (typeof createdTaskId !== "string" || createdTaskId === task.id)
+      );
+    },
   );
   const taskOpenQuestionCount = task.openQuestionCount;
   const taskNote = task.notes.find((note) => note.kind === "task");
@@ -426,6 +441,13 @@ function TaskRow({
               title={noteDirty ? "Save the task note before copying" : "Copy task, info, note, and linked questions"} type="button">
               <Copy size={11}/> Copy task prompt
             </button>
+            {taskResourceNotes.length ? (
+              <button className="taskMetaBadge taskTutorAction" disabled={noteDirty}
+                data-track="task.copy-notes" onClick={() => onCopyTaskWithNotes(dayId, task)}
+                title={noteDirty ? "Save the task note before copying" : "Copy the task with linked questions and resource notes, including their screenshots"} type="button">
+                <NotebookPen size={11}/> Copy + notes {taskResourceNotes.length}
+              </button>
+            ) : null}
             <button className="taskMetaBadge taskTutorAction" disabled={noteDirty}
               data-track="task.import" onClick={() => onInsertTaskReview(dayId, task)}
               title={noteDirty ? "Save the task note before inserting a review" : "Append tutor review and open Q&A"} type="button">
@@ -1238,6 +1260,7 @@ type DayCardProps = {
   onCopyNextQuestions: RoadmapViewProps["onCopyNextQuestions"];
   onOpenTaskQa: RoadmapViewProps["onOpenTaskQa"];
   onCopyTask: RoadmapViewProps["onCopyTask"];
+  onCopyTaskWithNotes: RoadmapViewProps["onCopyTaskWithNotes"];
   onInsertTaskReview: RoadmapViewProps["onInsertTaskReview"];
   onOpenResource: (resourceId: string) => void;
   onPrepareExerciseScreenshots: RoadmapViewProps["onPrepareExerciseScreenshots"];
@@ -1272,6 +1295,7 @@ function DayCard({
   onCopyNextQuestions,
   onOpenTaskQa,
   onCopyTask,
+  onCopyTaskWithNotes,
   onInsertTaskReview,
   onOpenResource,
   onPrepareExerciseScreenshots,
@@ -1404,6 +1428,7 @@ function DayCard({
                 onCopyNextQuestions={onCopyNextQuestions}
                 onOpenTaskQa={onOpenTaskQa}
                 onCopyTask={onCopyTask}
+                onCopyTaskWithNotes={onCopyTaskWithNotes}
                 onInsertTaskReview={onInsertTaskReview}
                 onOpenResource={onOpenResource}
                 onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
@@ -1502,6 +1527,7 @@ export function RoadmapView({
   onCopyNextQuestions,
   onOpenTaskQa,
   onCopyTask,
+  onCopyTaskWithNotes,
   onInsertTaskReview,
   onOpenResource,
   onPrepareExerciseScreenshots,
@@ -1622,17 +1648,18 @@ export function RoadmapView({
           onOpenDiscussion={onOpenDiscussion}
           onCopyNextQuestions={onCopyNextQuestions}
           onOpenTaskQa={onOpenTaskQa}
-                onCopyTask={onCopyTask}
-                onInsertTaskReview={onInsertTaskReview}
+          onCopyTask={onCopyTask}
+          onCopyTaskWithNotes={onCopyTaskWithNotes}
+          onInsertTaskReview={onInsertTaskReview}
           onOpenResource={onOpenResource}
           onPrepareExerciseScreenshots={onPrepareExerciseScreenshots}
           onUploadImageQuestions={onUploadImageQuestions}
-        onTaskStatusChange={onTaskStatusChange}
-        onToggleTaskTimer={onToggleTaskTimer}
-        resourceById={resourceById}
-        skillById={skillById}
-        taskTimer={taskTimer}
-      />
+          onTaskStatusChange={onTaskStatusChange}
+          onToggleTaskTimer={onToggleTaskTimer}
+          resourceById={resourceById}
+          skillById={skillById}
+          taskTimer={taskTimer}
+        />
       ))}
     </section>
   );

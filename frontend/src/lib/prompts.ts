@@ -26,6 +26,7 @@ export type PromptPayload = {
   sourceScope: string;
   markdown: string;
   annotationIds?: string[];
+  supportingAnnotationIds?: string[];
   sourceDayId?: string;
   sourceResourceId?: string;
   sourceTaskId?: string;
@@ -220,6 +221,34 @@ export function taskScopedAnnotations(
   });
 }
 
+export function taskSupportingNotes(
+  course: Course,
+  day: StudyDay,
+  task: Task,
+): Annotation[] {
+  const resourceOrder = new Map(
+    task.resourceIds.map((resourceId, index) => [resourceId, index]),
+  );
+  return taskScopedAnnotations(course, day, task)
+    .filter((annotation) => {
+      if (annotation.kind !== "note" || annotation.status === "archived") return false;
+      const metadata = annotationMetadata(annotation);
+      const createdDayId = metadata.createdDayId;
+      if (typeof createdDayId === "string" && createdDayId !== day.id) return false;
+      const createdTaskId = metadata.createdTaskId ?? metadata.sourceTaskId;
+      return typeof createdTaskId !== "string" || createdTaskId === task.id;
+    })
+    .sort((left, right) =>
+      (resourceOrder.get(left.resourceId) ?? Number.MAX_SAFE_INTEGER) -
+        (resourceOrder.get(right.resourceId) ?? Number.MAX_SAFE_INTEGER) ||
+      (left.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER) -
+        (right.anchor?.pageNumber ?? Number.MAX_SAFE_INTEGER) ||
+      annotationLocationOffset(left) - annotationLocationOffset(right) ||
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.id.localeCompare(right.id),
+    );
+}
+
 function annotationLine(
   annotation: Annotation,
   resource: Resource | undefined,
@@ -249,6 +278,32 @@ function annotationLine(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function supportingNoteLine(
+  annotation: Annotation,
+  resource: Resource | undefined,
+  index: number,
+): string {
+  const location = [
+    resource?.title,
+    annotation.anchor?.pageNumber
+      ? `page ${annotation.anchor.pageNumber}`
+      : null,
+    annotation.anchor?.sectionTitle,
+  ].filter(Boolean).join(" · ");
+  const quote = annotation.anchor?.quote?.trim();
+  const body = (
+    annotation.body?.markdown ?? annotation.body?.plainText ?? ""
+  ).trim();
+  const notes = noteText(annotation.notes);
+  return [
+    `### N-${String(index + 1).padStart(3, "0")} · ${location || "Resource note"}`,
+    `Tracker annotation ID: ${annotation.id}`,
+    quote ? `> ${quote}` : "",
+    body || "This idea was recorded directly on the resource.",
+    notes ? `\n#### Additional note\n\n${notes}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function annotationGroupLine(
@@ -386,16 +441,32 @@ export function taskQuestions(
 }
 
 export function taskTutorPrompt(course: Course, day: StudyDay, task: Task,
-  options: Parameters<typeof taskQuestions>[3] = {}): PromptPayload {
+  options: Parameters<typeof taskQuestions>[3] & { includeResourceNotes?: boolean } = {}): PromptPayload {
   const payload = taskQuestions(course, day, task, {...options, includeAnswered: true});
+  const resourceNotes = options.includeResourceNotes
+    ? taskSupportingNotes(course, day, task)
+    : [];
+  const resourceById = new Map(
+    course.resources.map((resource) => [resource.id, resource]),
+  );
   return {...payload, sourceScope: "task_review", markdown: [
     `# Review my task · Day ${day.number}`,
-    "Please review my explanation and attempt. Preserve correct reasoning, point out gaps, and explain corrections. Put the task feedback under `## Task review`. Answer attached questions separately under their exact Q-… headings; do not rename IDs.",
+    "Please review my explanation and attempt. Preserve correct reasoning, point out gaps, and explain corrections. Put the task feedback under `## Task review`. Treat the attached N-… items as my observations or ideas, not as questions unless I explicitly ask one. Answer attached questions separately under their exact Q-… headings; do not rename IDs.",
     `## Task\n\n${task.title}`,
     task.rationale ? `### Task info\n\n${task.rationale.markdown ?? task.rationale.plainText}` : "",
     `### Task note / my work\n\n${noteText(task.notes.filter(note => note.kind === "task")) || "No task note yet."}`,
+    resourceNotes.length ? "## My resource notes / ideas" : "",
+    resourceNotes.length
+      ? resourceNotes.map((annotation, index) =>
+          supportingNoteLine(
+            annotation,
+            resourceById.get(annotation.resourceId),
+            index,
+          )).join("\n\n")
+      : "",
     "## Attached questions", payload.markdown,
-  ].filter(Boolean).join("\n\n")};
+  ].filter(Boolean).join("\n\n"),
+  supportingAnnotationIds: resourceNotes.map((annotation) => annotation.id)};
 }
 
 export function dayPrompt(

@@ -40,6 +40,20 @@ function noteContentType(content: string): "html" | "markdown" {
     : "markdown";
 }
 
+function highlightPreferenceKey(note?: Note): string | null {
+  return note?.id ? `tracker.note.${note.id}.highlights-only` : null;
+}
+
+function savedHighlightsOnly(note?: Note): boolean {
+  const key = highlightPreferenceKey(note);
+  if (!key) return false;
+  try {
+    return localStorage.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
 export function EntityNoteEditor({
   defaultEditing = false,
   defaultOpen = false,
@@ -57,11 +71,32 @@ export function EntityNoteEditor({
   const [draft, setDraft] = useState(noteContent(note));
   const [savedContent, setSavedContent] = useState(noteContent(note));
   const [editing, setEditing] = useState(defaultEditing || !savedContent.trim());
-  const [highlightsOnly, setHighlightsOnly] = useState(false);
+  const [highlightPreference, setHighlightPreference] = useState(() => ({
+    active: savedHighlightsOnly(note),
+    noteId: note?.id,
+  }));
+  const highlightsOnly = highlightPreference.noteId === note?.id
+    ? highlightPreference.active
+    : savedHighlightsOnly(note);
   const highlights = discussionHighlights(savedContent);
   const contentType = noteContentType(savedContent);
   useEffect(() => { onDirtyChange?.(draft !== savedContent); }, [draft, savedContent, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+  function toggleHighlightsOnly() {
+    setHighlightPreference(() => {
+      const next = !highlightsOnly;
+      const key = highlightPreferenceKey(note);
+      if (key) {
+        try {
+          if (next) localStorage.setItem(key, "true");
+          else localStorage.removeItem(key);
+        } catch {
+          // This is an optional local reading preference.
+        }
+      }
+      return { active: next, noteId: note?.id };
+    });
+  }
 
   async function save(markdown: string) {
     const highlighted = highlightNoteMarkers(markdown);
@@ -126,7 +161,7 @@ export function EntityNoteEditor({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              setHighlightsOnly((current) => !current);
+              toggleHighlightsOnly();
             }}
             title={highlightsOnly ? "Show full note" : "Highlights only"}
             type="button"

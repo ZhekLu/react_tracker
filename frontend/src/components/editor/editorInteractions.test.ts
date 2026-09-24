@@ -66,9 +66,21 @@ describe("formula and boxed-content interactions", () => {
     const original = e.getJSON();
     expect(changeFormula(e, pos(e, 'inlineMath'), 'block', 'x')).toBe(true);
     expect(nodes(e.getJSON(), 'blockMath')[0].attrs?.blockHighlight).toBe(yellow);
-    expect(e.state.doc.textContent).toContain('Before ');
-    expect(e.state.doc.textContent).toContain(' after.');
+    expect(e.getMarkdown()).toContain('Before');
+    expect(e.getMarkdown()).toContain('after.');
     e.commands.undo(); expect(e.getJSON()).toEqual(original);
+    e.destroy();
+  });
+  it('moves display math into the preceding sentence with one space', () => {
+    const e = editor('Before sentence.\n\n$$\nx=1\n$$\n\nAfter sentence.');
+    expect(changeFormula(e, pos(e, 'blockMath'), 'inline', 'x=1')).toBe(true);
+    expect(e.getMarkdown()).toBe('Before sentence. $x=1$\n\nAfter sentence.');
+    e.destroy();
+  });
+  it('moves inline math onto its own line and trims the surrounding spaces', () => {
+    const e = editor('Before sentence $x=1$ after sentence.');
+    expect(changeFormula(e, pos(e, 'inlineMath'), 'block', 'x=1')).toBe(true);
+    expect(e.getMarkdown()).toBe('Before sentence\n\n$$\nx=1\n$$\n\nafter sentence.');
     e.destroy();
   });
   it('rejects display conversion in a Markdown table without changing its document', () => {

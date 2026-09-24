@@ -472,7 +472,10 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
                 markdown="First capture",
                 anchor=AnnotationAnchorCreate(
                     page_number=4,
-                    metadata={"contextGroupId": "shared-question"},
+                    metadata={
+                        "contextGroupId": "shared-question",
+                        "layoutColumn": "left",
+                    },
                 ),
             ),
         )
@@ -484,7 +487,10 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
                 markdown="Second capture",
                 anchor=AnnotationAnchorCreate(
                     page_number=4,
-                    metadata={"contextGroupId": "shared-question"},
+                    metadata={
+                        "contextGroupId": "shared-question",
+                        "layoutColumn": "left",
+                    },
                 ),
             ),
         )
@@ -493,8 +499,29 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
             AnnotationCreateCommand(
                 resource_id=resource_id,
                 kind="question",
-                markdown="Independent question",
-                anchor=AnnotationAnchorCreate(page_number=5),
+                markdown="Same paragraph on the following page",
+                anchor=AnnotationAnchorCreate(
+                    page_number=5,
+                    metadata={
+                        "contextGroupId": "shared-question",
+                        "layoutColumn": "left",
+                    },
+                ),
+            ),
+        )
+        fourth = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="question",
+                markdown="Same paragraph in the other column",
+                anchor=AnnotationAnchorCreate(
+                    page_number=4,
+                    metadata={
+                        "contextGroupId": "shared-question",
+                        "layoutColumn": "right",
+                    },
+                ),
             ),
         )
         workspace = get_workspace(connection, course_id)
@@ -506,11 +533,12 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
                 title="Stable labels",
                 source_scope="course_questions",
                 markdown="# Questions",
-                annotation_ids=[first.id, second.id, third.id],
+                annotation_ids=[first.id, second.id, third.id, fourth.id],
                 question_labels={
                     first.id: by_id[first.id].stable_label or "",
                     second.id: by_id[second.id].stable_label or "",
                     third.id: by_id[third.id].stable_label or "",
+                    fourth.id: by_id[fourth.id].stable_label or "",
                 },
             ),
         )
@@ -530,12 +558,16 @@ def test_question_identity_is_immutable_and_shared_by_context_group(
 
     assert by_id[first.id].stable_label == by_id[second.id].stable_label
     assert by_id[first.id].stable_label != by_id[third.id].stable_label
+    assert by_id[first.id].stable_label != by_id[fourth.id].stable_label
+    assert by_id[third.id].stable_label != by_id[fourth.id].stable_label
     assert re.fullmatch(r"Q-p[0-9a-f]{6}-00-001", by_id[first.id].stable_label or "")
     assert re.fullmatch(r"Q-p[0-9a-f]{6}-00-002", by_id[third.id].stable_label or "")
+    assert re.fullmatch(r"Q-p[0-9a-f]{6}-00-003", by_id[fourth.id].stable_label or "")
     assert [row["question_label"] for row in prompt_labels] == [
         by_id[first.id].stable_label,
         by_id[second.id].stable_label,
         by_id[third.id].stable_label,
+        by_id[fourth.id].stable_label,
     ]
 
     with pytest.raises(IntegrityError, match="question identity is immutable"):
@@ -1875,6 +1907,74 @@ def test_prompt_batch_rebuilds_attachment_folder_and_names_handwriting_by_questi
     )
 
 
+def test_task_prompt_can_attach_resource_note_page_without_creating_question_item(
+    tmp_path: Path,
+) -> None:
+    course_id, resource_id = _seed_course(tmp_path)
+    pdf_path = tmp_path / "lecture.pdf"
+    document = pymupdf.open()
+    page = document.new_page(width=320, height=240)
+    page.insert_text((36, 60), "A handwritten lecture idea belongs here")
+    document.save(pdf_path)
+    document.close()
+
+    with transaction() as connection:
+        connection.execute(
+            text("""
+                UPDATE resource_versions
+                SET local_path = :local_path, file_name = 'lecture.pdf'
+                WHERE id = (
+                  SELECT current_version_id FROM resources WHERE id = :resource_id
+                )
+                """),
+            {"local_path": str(pdf_path), "resource_id": resource_id},
+        )
+        note = create_annotation(
+            connection,
+            AnnotationCreateCommand(
+                resource_id=resource_id,
+                kind="note",
+                markdown="Actor constraints can sacrifice improvement.",
+                anchor=AnnotationAnchorCreate(
+                    anchor_type="pdf_rect",
+                    page_number=1,
+                    metadata={
+                        "contextImageUrl": (
+                            f"/api/resources/{resource_id}/pdf/pages/1"
+                        )
+                    },
+                ),
+            ),
+        )
+        command = PromptBatchCreateCommand(
+            course_id=course_id,
+            title="Lecture task with notes",
+            source_scope="task_review",
+            source_resource_id=resource_id,
+            markdown="# Review\n\n### N-001\n\nActor constraint note.",
+            supporting_annotation_ids=[note.id],
+        )
+        preview = preview_prompt_attachments(connection, command)
+        batch = create_prompt_batch_with_attachments(connection, command)
+        item_count = connection.execute(
+            text("""
+                SELECT COUNT(*)
+                FROM prompt_batch_items
+                WHERE prompt_batch_id = :prompt_batch_id
+                """),
+            {"prompt_batch_id": batch.id},
+        ).scalar_one()
+
+    assert preview == (2, 0, 1)
+    image = next(item for item in batch.attachments if item.kind == "note_image")
+    assert image.annotation_id == note.id
+    assert image.question_label == "N-001"
+    assert image.name.startswith("N-001__Paper__p-1__note")
+    assert Path(image.path).read_bytes().startswith(b"\x89PNG")
+    assert "Resource-note screenshots" in batch.markdown
+    assert item_count == 0
+
+
 def test_lecture_note_picture_becomes_scoped_question_and_prompt_attachment(
     tmp_path: Path,
 ) -> None:
@@ -1951,7 +2051,7 @@ def test_lecture_note_picture_becomes_scoped_question_and_prompt_attachment(
     assert question.anchor.anchor_type == "image"
     assert question.anchor.metadata["createdDayId"] == day_id
     assert question.anchor.metadata["createdTaskId"] == task_id
-    assert preview == (2, 1)
+    assert preview == (2, 1, 0)
     image = next(item for item in batch.attachments if item.kind == "question_image")
     assert image.annotation_id == question.id
     assert image.question_label == "Q-001"

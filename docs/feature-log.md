@@ -1,5 +1,22 @@
 # Tracker feature and maintenance log
 
+## 2026-09-24 — safer question IDs and task-note review controls
+
+- Context shared across a PDF page break no longer merges new questions: stable
+  IDs are reused only on the same page and in the same detected column. Existing
+  answered/shared IDs are intentionally unchanged.
+- Tasks with current-day resource annotations gain **Copy + notes**. Resource
+  notes use N-… labels and carry their saved crop or PDF-page screenshot without
+  becoming QA questions; the normal task-copy action remains unchanged.
+- Highlights-only reading is remembered per saved note until **Show full note**
+  is chosen. Formula atoms now have a small inline/display control and
+  `Cmd/Ctrl+Shift+M`; conversion also joins or splits surrounding prose spacing.
+- Fixed the intermittent white page when a read-only note entered edit mode. The
+  editor now compares ProseMirror documents by identity instead of recursively
+  traversing the two editors' cyclic schemas.
+- Validation: full backend suite, all 256 frontend tests, ESLint, TypeScript,
+  production build, and browser reproduction of the former editor crash.
+
 ## 2026-09-24 — connected RL algorithm map for Day 12
 
 - TORL gains **Algorithm map**: 27 authored nodes, 38 labeled relationships,

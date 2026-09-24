@@ -34,6 +34,14 @@ function Controlled() {
 }
 
 describe('controlled editor lifecycle', () => {
+  it('can switch an existing reader to edit mode without recursively comparing editor schemas', async () => {
+    const markdown = 'Instructions\n\n$$\n\\boxed{x=1}\n$$\n\nContinue here.';
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl markdown={markdown} />));
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown={markdown} onChange={() => {}} />));
+    expect(host.querySelector('.ProseMirror[contenteditable="true"]')).not.toBeNull();
+    await act(async () => host.querySelector<HTMLElement>('.ProseMirror')!.click());
+    expect(host.querySelector('.discussionMarkdownSurface')).not.toBeNull();
+  });
   it('refuses a stale formula dialog after the document is replaced externally', async () => {
     await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown={'Before $x$ after.'}/>));
     await act(async () => host.querySelector('[data-type="inline-math"]')!.dispatchEvent(new MouseEvent('dblclick', {bubbles: true})));
@@ -57,6 +65,17 @@ describe('controlled editor lifecycle', () => {
     expect(state.editor!.state.doc.textContent).toBe('Before  after.');
     await act(async () => state.editor!.commands.undo());
     expect(host.querySelector('[data-type="inline-math"]')).not.toBeNull();
+  });
+
+  it('changes formula layout from its attached button and keyboard shortcut', async () => {
+    await act(async () => root.render(<DiscussionMarkdownSurfaceImpl editable markdown={'Before.\n\n$$\nx=1\n$$'} />));
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Convert formula to inline"]')!.click());
+    expect(state.editor!.getMarkdown()).toBe('Before. $x=1$');
+    await act(async () => host.querySelector<HTMLElement>('[data-type="inline-math"]')!.click());
+    await act(async () => host.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'M', metaKey: true, shiftKey: true, bubbles: true, cancelable: true,
+    })));
+    expect(state.editor!.getMarkdown()).toMatch(/^Before\.\n\n\$\$\nx=1\n\$\$/);
   });
 
   it('edits by double-click, previews conversion, cancels safely, applies and deletes from the dialog', async () => {

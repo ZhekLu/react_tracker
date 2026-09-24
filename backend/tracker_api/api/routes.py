@@ -959,11 +959,15 @@ def preview_prompt_batch(
     connection: Database,
 ) -> PromptAttachmentPreviewResponse:
     try:
-        resource_count, question_count = preview_prompt_attachments(connection, command)
+        resource_count, question_count, note_count = preview_prompt_attachments(
+            connection,
+            command,
+        )
         return PromptAttachmentPreviewResponse(
-            attachment_count=resource_count + question_count,
+            attachment_count=resource_count + question_count + note_count,
             resource_file_count=resource_count,
             question_image_count=question_count,
+            note_image_count=note_count,
         )
     except workspace_repository.WorkspaceRepositoryError as error:
         raise _translate_repository_error(error) from error

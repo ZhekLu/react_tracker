@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
 
 /** One transaction for text, formula atoms, and whole literal blocks. */
@@ -55,21 +56,98 @@ export function formulaLayoutError(editor: Editor, position: number, kind: "inli
   return "";
 }
 
-/** Replace in place using ProseMirror's schema-aware fitting, including list/table cells. */
+function trimInlineEdge(
+  editor: Editor,
+  fragment: Fragment,
+  edge: "start" | "end",
+): Fragment {
+  const children: ProseMirrorNode[] = [];
+  fragment.forEach((child) => children.push(child));
+  let index = edge === "start" ? 0 : children.length - 1;
+  while (index >= 0 && index < children.length) {
+    const child = children[index];
+    if (!child.isText) break;
+    const text = edge === "start"
+      ? (child.text ?? "").replace(/^\s+/, "")
+      : (child.text ?? "").replace(/\s+$/, "");
+    if (text) {
+      children[index] = editor.schema.text(text, child.marks);
+      break;
+    }
+    children.splice(index, 1);
+    if (edge === "end") index -= 1;
+  }
+  return Fragment.fromArray(children);
+}
+
+/** Change formula layout while preserving its surrounding sentence structure. */
 export function changeFormula(editor: Editor, position: number, kind: "inline" | "block", latex: string) {
   if (formulaLayoutError(editor, position, kind, latex)) return false;
   const node = editor.state.doc.nodeAt(position);
   if (!node || !["inlineMath", "blockMath"].includes(node.type.name) || !latex.trim()) return false;
   const type = editor.schema.nodes[kind === "inline" ? "inlineMath" : "blockMath"];
   const tr = editor.state.tr;
-  if (node.type === type) tr.setNodeMarkup(position, type, {...node.attrs, latex: latex.trim()}, node.marks);
+  if (node.type === type) {
+    tr.setNodeMarkup(position, type, {...node.attrs, latex: latex.trim()}, node.marks);
+    tr.setSelection(NodeSelection.create(tr.doc, position));
+  }
   else if (kind === "inline") {
     const marks = node.attrs.blockHighlight ? [editor.schema.marks.highlight.create({color: node.attrs.blockHighlight})] : [];
-    tr.replaceWith(position, position + node.nodeSize,
-      editor.schema.nodes.paragraph.create(null, type.create({latex: latex.trim()}, null, marks)));
+    const inlineFormula = type.create({latex: latex.trim()}, null, marks);
+    const $position = editor.state.doc.resolve(position);
+    const previous = $position.index() > 0
+      ? $position.parent.child($position.index() - 1)
+      : null;
+    const next = $position.index() + 1 < $position.parent.childCount
+      ? $position.parent.child($position.index() + 1)
+      : null;
+    if (previous?.isTextblock) {
+      const insertAt = position - 1;
+      const needsSpace = previous.content.size > 0 && !/\s$/.test(previous.textContent);
+      const deleteTo = position + node.nodeSize + (
+        next?.isTextblock && next.content.size === 0 ? next.nodeSize : 0
+      );
+      tr.delete(position, deleteTo);
+      if (needsSpace) tr.insertText(" ", insertAt);
+      const formulaPosition = insertAt + (needsSpace ? 1 : 0);
+      tr.insert(formulaPosition, inlineFormula);
+      tr.setSelection(NodeSelection.create(tr.doc, formulaPosition));
+    } else {
+      tr.replaceWith(
+        position,
+        position + node.nodeSize,
+        editor.schema.nodes.paragraph.create(null, inlineFormula),
+      );
+      tr.setSelection(NodeSelection.create(tr.doc, position + 1));
+    }
   } else {
     const color = node.marks.find(mark => mark.type.name === "highlight")?.attrs.color ?? null;
-    tr.replaceRangeWith(position, position + node.nodeSize, type.create({latex: latex.trim(), blockHighlight: color}));
+    const $position = editor.state.doc.resolve(position);
+    const parent = $position.parent;
+    if (!parent.isTextblock) return false;
+    const parentStart = $position.before($position.depth);
+    const parentEnd = $position.after($position.depth);
+    const before = trimInlineEdge(
+      editor,
+      parent.content.cut(0, $position.parentOffset),
+      "end",
+    );
+    const after = trimInlineEdge(
+      editor,
+      parent.content.cut($position.parentOffset + node.nodeSize),
+      "start",
+    );
+    const blocks: ProseMirrorNode[] = [];
+    if (before.size) blocks.push(parent.type.create(parent.attrs, before));
+    const formulaPosition = parentStart + (before.size ? blocks[0].nodeSize : 0);
+    blocks.push(type.create({latex: latex.trim(), blockHighlight: color}));
+    if (after.size) blocks.push(parent.type.create(parent.attrs, after));
+    try {
+      tr.replaceWith(parentStart, parentEnd, Fragment.fromArray(blocks));
+      tr.setSelection(NodeSelection.create(tr.doc, formulaPosition));
+    } catch {
+      return false;
+    }
   }
   editor.view.dispatch(tr.scrollIntoView());
   return true;
