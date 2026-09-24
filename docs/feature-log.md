@@ -3,8 +3,10 @@
 ## 2026-09-24 — safer question IDs and task-note review controls
 
 - Context shared across a PDF page break no longer merges new questions: stable
-  IDs are reused only on the same page and in the same detected column. Existing
-  answered/shared IDs are intentionally unchanged.
+  IDs are reused only on the same page and in the same detected column. The
+  reported p. 23/p. 24 pair was repaired as Q-p115e98-00-006/007 while retaining
+  its two tutor answers and viewed state. The intentionally shared p. 4 pair is
+  unchanged.
 - Tasks with current-day resource annotations gain **Copy + notes**. Resource
   notes use N-… labels and carry their saved crop or PDF-page screenshot without
   becoming QA questions; the normal task-copy action remains unchanged.
