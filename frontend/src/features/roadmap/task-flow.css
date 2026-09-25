@@ -1,0 +1,51 @@
+.taskPromptDialog { width: min(1100px, calc(100vw - 32px)); max-height: 90dvh; box-sizing: border-box; border: 1px solid #d6ded5; border-radius: 18px; padding: 22px; color: var(--ink); background: #fffdf8; box-shadow: 0 28px 90px #1d39283a; }
+.taskPromptDialog::backdrop { background: #132b296b; backdrop-filter: blur(3px); }
+.taskPromptDialog > header, .taskPromptDialog > footer, .taskPromptPreview > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.taskPromptDialog > header > button { border: 0; background: transparent; padding: 4px; color: inherit; cursor: pointer; }
+.taskPromptDialog > header small { color: #68806b; font-size: 11px; }
+.taskPromptDialog h2 { font-size: 19px; line-height: 1.45; margin: 6px 0 18px; }
+.taskPromptLayout { display: grid; grid-template-columns: minmax(240px, 0.7fr) minmax(0, 1.3fr); gap: 24px; }
+.taskPromptOptions { display: flex; flex-direction: column; align-items: stretch; gap: 14px; font-size: 12px; }
+.taskPromptOptions fieldset { border: 1px solid #dce4d9; border-radius: 10px; padding: 12px; margin: 0; }
+.taskPromptOptions legend { color: #42654a; padding: 0 5px; font-weight: 650; }
+.taskPromptOptions fieldset label { display: flex; align-items: flex-start; gap: 7px; line-height: 1.5; margin-bottom: 8px; }
+.taskPromptOptions input[type="checkbox"] { accent-color: #557e5c; margin-top: 3px; flex-shrink: 0; }
+.taskPromptOptions p, .taskPromptOptions > small { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 4px 0 0; }
+.taskPromptTitle, .taskPromptDraft { display: grid; gap: 6px; }
+.taskPromptTitle input, .taskPromptDraft textarea { width: 100%; box-sizing: border-box; border: 1px solid #c9d6c7; border-radius: 7px; padding: 9px; background: white; color: inherit; font: inherit; }
+.taskPromptDraft textarea { min-height: 240px; font: 12px/1.6 monospace; resize: vertical; }
+.taskPromptPresets { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.taskPromptPresets button { border: 1px solid #c9d6c7; border-radius: 6px; background: #eef3e9; padding: 5px 8px; color: #42654a; font: inherit; cursor: pointer; }
+.taskPromptPreview { background: white; border: 1px solid #e4e7dc; border-radius: 12px; padding: 18px; overflow: auto; max-height: 58dvh; min-width: 0; }
+.taskPromptPreview > header { margin-bottom: 20px; color: #69806a; font-size: 11px; }
+.taskPromptDialog > footer { position: sticky; bottom: -22px; background: #fffdf8; padding: 16px 0 0; margin-top: 18px; align-items: center; }
+@media (max-width: 760px) {
+  .taskPromptDialog { padding: 16px; }
+  .taskPromptLayout { grid-template-columns: minmax(0, 1fr); }
+  .taskPromptPreview { max-height: 45dvh; }
+}
+
+/* Keep every established shortcut visible while separating facts from actions. */
+.taskRow .taskTitleRow { display: block; }
+.taskRow .taskFacts { gap: 5px; margin-top: 7px; }
+.taskRow .taskActions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.taskRow .taskActions > button { min-height: 28px; padding: 4px 9px; font-size: 10px; border-radius: 7px; text-transform: none; letter-spacing: normal; }
+.taskRow .taskActions .taskTutorAction { color: #486653; background: #f2f6ed; border-color: #d3dfcf; }
+.taskRow .taskActions [data-track="task.import"] { color: #786391; background: #f6f1fa; border-color: #e2d6eb; }
+.taskRow .taskActions .taskQaLaunch { color: #355e7a; background: #eef5f8; }
+.taskRow:not(.isCompactDone) { padding-top: 18px; padding-bottom: 18px; }
+.taskRow.isCompactDone .taskBody h3 { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.taskRow.isCompactDone .taskFacts { display: flex; }
+.taskRow.isCompactDone .taskActions { margin-top: 5px; }
+.taskRow.isCompactDone .taskActions > button { min-height: 24px; }
+.taskRow .taskActions button:focus-visible, .dayMomentum button:focus-visible { outline: 2px solid #709b7a; outline-offset: 3px; }
+.dayMomentum { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; background: linear-gradient(105deg, #edf4e9, #faf6e9); border-block: 1px solid #e1e8db; color: #466d53; }
+.dayMomentum > span { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.dayMomentum small { font-size: 11px; color: #748270; }
+.dayMomentum > button { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; border: 1px solid #ccd9c4; border-radius: 8px; padding: 7px 10px; background: #fffdf6; color: #4d6e50; font-size: 11px; cursor: pointer; }
+@media (max-width: 650px) {
+  .taskRow .taskTitleRow { padding-right: 0; }
+  .taskRow .taskActions > button { min-height: 31px; }
+  .dayMomentum { padding-inline: 14px; }
+  .dayMomentum small { flex-basis: 100%; }
+}

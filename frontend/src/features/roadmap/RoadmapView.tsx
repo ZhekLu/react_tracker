@@ -85,6 +85,7 @@ import {
   dayOptionalMinutes,
   dayVisibleSections,
   dayTasks,
+  dayRemainingWork,
   dayTone,
   dayToneLabel,
   formatPlannedTime,
@@ -94,6 +95,7 @@ import {
 } from "./dayPresentation";
 import { ExerciseQaReview } from "./ExerciseQaReview";
 import { TaskAdministration } from "./TaskAdministration";
+import "./task-flow.css";
 
 type RoadmapViewProps = {
   onPlanChanged: () => Promise<void>;
@@ -400,17 +402,17 @@ function TaskRow({
       </button>
       <div className="taskBody">
         <div className="taskTitleRow">
-          <h3>{task.title}</h3>
-          <div className="taskBadges">
+          <h3 title={task.title}>{task.title}</h3>
+          <div className="taskBadges taskFacts">
             {task.isOptional ? <span className="taskMetaBadge">Optional</span> : null}
             {task.taskType ? <span className="taskMetaBadge">{task.taskType}</span> : null}
             <button
               aria-label={timer.active ? "Stop task timer" : "Start task timer"}
               className={`taskMetaBadge taskTimerBadge ${timer.active ? "active" : ""}`}
-              disabled={completed || timer.busy || !timer.online || !timer.configured}
+              disabled={(completed && !timer.active) || timer.busy || !timer.online || !timer.configured}
               onClick={onToggleTimer}
               title={
-                completed
+                completed && !timer.active
                   ? timer.trackedSeconds > 0
                     ? "Actual tracked time for this completed task"
                     : "No task-specific time was recorded"
@@ -436,10 +438,12 @@ function TaskRow({
                 <CircleHelp size={11} /> {taskOpenQuestionCount - (task.todoCounts?.open ?? 0)}
               </span>
             ) : null}
+          </div>
+          <div className="taskBadges taskActions" role="group" aria-label={`Study actions for ${task.title}`}>
             <button className="taskMetaBadge taskTutorAction" disabled={noteDirty}
               data-track="task.copy" onClick={() => onCopyTask(dayId, task)}
-              title={noteDirty ? "Save the task note before copying" : "Copy task, info, note, and linked questions"} type="button">
-              <Copy size={11}/> Copy task prompt
+              title={noteDirty ? "Save the task note before copying" : "Choose note sections and preview your tutor prompt"} type="button">
+              <Copy size={11}/> Copy for tutor
             </button>
             {taskResourceNotes.length ? (
               <button className="taskMetaBadge taskTutorAction" disabled={noteDirty}
@@ -1307,6 +1311,7 @@ function DayCard({
 }: DayCardProps) {
   const reward = useCompletionReward();
   const tasks = dayTasks(day);
+  const remaining = dayRemainingWork(day);
   const plannedMinutes = dayEstimatedMinutes(day);
   const optionalMinutes = dayOptionalMinutes(day);
   const trackedMinutes = day.trackedSeconds / 60;
@@ -1402,6 +1407,19 @@ function DayCard({
           </button>
         ) : null}
       </div>
+      {showDetails ? (
+        <div className="dayMomentum" aria-label="Remaining core work">
+          <span>{remaining.count ? <><Sparkles size={15}/><strong>{remaining.count} core {remaining.count === 1 ? "step" : "steps"} left</strong>
+            {remaining.minutes ? <small>{formatPlannedTime(remaining.minutes)} estimated{remaining.unestimated ? " + unestimated work" : ""}</small> : null}</>
+            : <><CheckCircle2 size={15}/><strong>Core plan complete</strong><small>Your notes and answers are here whenever you return.</small></>}</span>
+          {remaining.next ? <button type="button" onClick={() => {
+            const target = document.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(remaining.next!.id)}"]`);
+            const details = target?.closest("details"); if (details) details.open = true;
+            target?.scrollIntoView({behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center"});
+            target?.querySelector<HTMLButtonElement>(".taskStatus")?.focus({preventScroll: true});
+          }} title={remaining.next.title}>Next step <ChevronDown size={13}/></button> : null}
+        </div>
+      ) : null}
       {showDetails ? (
         <div className="dayBody">
         <div className="taskList">

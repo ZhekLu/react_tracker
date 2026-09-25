@@ -248,7 +248,8 @@ export function discussionQaSections(
           messageSequenceNumber: message.sequenceNumber,
           questionIds: (reviewSources.length ? reviewSources : questions).map((question) => question.id),
           sectionOrder: 0,
-          title: markdown.match(/^#{1,6}\s+(.+)$/m)?.[1] ?? `Response #${message.sequenceNumber}`,
+          title: reviewSources.find(question => question.anchor?.metadata?.taskId)?.anchor?.quote
+            || markdown.match(/^#{1,6}\s+(.+)$/m)?.[1] || `Response #${message.sequenceNumber}`,
         },
       ];
     }

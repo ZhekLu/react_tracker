@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StudyDay, Task } from "../../types/tracker";
-import { catchUpDayCount, dayEstimatedMinutes, dayOptionalMinutes, dayVisibleSections, dayToneLabel } from "./dayPresentation";
+import { catchUpDayCount, dayEstimatedMinutes, dayOptionalMinutes, dayVisibleSections, dayToneLabel, dayRemainingWork } from "./dayPresentation";
 
 function day(date: string, taskStatus: Task["status"]): StudyDay {
   return {
@@ -41,6 +41,16 @@ function day(date: string, taskStatus: Task["status"]): StudyDay {
 }
 
 describe("catch-up progress", () => {
+  it("shows remaining core work without treating optional, cancelled, or finished tasks as remaining", () => {
+    const sample = day("today", "todo"); const base = sample.sections[0].tasks[0];
+    sample.sections[0].tasks = [{...base, id: "done", status: "done", estimatedMinutes: 60},
+      {...base, id: "skip", status: "skipped", estimatedMinutes: 60},
+      {...base, id: "optional", isOptional: true, estimatedMinutes: 60},
+      {...base, id: "later", status: "later", estimatedMinutes: 20},
+      {...base, id: "now", status: "in_progress", estimatedMinutes: 15},
+      {...base, id: "unestimated"}];
+    expect(dayRemainingWork(sample)).toMatchObject({count: 3, minutes: 35, unestimated: 1, next: {id: "now"}});
+  });
   it("names remaining todos accurately on a completed day", () => {
     const completed = day("2026-09-17", "done");
     completed.openQuestionCount = 1;

@@ -18,6 +18,14 @@ export function dayOptionalMinutes(day: StudyDay): number {
     .reduce((total, task) => total + (task.estimatedMinutes ?? 0), 0);
 }
 
+export function dayRemainingWork(day: StudyDay) {
+  const remaining = dayTasks(day).filter(task => !task.isOptional && !["done", "skipped"].includes(task.status));
+  return {count: remaining.length, minutes: remaining.reduce((sum, task) => sum + (task.estimatedMinutes ?? 0), 0),
+    unestimated: remaining.filter(task => !task.estimatedMinutes).length,
+    next: remaining.find(task => task.status === "in_progress") ?? remaining.find(task => task.status === "todo"),
+  };
+}
+
 /** Status is authoritative even when an old patch placed a task in Cancelled. */
 export function dayVisibleSections(day: StudyDay): StudyDay["sections"] {
   const restored: Task[] = [];

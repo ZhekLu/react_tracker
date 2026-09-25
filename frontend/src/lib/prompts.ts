@@ -12,6 +12,7 @@ import {
   type TrackedQuestionGroup,
 } from "./questionIdentity";
 import promptTemplates from "../config/promptTemplates.json";
+import { originalTaskWork } from "./taskReviewCopy";
 import {
   exerciseNumbersInText,
   parseExerciseReviewProgress,
@@ -35,7 +36,7 @@ export type PromptPayload = {
   questionLabels?: Record<string, string>;
 };
 
-function noteText(notes: Note[]): string {
+export function noteText(notes: Note[]): string {
   return notes
     .map((note) =>
       (note.document.markdown ?? note.document.plainText).trim(),
@@ -440,8 +441,15 @@ export function taskQuestions(
   };
 }
 
+export type TaskTutorPromptOptions = Parameters<typeof taskQuestions>[3] & {
+  includeResourceNotes?: boolean;
+  includeTaskInfo?: boolean;
+  noteMarkdown?: string;
+  reviewTitle?: string;
+};
+
 export function taskTutorPrompt(course: Course, day: StudyDay, task: Task,
-  options: Parameters<typeof taskQuestions>[3] & { includeResourceNotes?: boolean } = {}): PromptPayload {
+  options: TaskTutorPromptOptions = {}): PromptPayload {
   const payload = taskQuestions(course, day, task, {...options, includeAnswered: true});
   const resourceNotes = options.includeResourceNotes
     ? taskSupportingNotes(course, day, task)
@@ -450,11 +458,12 @@ export function taskTutorPrompt(course: Course, day: StudyDay, task: Task,
     course.resources.map((resource) => [resource.id, resource]),
   );
   return {...payload, sourceScope: "task_review", markdown: [
-    `# Review my task · Day ${day.number}`,
-    "Please review my explanation and attempt. Preserve correct reasoning, point out gaps, and explain corrections. Put the task feedback under `## Task review`. Treat the attached N-… items as my observations or ideas, not as questions unless I explicitly ask one. Answer attached questions separately under their exact Q-… headings; do not rename IDs.",
-    `## Task\n\n${task.title}`,
-    task.rationale ? `### Task info\n\n${task.rationale.markdown ?? task.rationale.plainText}` : "",
-    `### Task note / my work\n\n${noteText(task.notes.filter(note => note.kind === "task")) || "No task note yet."}`,
+    `# ${course.shortCode} · Day ${day.number} · ${task.title}`,
+    `Review my reasoning: what is correct, what needs correction, and why. Use the heading “## Review · ${(options.reviewTitle || task.title).replace(/\s+/g, " ")}”.`,
+    payload.annotationIds?.length ? "Answer attached questions separately under their exact Q-… headings." : "",
+    resourceNotes.length ? "N-… items are my observations and ideas for context." : "",
+    options.includeTaskInfo !== false && task.rationale ? `## Task instructions\n\n${task.rationale.markdown ?? task.rationale.plainText}` : "",
+    `## My note / work\n\n${options.noteMarkdown ?? (originalTaskWork(noteText(task.notes.filter(note => note.kind === "task"))).markdown || "No task note yet.")}`,
     resourceNotes.length ? "## My resource notes / ideas" : "",
     resourceNotes.length
       ? resourceNotes.map((annotation, index) =>
@@ -464,7 +473,7 @@ export function taskTutorPrompt(course: Course, day: StudyDay, task: Task,
             index,
           )).join("\n\n")
       : "",
-    "## Attached questions", payload.markdown,
+    payload.annotationIds?.length ? "## Attached questions\n\n" + payload.markdown.slice(payload.markdown.indexOf("\n") + 1).trim() : "",
   ].filter(Boolean).join("\n\n"),
   supportingAnnotationIds: resourceNotes.map((annotation) => annotation.id)};
 }

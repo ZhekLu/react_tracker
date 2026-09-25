@@ -1,5 +1,23 @@
 # Tracker feature and maintenance log
 
+## 2026-09-25 — focused task-review copying and clearer task actions
+
+- **Copy for tutor** opens a preview with an editable review heading, whole-note
+  section selection, optional task instructions/resource notes/prior reviews,
+  and a scratch copy editor. Interleaved checklist answers stay together by
+  default; saved notes never change. Complete prior review markers are excluded
+  by default; malformed markers retain their content. Attachments are prepared
+  on copy using the existing question IDs and note-image packaging.
+- Imported reviews use the task title in discussion listings and Q&A. The
+  existing review/answer selection dialog is preserved.
+- Task facts and shortcuts have distinct rows, with all existing actions still
+  visible. Remaining core work excludes skipped/completed/optional tasks; Next
+  step opens and focuses the next actionable task. An externally resumed timer
+  can now be stopped even on a completed task.
+- Validation: copy-source and remaining-work tests, seven backend review tests,
+  ESLint/TypeScript/build; desktop and phone-size preview checks with Day 15's
+  real interleaved answers, math, prior-review selection, and cancellation.
+
 ## 2026-09-25 — overlapping highlight paint correction
 
 - The reported CQL paragraph has two genuinely overlapping blue captures. The

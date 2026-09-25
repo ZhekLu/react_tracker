@@ -74,6 +74,7 @@ import { PdfImportOverviewDialog } from "../features/resources/PdfImportOverview
 import { ResourceReader } from "../features/reader/ResourceReader";
 import { RoadmapView } from "../features/roadmap/RoadmapView";
 import { TaskTutorReviewDialog } from "../features/roadmap/TaskTutorReviewDialog";
+import { TaskPromptDialog } from "../features/roadmap/TaskPromptDialog";
 import { taskReviewQuestionIds, type TaskReviewPart } from "../lib/taskReview";
 import { SkillsView } from "../features/skills/SkillsView";
 import { SettingsView } from "../features/settings/SettingsView";
@@ -95,7 +96,6 @@ import {
   resourceQuestions,
   resourceScopedAnnotations,
   taskQuestions,
-  taskTutorPrompt,
   taskScopedAnnotations,
   type PromptPayload,
 } from "../lib/prompts";
@@ -294,6 +294,7 @@ export function App() {
     stage: string;
   } | null>(null);
   const [taskReviewImport, setTaskReviewImport] = useState<{dayId: string; task: Task; discussion?: Discussion} | null>(null);
+  const [taskPromptCopy, setTaskPromptCopy] = useState<{dayId: string; task: Task; includeNotes: boolean} | null>(null);
   const [taskQaLaunch, setTaskQaLaunch] = useState<{
     discussionId: string;
     label: string;
@@ -990,52 +991,23 @@ export function App() {
     setActionMessage(`${nextGroups.length} task questions copied. Paste the tutor's response using Import review.`);
   }
 
-  async function handleCopyTask(dayId: string, task: Task) {
-    if (!workspace) return;
-    const day = workspace.days.find(d => d.id === dayId);
-    if (!day) return;
-    const annotations = taskScopedAnnotations(workspace, day, task);
-    const discussion = discussionForTaskQuestions(day, annotations.map(a => a.id));
-    const payload = taskTutorPrompt(workspace, day, task, {
-      parentDiscussionId: discussion?.id,
-      questionLabels: questionLabelsForDiscussion(discussion, annotations),
-    });
-    const batchId = await savePromptBatch(payload, "Task, note, and linked questions copied.", {selectionConfirmed: true});
-    if (!batchId) return;
-    const saved = await runMutation(async () => {
-      if (!discussion) await createDiscussion({courseId: workspace.id, initialPromptBatchId: batchId, title: `Day ${day.number} · Task reviews`});
-    });
-    if (saved) setActionMessage("Task, note, and linked questions copied. Use Import review for the tutor’s response.");
+  function handleCopyTask(dayId: string, task: Task) {
+    setTaskPromptCopy({dayId, task, includeNotes: false});
   }
 
-  async function handleCopyTaskWithNotes(dayId: string, task: Task) {
-    if (!workspace) return;
-    const day = workspace.days.find(d => d.id === dayId);
-    if (!day) return;
-    const annotations = taskScopedAnnotations(workspace, day, task);
-    const discussion = discussionForTaskQuestions(day, annotations.map(a => a.id));
-    const payload = taskTutorPrompt(workspace, day, task, {
-      includeResourceNotes: true,
-      parentDiscussionId: discussion?.id,
-      questionLabels: questionLabelsForDiscussion(discussion, annotations),
-    });
-    const noteCount = payload.supportingAnnotationIds?.length ?? 0;
-    const batchId = await savePromptBatch(
-      payload,
-      `Task, ${noteCount} resource note${noteCount === 1 ? "" : "s"}, and linked questions copied.`,
-      {selectionConfirmed: true},
-    );
-    if (!batchId) return;
-    const saved = await runMutation(async () => {
-      if (!discussion) await createDiscussion({
-        courseId: workspace.id,
-        initialPromptBatchId: batchId,
-        title: `Day ${day.number} · Task reviews`,
-      });
-    });
-    if (saved) setActionMessage(
-      `Task and ${noteCount} resource note${noteCount === 1 ? "" : "s"} copied. Use Import review for the tutor’s response.`,
-    );
+  function handleCopyTaskWithNotes(dayId: string, task: Task) {
+    setTaskPromptCopy({dayId, task, includeNotes: true});
+  }
+
+  async function handleCopyPreparedTask(payload: PromptPayload): Promise<boolean> {
+    if (!workspace) return false;
+    const batchId = await savePromptBatch(payload,
+      "Task prompt copied. Use Import review for the tutor’s response.", {selectionConfirmed: true});
+    if (!batchId) return false;
+    if (payload.parentDiscussionId) return true;
+    return Boolean(await runMutation(async () => {
+      await createDiscussion({courseId: workspace.id, initialPromptBatchId: batchId, title: payload.title});
+    }));
   }
 
   function handleInsertTaskReview(dayId: string, task: Task) {
@@ -2356,6 +2328,10 @@ export function App() {
     (resource) => resource.id === readerResourceId,
   );
 
+  const taskCopyDay = taskPromptCopy ? workspace.days.find(day => day.id === taskPromptCopy.dayId) : undefined;
+  const taskCopyAnnotations = taskPromptCopy && taskCopyDay ? taskScopedAnnotations(workspace, taskCopyDay, taskPromptCopy.task) : [];
+  const taskCopyDiscussion = taskCopyDay ? discussionForTaskQuestions(taskCopyDay, taskCopyAnnotations.map(a => a.id)) : undefined;
+
   return (
     <>
       <AppShell
@@ -2461,8 +2437,8 @@ export function App() {
             void handleCopyNextTaskQuestions(dayId, task)
           }
           onOpenTaskQa={handleOpenTaskQa}
-          onCopyTask={(dayId, task) => { void handleCopyTask(dayId, task).catch(caught => setError(String(caught))); }}
-          onCopyTaskWithNotes={(dayId, task) => { void handleCopyTaskWithNotes(dayId, task).catch(caught => setError(String(caught))); }}
+          onCopyTask={handleCopyTask}
+          onCopyTaskWithNotes={handleCopyTaskWithNotes}
           onInsertTaskReview={handleInsertTaskReview}
           onOpenResource={(resourceId) => void handleOpenResource(resourceId)}
           onPrepareExerciseScreenshots={handlePrepareExerciseScreenshots}
@@ -2679,6 +2655,14 @@ export function App() {
           resourceTitle={pdfImportOverview.resourceTitle}
         />
       ) : null}
+      {taskPromptCopy && taskCopyDay ? <TaskPromptDialog
+        course={workspace} day={taskCopyDay} task={taskPromptCopy.task}
+        options={{includeResourceNotes: taskPromptCopy.includeNotes,
+          parentDiscussionId: taskCopyDiscussion?.id,
+          questionLabels: questionLabelsForDiscussion(taskCopyDiscussion, taskCopyAnnotations),
+        }}
+        onClose={() => setTaskPromptCopy(null)} onCopy={handleCopyPreparedTask}
+      /> : null}
       {taskReviewImport && workspace ? <TaskTutorReviewDialog
         annotations={workspace.annotations} discussion={taskReviewImport.discussion}
         onClose={() => setTaskReviewImport(null)} onImport={handleImportTaskReview} task={taskReviewImport.task}

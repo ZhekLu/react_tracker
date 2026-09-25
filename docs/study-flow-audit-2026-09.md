@@ -54,7 +54,21 @@ handwritten image context are preserved. Page/column/position order replaces
 creation-time ordering when source geometry is available. PDF extraction still
 determines paragraph text; a truncated-context indicator is retained when supplied.
 
-## Remaining work in this audit
+## Task actions and reviews
 
-- Task action hierarchy and progress presentation, preserving existing shortcuts.
-- Focused task-review copying, meaningful review headings, and a preview.
+Facts and action shortcuts now occupy separate rows; copy/import/Q&A retain
+direct access. A remaining-core-work strip excludes skipped, completed, and
+optional work. Next step opens the relevant task without starting a timer.
+
+Copy for tutor opens a reviewable prompt. Whole-note selection preserves answers
+interleaved with instructions. Heading-based selection and a scratch editor let
+you narrow a copy explicitly. Task rationale, resource notes/images, and prior
+tutor feedback are separate options. Prior reviews are excluded only when their
+structural markers are complete and balanced outside fenced code. Saved notes
+are untouched. Attachment files/index are prepared after Copy using the existing
+prompt-batch workflow. Import review retains its section/answer chooser, with
+task-specific titles in new discussions and existing review-source Q&A entries.
+
+The preview cannot reliably infer which unlabelled sentences are instructions
+versus your own work; it intentionally leaves that choice to you. Headings such
+as `## My work` make section selection faster.

@@ -354,7 +354,7 @@ def import_task_review(
             {
                 "id": batch_id,
                 "course_id": course_id,
-                "title": f"Day {task['number']} · Task reviews",
+                "title": f"Day {task['number']} · {task['title']}",
                 "document_id": document_id,
                 "day_id": task["day_id"],
                 "task_id": task_id,
