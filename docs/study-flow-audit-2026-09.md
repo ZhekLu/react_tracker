@@ -72,3 +72,19 @@ task-specific titles in new discussions and existing review-source Q&A entries.
 The preview cannot reliably infer which unlabelled sentences are instructions
 versus your own work; it intentionally leaves that choice to you. Headings such
 as `## My work` make section selection faster.
+
+## Discussions as study material
+
+Reading mode now pairs the original question/capture with a rendered answer
+excerpt across the discussion's messages. Quieter dividers replace repeated
+card borders; existing pins and priority colours still anchor scanning. Compact
+mode remains available. Resource/chapter entry points and Q&A order are unchanged.
+Excerpts retain complete source blocks (including formulas/code) and reference
+definitions. Priority preambles are omitted from excerpts; the full answer
+always retains every block. Uninformative source titles such as `??` can still
+appear when neither the source nor the tutor supplied a descriptive heading;
+improving those titles without inventing content remains a future refinement.
+
+Validation: 265 frontend tests, 85 affected backend tests, lint and production
+build, plus isolated-database browser checks at desktop and narrow widths.
+No live notes/progress or source annotations were edited for verification.

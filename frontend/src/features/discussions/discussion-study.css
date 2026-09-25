@@ -94,3 +94,25 @@
   .studySortHint { line-height: 1.6; }
 }
 @media (prefers-reduced-motion: reduce) { .studyProgress > span, .studyResourceTile { transition: none; } .studyResourceTile:hover { transform: none; } }
+
+.studyDisplaySwitch { display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid #d4dfd7; border-radius: 9px; }
+.studyDisplaySwitch button { border: 0; border-radius: 6px; padding: 7px 9px; background: transparent; color: #6c7c6e; font: inherit; font-size: 11px; cursor: pointer; }
+.studyDisplaySwitch button[aria-pressed="true"] { background: #e6eee3; color: #42664c; }
+.studyReading .studyAnswerList { gap: 0; }
+.studyReading .studyAnswer { border: 0; border-bottom: 1px solid #dce4d8; border-radius: 0; background: transparent; box-shadow: none; padding: 23px 4px 23px 18px; position: relative; }
+.studyReading .studyAnswer::before { content: ""; position: absolute; top: 27px; bottom: 27px; left: 0; width: 3px; border-radius: 4px; background: var(--priority-color); opacity: .65; }
+.studyReading .studyAnswer.isPinned { background: linear-gradient(90deg, #f5eff9, transparent); }
+.studyReading .studyAnswer h4 > button { font-size: 16px; line-height: 1.5; }
+.studyReading .studyAnswer h4 { margin-block: 9px 13px; }
+.studyQuestionSource { margin: 0 0 15px; padding-left: 12px; border-left: 1px solid #d1dccc; }
+.studyQuestionSource > summary { cursor: pointer; color: #6f8271; font-size: 10px; padding-bottom: 6px; }
+.studyQuestionExcerpt { max-height: 150px; overflow: auto; font-size: 12px; line-height: 1.65; color: #657764; }
+.studyQuestionExcerpt img { display: block; max-width: 100%; max-height: 148px; object-fit: contain; object-position: left; }
+.studyQuestionExcerpt .markdownMath > :first-child, .studyAnswerExcerpt .markdownMath > :first-child { margin-top: 0; }
+.studyQuestionExcerpt .markdownMath > :last-child, .studyAnswerExcerpt .markdownMath > :last-child { margin-bottom: 0; }
+.studyAnswerExcerpt { padding: 13px 16px; margin-bottom: 13px; background: #f5f5ed; border-radius: 9px; }
+.studyAnswerExcerpt > small { display: block; color: #839079; font-size: 10px; margin-bottom: 8px; }
+.studyAnswerExcerpt > div { font-size: 13px; line-height: 1.75; max-height: 210px; overflow: auto; }
+.studyAnswerExcerpt > button { display: inline-flex; align-items: center; gap: 6px; color: #526f53; font-size: 11px; border: 0; background: none; padding: 8px 0 0; cursor: pointer; }
+.studyReading .studyAnswer footer { font-size: 10px; }
+.studyReading .studyAnswer footer > button { font-size: 12px; padding-block: 7px; }

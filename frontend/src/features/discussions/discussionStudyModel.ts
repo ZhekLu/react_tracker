@@ -5,6 +5,7 @@ import { qaReviewThreads, type QaReviewItem } from "./discussionQaReviewModel";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkMath from "remark-math";
+import type { Root } from "mdast";
 
 const parser = unified().use(remarkParse).use(remarkMath);
 type Node = { type: string; value?: string; children?: Node[] };
@@ -18,6 +19,25 @@ export function studyPreview(markdown: string, limit = 180): string {
   }
   const text = visit(parser.parse(markdown)).replace(/(?:==|\^\^|!!|%%)/g, "").replace(/\s+/g, " ").trim();
   return text.length > limit ? text.slice(0, limit).trimEnd() + "…" : text;
+}
+
+/** Extract complete source blocks for a readable preview; never slice math,
+ * fences, or Markdown delimiters at an arbitrary character boundary. */
+export function studyReadingExcerpt(markdown: string): string {
+  const tree = parser.parse(markdown) as Root;
+  const blocks: string[] = [];
+  for (const node of tree.children) {
+    if (["heading", "html", "definition", "thematicBreak"].includes(node.type)) continue;
+    const source = markdown.slice(node.position?.start.offset, node.position?.end.offset);
+    if (/^(?:priority|importance)\s*[:—–-]\s*(?:very\s+)?(?:core|high|medium|low)\b/i.test(studyPreview(source, 200))) continue;
+    if (blocks.length && blocks.join("\n\n").length + source.length > 700) break;
+    blocks.push(source);
+    // Include a following formula/list when the introduction ends with a colon.
+    if (blocks.length >= 3 && (!source.trimEnd().endsWith(":") || blocks.length === 4)) break;
+  }
+  const definitions = tree.children.filter(node => node.type === "definition")
+    .map(node => markdown.slice(node.position?.start.offset, node.position?.end.offset));
+  return [...blocks, ...definitions].join("\n\n");
 }
 
 export function importantAnswerNote(notes: readonly Note[], questions: readonly Annotation[], sections: readonly DiscussionQaSection[]): Note | undefined {

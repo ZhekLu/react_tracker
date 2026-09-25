@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import { DiscussionStudyOverview } from "./DiscussionStudyOverview";
 import type { Annotation, Course, Discussion, Note } from "../../types/tracker";
-import { buildDiscussionStudy, sortStudyAnswers, studyPreview, studyResourceGroups } from "./discussionStudyModel";
+import { buildDiscussionStudy, sortStudyAnswers, studyPreview, studyResourceGroups, studyReadingExcerpt } from "./discussionStudyModel";
 import { qaReviewThreads } from "./discussionQaReviewModel";
 
 export function studyFixture() {
@@ -101,6 +101,15 @@ describe("discussion study overview", () => {
     expect(studyPreview("a".repeat(500))).toHaveLength(181);
   });
 
+  it("previews complete source blocks, keeping formula, fence, and link syntax intact", () => {
+    const formula = "$$\nQ(s,a) = \\boxed{r + \\gamma V(s')}\n$$";
+    const code = "```python\nvalues = [1, 2, 3]\n```";
+    expect(studyReadingExcerpt(`## Explanation\n\n**Priority: CORE. Know the idea.**\n\n${formula}\n\n${code}\n\nMore detail.`)).toBe(`${formula}\n\n${code}\n\nMore detail.`);
+    expect(studyReadingExcerpt("See [the paper][source].\n\n[source]: https://example.com/paper")).toContain("[source]: https://example.com/paper");
+    const longFormula = `$$\n${"x + ".repeat(200)}y\n$$`;
+    expect(studyReadingExcerpt(longFormula)).toBe(longFormula);
+  });
+
   it("opens resource scopes, filters priorities and sends exact pin identities", async () => {
     Object.assign(globalThis, {IS_REACT_ACT_ENVIRONMENT: true});
     const {course, discussion} = studyFixture();
@@ -110,6 +119,14 @@ describe("discussion study overview", () => {
     try {
       await act(async () => root.render(<DiscussionStudyOverview course={course} discussion={discussion} onReview={onReview} onHistory={vi.fn()} onToggleImportantAnswer={onToggleImportantAnswer}/>));
       expect(host.querySelector(".studyAnswer")?.textContent).toContain("Bellman intuition");
+      expect(host.querySelector(".studyQuestionExcerpt")?.textContent).toContain("Question one");
+      expect(host.querySelector(".studyAnswerExcerpt")?.textContent).toContain("Useful explanation.");
+      const displayButtons = host.querySelectorAll<HTMLButtonElement>(".studyDisplaySwitch button");
+      await act(async () => displayButtons[1].click());
+      expect(host.querySelector(".studyQuestionExcerpt")).toBeNull();
+      expect(host.querySelector(".studyAnswerPreview")).not.toBeNull();
+      await act(async () => displayButtons[0].click());
+      expect(host.querySelector(".studyQuestionExcerpt")).not.toBeNull();
       await act(async () => (host.querySelector(".studyResourceTile") as HTMLButtonElement).click());
       expect(onReview).toHaveBeenCalledWith(["one", "three"], "Textbook");
       await act(async () => (host.querySelector('.studyPinButton[aria-pressed="true"]') as HTMLButtonElement).click());

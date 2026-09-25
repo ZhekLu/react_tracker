@@ -1,5 +1,19 @@
 # Tracker feature and maintenance log
 
+## 2026-09-25 — reading view for discussion answers
+
+- Discussions default to **Reading**, showing the original question/capture and
+  a rendered tutor excerpt, with quieter separators. **Compact** retains the
+  earlier list. Resource/chapter Q&A entry points, global pins/priority ordering,
+  filters, full responses, and Q&A sequence are preserved.
+- Excerpts use complete Markdown blocks rather than slicing formulas or fences;
+  priority preambles are omitted from excerpts only, and reference links retain
+  their definitions. Full answers remain unchanged. Long excerpts scroll within
+  a bounded area and have a Read full answer control.
+- Validation: all 265 frontend tests, ESLint, TypeScript/build; browser checks of
+  real Day 15 questions, search, display switching, full math answers, and narrow
+  layouts. Existing large-bundle build warning remains a performance TODO.
+
 ## 2026-09-25 — preserve time during API errors and zero-length entries
 
 - Non-quota HTTP failures now keep the last successful day/task snapshot, just
@@ -62,8 +76,8 @@
   cannot erase mirrors. Last successful sync is available in the button tooltip.
 - Validation: 76 backend integration/mutation tests, frontend TypeScript and
   ESLint. Tests use fake Toggl responses; no live timer commands were sent.
-- See [audit and limitations](study-flow-audit-2026-09.md). Annotation reading,
-  task presentation, and task-review improvements are still in progress.
+- See [audit and limitations](study-flow-audit-2026-09.md); the following study
+  flow entries record annotation, task, and review improvements.
 
 ## 2026-09-24 — safer question IDs and task-note review controls
 
