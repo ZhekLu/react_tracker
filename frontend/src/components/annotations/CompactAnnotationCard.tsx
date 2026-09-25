@@ -5,6 +5,7 @@ import {
   Circle,
   Clock3,
   MessageSquareText,
+  Star,
 } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import { MarkdownMath } from "../content/MarkdownMath";
@@ -32,6 +33,7 @@ type CompactAnnotationCardProps = {
       status?: AnnotationStatus;
       postponed?: boolean;
       skipped?: boolean;
+      priority?: Annotation["priority"];
     },
   ) => void;
   onDiscuss?: (annotation: Annotation) => void;
@@ -108,6 +110,12 @@ export function CompactAnnotationCard({
         ) : null}
       </button>
       <div className="compactCaptureActions">
+        <button aria-label={annotation.priority === "high" ? "Unmark important capture" : "Mark capture important"}
+          aria-pressed={annotation.priority === "high"}
+          onClick={() => onAnnotationChange(annotation, {priority: annotation.priority === "high" ? "normal" : "high"})}
+          title={annotation.priority === "high" ? "Important · click to unmark" : "Mark important"} type="button">
+          <Star size={12} fill={annotation.priority === "high" ? "currentColor" : "none"}/>
+        </button>
         {canAnswer ? (
           <button
             aria-label={

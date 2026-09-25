@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import type {
   Annotation,
   AnnotationStatus,
@@ -10,9 +10,13 @@ import {
   annotationContextGroupId,
   annotationParagraphText,
   annotationSubchapter,
+  metadataText,
+  annotationReadingTop,
 } from "./annotationDisplay";
 import { CompactAnnotationCard } from "./CompactAnnotationCard";
 import { ParagraphAnnotationGroupCard } from "./ParagraphAnnotationGroupCard";
+import { AnnotationReadingGroup } from "./AnnotationReadingGroup";
+import "./annotation-reading.css";
 
 type AnnotationChapterGroupsProps = {
   annotations: Annotation[];
@@ -26,6 +30,7 @@ type AnnotationChapterGroupsProps = {
       status?: AnnotationStatus;
       postponed?: boolean;
       skipped?: boolean;
+      priority?: Annotation["priority"];
     },
   ) => void;
   onDiscuss?: (annotation: Annotation) => void;
@@ -41,8 +46,10 @@ type LogicalCaptureGroup = {
 function annotationOrder(left: Annotation, right: Annotation): number {
   return (
     (left.anchor?.pageNumber ?? 0) - (right.anchor?.pageNumber ?? 0) ||
+    Number(metadataText(left, "layoutColumn") === "right") - Number(metadataText(right, "layoutColumn") === "right") ||
     (left.anchor?.sourceLineStart ?? 0) -
       (right.anchor?.sourceLineStart ?? 0) ||
+    annotationReadingTop(left) - annotationReadingTop(right) ||
     left.createdAt.localeCompare(right.createdAt)
   );
 }
@@ -58,7 +65,7 @@ function logicalCaptureGroups(
     const hasParagraph = Boolean(annotationParagraphText(annotation));
     const key =
       contextGroupId && hasParagraph
-        ? `paragraph:${contextGroupId}`
+        ? `paragraph:${annotation.resourceId}:${contextGroupId}`
         : `annotation:${annotation.id}`;
     const existing = grouped.get(key);
     if (existing) {
@@ -85,11 +92,15 @@ function LogicalCaptureList({
   onDiscuss,
   onNoteSave,
   initiallyExpandCaptures = false,
+  reading = false,
 }: Omit<AnnotationChapterGroupsProps, "annotations" | "flat" | "preferredChapterNumbers"> & {
   annotations: Annotation[];
+  reading?: boolean;
 }) {
-  return logicalCaptureGroups(annotations).map((group) =>
-    group.paragraph ? (
+  return logicalCaptureGroups(annotations).map((group) => <Fragment key={group.id}>
+    <div hidden={!reading}><AnnotationReadingGroup annotations={group.annotations}
+      onAnnotationChange={onAnnotationChange} onDiscuss={onDiscuss} onNoteSave={onNoteSave}/></div>
+    <div hidden={reading}>{group.paragraph ? (
       <ParagraphAnnotationGroupCard
         annotations={group.annotations}
         expandCaptures={initiallyExpandCaptures}
@@ -107,7 +118,7 @@ function LogicalCaptureList({
         onDiscuss={onDiscuss}
         onNoteSave={onNoteSave}
       />
-    ),
+    )}</div></Fragment>,
   );
 }
 
@@ -147,10 +158,18 @@ export function AnnotationChapterGroups({
   onDiscuss,
   onNoteSave,
 }: AnnotationChapterGroupsProps) {
+  const [reading, setReading] = useState(!initiallyExpandCaptures);
+  const switcher = <div className="annotationViewSwitch" role="group" aria-label="Annotation display">
+    <button aria-pressed={reading} onClick={() => setReading(true)} type="button">Reading</button>
+    <button aria-pressed={!reading} onClick={() => setReading(false)} type="button">Cards</button>
+    {reading ? <span>Click a highlight for notes & controls</span> : null}
+  </div>;
   if (flat) {
     return (
-      <div className="annotationFlatList">
+      <div className={`annotationFlatList ${reading ? "annotationReading" : ""}`}>
+        {switcher}
         <LogicalCaptureList
+          reading={reading}
           annotations={annotations}
           initiallyExpandCaptures={initiallyExpandCaptures}
           onAnnotationChange={onAnnotationChange}
@@ -184,7 +203,8 @@ export function AnnotationChapterGroups({
   });
 
   return (
-    <div className="annotationChapterGroups">
+    <div className={`annotationChapterGroups ${reading ? "annotationReading" : ""}`}>
+      {switcher}
       {groups.map(([chapter, captures]) => {
         const chapterNumber = annotationChapterNumber(captures[0]);
         const isPreferred =
@@ -231,6 +251,7 @@ export function AnnotationChapterGroups({
                     </strong>
                   </div>
                   <LogicalCaptureList
+                    reading={reading}
                     annotations={subchapterCaptures}
                     initiallyExpandCaptures={initiallyExpandCaptures}
                     onAnnotationChange={onAnnotationChange}

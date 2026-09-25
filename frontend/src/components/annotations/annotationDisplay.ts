@@ -124,6 +124,16 @@ export function annotationParagraphText(annotation: Annotation): string {
   return metadataText(annotation, "contextParagraph");
 }
 
+/** Drawboard stores native PDF coordinates from the bottom; local extraction
+ * uses top-origin coordinates. Convert before mixing captures in reading order. */
+export function annotationReadingTop(annotation: Annotation): number {
+  const rect = annotation.anchor?.rect;
+  if (!rect?.length) return 0;
+  return annotation.origin?.startsWith("drawboard_cloud")
+    ? (metadataNumber(annotation, "pageHeight") ?? 0) - rect[3]
+    : rect[1];
+}
+
 export function annotationParagraphPageRange(
   annotation: Annotation,
 ): { start: number | null; end: number | null } {

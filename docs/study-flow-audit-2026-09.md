@@ -38,8 +38,23 @@ Sources checked 25 September 2026:
 - [API limits](https://support.toggl.com/api-webhook-limits)
 - [Time-entry API](https://engineering.toggl.com/docs/track/api/time_entries/)
 
+## Reading annotations
+
+The paragraph view duplicated each highlight as a full capture card. Reading mode
+now places page metadata in a quiet margin and keeps capture management behind
+the exact highlighted text (or the capture-count button). Overlapping highlights
+open their corresponding captures together. The original colours are preserved;
+stars indicate saved High capture priority without reordering the document.
+Archive is the existing reversible removal, not deletion from the source PDF.
+The Cards switch keeps all existing management controls accessible. Open editors
+remain mounted when toggling the display or closing the controls.
+
+Single-capture paragraphs now show context too. Chapter/subchapter groups and
+handwritten image context are preserved. Page/column/position order replaces
+creation-time ordering when source geometry is available. PDF extraction still
+determines paragraph text; a truncated-context indicator is retained when supplied.
+
 ## Remaining work in this audit
 
-- Reading-first annotations with accessible capture controls.
 - Task action hierarchy and progress presentation, preserving existing shortcuts.
 - Focused task-review copying, meaningful review headings, and a preview.

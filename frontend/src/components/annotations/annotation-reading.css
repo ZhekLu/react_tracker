@@ -1,0 +1,30 @@
+.annotationViewSwitch { display: flex; align-items: center; gap: 5px; margin: 5px 0 12px; flex-wrap: wrap; }
+.annotationViewSwitch button { border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+.annotationViewSwitch button[aria-pressed="true"] { background: #e8eee7; color: #365845; border-color: #becdbc; }
+.annotationViewSwitch > span { color: var(--faint); font-size: 10px; margin-left: 5px; }
+.annotationReading .annotationChapterGroup { border: 0; background: transparent; border-radius: 0; }
+.annotationReading .annotationChapterGroup > summary { padding: 10px 3px; border-bottom: 1px solid var(--line); font-size: 13px; background: transparent; }
+.annotationReading .annotationSubchapterSeparator { background: transparent; padding: 12px 3px 4px; font-size: 11px; }
+.annotationReading .annotationSubchapterList, .annotationReading .annotationSubchapterGroup { gap: 0; padding: 0; }
+.annotationReadingGroup { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 14px; padding: 16px 3px; max-width: 960px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+.annotationReadingMargin { padding-top: 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; color: var(--faint); font-size: 10px; }
+.annotationReadingMargin button { padding: 2px 0; border: 0; color: var(--muted); background: transparent; font: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; cursor: pointer; }
+.annotationReadingGroup.isImportant .annotationReadingMargin { color: #8c62a5; }
+.annotationReadingText { min-width: 0; color: var(--ink-soft); }
+.annotationReadingText > p, .annotationReadingText > .markdownMath { margin: 0; font-size: 14px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+.annotationReadingText > p > small { color: var(--faint); font-size: 10px; }
+.annotationReadingText mark[role="button"] { cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.annotationReadingText mark[role="button"]:hover { filter: saturate(1.3); }
+.annotationReadingText mark[role="button"]:focus-visible { outline: 2px solid var(--course-accent); outline-offset: 3px; }
+.annotationReadingControls { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); padding: 8px; }
+.annotationReadingControls[hidden], .annotationReadingControls > div[hidden] { display: none; }
+.annotationReadingControls > header, .annotationReadingControls > header > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.annotationReadingControls > header { margin: 0 0 8px; color: var(--muted); font-size: 11px; }
+.annotationReadingControls > header button { display: inline-flex; align-items: center; background: transparent; color: inherit; border: 0; border-radius: 5px; padding: 5px; cursor: pointer; font: inherit; }
+.annotationReadingControls .compactCaptureCard { margin-top: 5px; }
+.compactCaptureActions button[aria-pressed="true"] { color: #9162ac; background: #f2eaf7; }
+@media (max-width: 650px) {
+  .annotationReadingGroup { grid-template-columns: minmax(0, 1fr); gap: 5px; padding: 12px 0; }
+  .annotationReadingMargin { flex-direction: row; gap: 10px; align-items: center; }
+  .annotationReadingText > p, .annotationReadingText > .markdownMath { font-size: 13px; line-height: 1.8; }
+}

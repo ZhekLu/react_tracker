@@ -1,5 +1,21 @@
 # Tracker feature and maintenance log
 
+## 2026-09-25 — read annotations as a highlighted document
+
+- Annotation shelves now default to **Reading**: full captured paragraph context,
+  quiet page/chapter markers, and original highlight colours. Single captures
+  retain paragraph context too; captures follow page, detected column, and position.
+  Drawboard's bottom-origin coordinates are normalized before ordering.
+- Click or keyboard-activate a highlight to reveal its capture controls. Overlaps
+  reveal all matching captures; unmatched highlights retain a capture-count button.
+  Notes, answers, postpone, discuss, and archive remain available. Stars mark
+  important captures using the existing High capture priority field.
+- **Cards** preserves the previous management view; question-focused shelves
+  still start there. Switching displays or closing controls retains mounted note
+  editors. Handwriting crops remain visible.
+- Validation: interaction tests for overlap, normalized text, single paragraphs,
+  importance/archive callbacks, and view switching; TypeScript and ESLint.
+
 ## 2026-09-25 — reconcile external Toggl timers within a request budget
 
 - Routine fresh snapshots now reconcile task time as well as day totals. Phone/
