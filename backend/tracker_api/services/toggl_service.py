@@ -15,8 +15,8 @@ from typing import Any
 from ..config import get_settings
 
 API_BASE = "https://api.track.toggl.com/api/v9"
-DEFAULT_STATUS_CACHE_SECONDS = 300
-DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 1800
+DEFAULT_STATUS_CACHE_SECONDS = 600
+DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 3600
 DEFAULT_PLAN_PREFIXES = {
     "big_data": ["[BigData]"],
     "special_course": ["[SpecialCourse]"],
@@ -110,7 +110,7 @@ def _status_cache_seconds(config: dict[str, Any]) -> int:
         config,
         "status_cache_seconds",
         DEFAULT_STATUS_CACHE_SECONDS,
-        60,
+        300,
     )
 
 
@@ -138,6 +138,20 @@ def _toggl_request(
     path: str,
     payload: dict[str, Any] | None = None,
 ) -> Any:
+    # Separate from the status file: callers hold an older copy of that file while
+    # making requests. Persist the quota before I/O so restarts and failures count.
+    quota_path = get_settings().helper_state_path.with_suffix(".quota.json")
+    quota = _load_json(quota_path, {})
+    now = time.time()
+    bucket = "user" if path.startswith("/me/") else "workspace"
+    requests = [float(t) for t in quota.get(bucket, []) if float(t) > now - 3600]
+    until = float(quota.get("backoff_until") or 0)
+    if now < until:
+        raise TogglApiError(429, _rate_limit_message(until))
+    if len(requests) >= 24:
+        raise TogglApiError(429, _rate_limit_message(requests[0] + 3600))
+    quota[bucket] = [*requests, now]
+    _save_json(quota_path, quota)
     body = json.dumps(payload).encode() if payload is not None else None
     request = urllib.request.Request(
         API_BASE + path,
@@ -154,6 +168,15 @@ def _toggl_request(
             return json.loads(text) if text else {}
     except urllib.error.HTTPError as error:
         detail = error.read().decode(errors="replace")
+        if error.code in (402, 429):
+            try:
+                retry_after = float(error.headers.get("Retry-After", "0"))
+            except (ValueError, TypeError):
+                retry_after = 0
+            quota["backoff_until"] = now + max(
+                retry_after, _rate_limit_backoff_seconds(config)
+            )
+            _save_json(quota_path, quota)
         raise TogglApiError(error.code, detail) from error
     except urllib.error.URLError as error:
         raise TogglServiceError(
@@ -199,7 +222,10 @@ def _entry_matches_project(
 ) -> bool:
     expected = str(config.get("project_id") or "")
     actual = str(entry.get("project_id") or entry.get("pid") or "")
-    return not expected or actual == expected
+    workspace = entry.get("workspace_id") or entry.get("wid")
+    return (not expected or actual == expected) and (
+        workspace is None or str(workspace) == str(config["workspace_id"])
+    )
 
 
 def _tracker_current(
@@ -259,7 +285,23 @@ def _list_time_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
     start, end = _stats_window(config)
     query = urllib.parse.urlencode({"start_date": start, "end_date": end})
     entries = _toggl_request(config, "GET", f"/me/time_entries?{query}")
-    return entries if isinstance(entries, list) else []
+    if not isinstance(entries, list) or any(
+        not isinstance(entry, dict) or not entry.get("id") or not entry.get("start")
+        for entry in entries
+    ):
+        raise TogglServiceError("Toggl returned an incomplete time-entry response; saved time was kept.")
+    # A full page may be truncated. Never infer deletions from a partial window.
+    if len(entries) >= 1000:
+        raise TogglServiceError("Toggl returned 1,000+ entries. Narrow stats_start_date before syncing; saved time was kept.")
+    try:
+        for entry in entries:
+            _parse_iso(str(entry["start"]))
+            int(entry.get("duration") or 0)
+            if entry.get("stop"):
+                _parse_iso(str(entry["stop"]))
+    except (ValueError, TypeError):
+        raise TogglServiceError("Toggl returned invalid entry times; saved time was kept.") from None
+    return entries
 
 
 def _entry_duration_seconds(entry: dict[str, Any]) -> int:
@@ -349,6 +391,7 @@ def _cached_status(
     *,
     error: str = "",
     stale: bool = False,
+    max_age: int | None = None,
 ) -> dict[str, Any] | None:
     cache = state.get("status_cache")
     if not isinstance(cache, dict) or not isinstance(cache.get("payload"), dict):
@@ -357,7 +400,7 @@ def _cached_status(
         timestamp = float(cache.get("timestamp") or 0)
     except (TypeError, ValueError):
         timestamp = 0
-    if not stale and time.time() - timestamp > _status_cache_seconds(config):
+    if not stale and time.time() - timestamp > (max_age if max_age is not None else _status_cache_seconds(config)):
         return None
     raw_result = json.loads(json.dumps(cache["payload"]))
     if not isinstance(raw_result, dict):
@@ -366,6 +409,15 @@ def _cached_status(
     if stale:
         result["running"] = False
         result["current"] = None
+    elif result.get("running") and result.get("current") and not result.get("error"):
+        # Advance the displayed estimate locally; this does not read Toggl.
+        elapsed = max(0, int(time.time() - timestamp))
+        current = result["current"]
+        plan = current["plan_id"]
+        result.setdefault("totals", {})[plan] = result.get("totals", {}).get(plan, 0) + elapsed
+        if current.get("day_id"):
+            days = result.setdefault("days", {}).setdefault(plan, {})
+            days[current["day_id"]] = days.get(current["day_id"], 0) + elapsed
     if error:
         result["error"] = error
     return result
@@ -374,7 +426,7 @@ def _cached_status(
 def _rate_limit_error(error: TogglApiError) -> bool:
     detail = error.detail.casefold()
     return (
-        error.status == 429
+        error.status in (402, 429)
         or "rate limit" in detail
         or "too many" in detail
         or "api calls" in detail
@@ -393,6 +445,8 @@ def _rate_limit_message(until: float) -> str:
 
 def _reconciliation_entry(entry: dict[str, Any]) -> dict[str, Any]:
     stopped_at = entry.get("stop")
+    if not stopped_at and int(entry.get("duration") or -1) >= 0:
+        stopped_at = (_parse_iso(str(entry["start"])) + timedelta(seconds=int(entry["duration"]))).isoformat()
     return {
         "description": str(entry.get("description") or ""),
         "duration_seconds": (
@@ -408,7 +462,7 @@ def _reconciliation_entry(entry: dict[str, Any]) -> dict[str, Any]:
 def public_status(
     *,
     force: bool = False,
-    include_entries: bool = False,
+    include_entries: bool = True,
 ) -> dict[str, Any]:
     with _STATE_LOCK:
         state = _load_state()
@@ -424,14 +478,14 @@ def public_status(
                 "totals": {},
                 "days": {},
             }
-        cached = None if force or include_entries else _cached_status(state, config)
+        cached = _cached_status(state, config, max_age=60 if force else None)
         if cached:
             return cached
         try:
             backoff_until = float(state.get("toggl_backoff_until") or 0)
         except (TypeError, ValueError):
             backoff_until = 0
-        if not force and time.time() < backoff_until:
+        if time.time() < backoff_until:
             message = _rate_limit_message(backoff_until)
             return _cached_status(
                 state,
@@ -448,8 +502,15 @@ def public_status(
             raw_current = _current_time_entry(config)
             current = _tracker_current(config, raw_current)
             entries = _list_time_entries(config)
+            # The list is fetched after current; a phone may stop it between calls.
+            latest_current = next((entry for entry in entries if raw_current and entry["id"] == raw_current["id"]), None)
+            if latest_current and (latest_current.get("stop") or int(latest_current.get("duration") or 0) >= 0):
+                current = None
+                raw_current = None
             totals = _aggregate_time_entries(config, current, entries)
             payload = _status_payload(config, current, totals)
+            payload["synced_at"] = _utc_now_iso()
+            payload["sync_interval_seconds"] = _status_cache_seconds(config)
             if include_entries:
                 project_entries = [
                     entry
@@ -497,13 +558,15 @@ def public_status(
                 str(error),
             )
         except TogglServiceError as error:
-            payload = _status_payload(
+            payload = _cached_status(state, config, stale=True, error=str(error)) or _status_payload(
                 config,
                 None,
                 {"totals": _legacy_totals(state), "days": {}},
                 str(error),
             )
-        state["status_cache"] = {"timestamp": time.time(), "payload": payload}
+        state["status_cache"] = {"timestamp": time.time(), "payload": {
+            key: value for key, value in payload.items() if not key.startswith("_")
+        }}
         _save_state(state)
         return payload
 
@@ -514,7 +577,7 @@ def start(description: str) -> dict[str, Any]:
         state = _load_state()
         current = _tracker_current(config, _current_time_entry(config))
         if current:
-            _stop(config, state)
+            _stop(config, state, current=current)
         started_at = _utc_now_iso()
         entry = _toggl_request(
             config,
@@ -533,14 +596,21 @@ def start(description: str) -> dict[str, Any]:
         state["toggl_backoff_until"] = 0
         _invalidate_status_cache(state)
         _save_state(state)
-        return public_status(force=True)
+        payload = public_status(force=True)
+        # A successful POST must remain bound to its task even if the subsequent
+        # read hits a quota or connection failure.
+        payload["current"] = _tracker_current(config, entry)
+        payload["running"] = bool(payload["current"])
+        return payload
 
 
 def _stop(
     config: dict[str, Any],
     state: dict[str, Any],
+    *,
+    current: dict[str, Any] | None = None,
 ) -> None:
-    current = _tracker_current(config, _current_time_entry(config))
+    current = current or _tracker_current(config, _current_time_entry(config))
     if not current:
         state["current"] = None
         state["toggl_backoff_until"] = 0

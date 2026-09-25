@@ -465,6 +465,8 @@ export type DrawboardColorPaletteEntry = {
 };
 
 export type TogglStatus = {
+  syncedAt?: string | null;
+  syncIntervalSeconds?: number;
   online: boolean;
   configured: boolean;
   running: boolean;
@@ -509,6 +511,8 @@ export type ZoteroExportResult = {
 };
 
 type ApiTogglStatus = {
+  synced_at?: string | null;
+  sync_interval_seconds?: number;
   configured: boolean;
   running: boolean;
   error: string;
@@ -1023,6 +1027,8 @@ function workspace(api: ApiCourseWorkspace): Course {
 
 function togglStatus(api: ApiTogglStatus): TogglStatus {
   return {
+    syncedAt: api.synced_at,
+    syncIntervalSeconds: api.sync_interval_seconds,
     configured: api.configured,
     current: api.current
       ? {

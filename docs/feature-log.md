@@ -1,5 +1,19 @@
 # Tracker feature and maintenance log
 
+## 2026-09-25 — reconcile external Toggl timers within a request budget
+
+- Routine fresh snapshots now reconcile task time as well as day totals. Phone/
+  desktop restarts reuse a unique exact-description binding; ambiguous titles
+  remain day time. Remote changes/deletions still reconcile by entry ID.
+- Ten-minute default server cache, visible-tab polling, explicit header sync,
+  persistent 24/hour local budgets, and non-bypassable HTTP 402/429 backoff.
+  Successful starts survive a failed follow-up read; invalid/full snapshots
+  cannot erase mirrors. Last successful sync is available in the button tooltip.
+- Validation: 76 backend integration/mutation tests, frontend TypeScript and
+  ESLint. Tests use fake Toggl responses; no live timer commands were sent.
+- See [audit and limitations](study-flow-audit-2026-09.md). Annotation reading,
+  task presentation, and task-review improvements are still in progress.
+
 ## 2026-09-24 — safer question IDs and task-note review controls
 
 - Context shared across a PDF page break no longer merges new questions: stable

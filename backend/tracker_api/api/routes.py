@@ -690,13 +690,19 @@ def _toggl_status_response(
     connection: Connection,
     payload: dict[str, Any],
 ) -> TogglStatusResponse:
+    entries = payload.pop("_entries", None)
+    window_start = payload.pop("_window_start", None)
+    if not payload.get("error") and isinstance(entries, list) and isinstance(window_start, str):
+        workspace_repository.reconcile_toggl_entries(connection, entries, window_start=window_start)
     current = payload.get("current")
     if isinstance(current, dict):
         current["task_id"] = workspace_repository.toggl_task_id(
             connection,
             str(current.get("id") or ""),
         )
-    payload["tasks"] = workspace_repository.toggl_task_totals(connection)
+    payload["tasks"] = workspace_repository.toggl_task_totals(
+        connection, as_of=payload.get("synced_at") if payload.get("error") else None
+    )
     return TogglStatusResponse.model_validate(payload)
 
 
@@ -705,20 +711,7 @@ def get_toggl_status(
     connection: Database,
     force: bool = False,
 ) -> TogglStatusResponse:
-    payload = public_status(force=force, include_entries=force)
-    entries = payload.pop("_entries", None)
-    window_start = payload.pop("_window_start", None)
-    if (
-        force
-        and not payload.get("error")
-        and isinstance(entries, list)
-        and isinstance(window_start, str)
-    ):
-        workspace_repository.reconcile_toggl_entries(
-            connection,
-            entries,
-            window_start=window_start,
-        )
+    payload = public_status(force=force)
     return _toggl_status_response(connection, payload)
 
 

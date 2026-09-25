@@ -450,6 +450,8 @@ class TogglStatusResponse(StrictModel):
     totals: dict[str, int]
     days: dict[str, dict[str, int]]
     tasks: dict[str, int]
+    synced_at: str | None = None
+    sync_interval_seconds: int = 600
 
 
 class CourseStats(StrictModel):

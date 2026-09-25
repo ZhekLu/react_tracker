@@ -2378,7 +2378,10 @@ export function App() {
       onDayClosedChange={handleDayClosedChange}
       onOpenDay={handleOpenDay}
       onToggleToggl={() => void toggl.toggle()}
+      onSyncToggl={() => toggl.refresh(true)}
       toggl={{
+        syncedAt: toggl.status.syncedAt,
+        syncIntervalSeconds: toggl.status.syncIntervalSeconds,
         activeTaskId: toggl.status.current?.taskId,
         activeForDay: toggl.activeForDay,
         busy: toggl.busy,

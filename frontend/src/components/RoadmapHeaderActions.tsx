@@ -11,6 +11,7 @@ import {
   SkipForward,
   StickyNote,
   Timer,
+  RefreshCw,
 } from "lucide-react";
 import { useState } from "react";
 import type { Course, StudyDay, TrackerView } from "../types/tracker";
@@ -25,8 +26,11 @@ type RoadmapHeaderActionsProps = {
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
   onOpenDay: (dayId: string) => void;
   onToggleToggl: () => void;
+  onSyncToggl: () => Promise<unknown>;
   onViewChange: (view: TrackerView) => void;
   toggl: {
+    syncedAt?: string | null;
+    syncIntervalSeconds?: number;
     activeTaskId?: string | null;
     activeForDay: boolean;
     busy: boolean;
@@ -57,10 +61,12 @@ export function RoadmapHeaderActions({
   onDayClosedChange,
   onOpenDay,
   onToggleToggl,
+  onSyncToggl,
   onViewChange,
   toggl,
 }: RoadmapHeaderActionsProps) {
   const [includeTutorSolutions, setIncludeTutorSolutions] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const today = course.days.find((day) => day.date === localDate());
   const nextOpen = course.days.find(isOpenDay);
   const currentTaskDay = toggl.activeTaskId
@@ -202,6 +208,10 @@ export function RoadmapHeaderActions({
       >
         <Timer size={15} />
       </button>
+      <button aria-label="Sync Toggl time" disabled={syncing || toggl.busy || !toggl.configured}
+        onClick={async () => { setSyncing(true); try { await onSyncToggl(); } finally { setSyncing(false); } }}
+        title={`${toggl.syncedAt ? `Last synced ${new Date(toggl.syncedAt).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}. ` : ""}Auto sync every ${Math.round((toggl.syncIntervalSeconds ?? 600) / 60)} minutes while open. Click to sync phone/desktop time now (request limits still apply).`}
+        type="button"><RefreshCw size={15}/></button>
     </nav>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchTogglStatus,
   startToggl,
@@ -20,15 +20,6 @@ const offlineStatus: TogglStatus = {
   totals: {},
 };
 
-const DAILY_SYNC_STORAGE_KEY = "study-tracker:toggl:last-full-sync-date";
-
-function localDateToken(date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function legacyPlanId(course: Course): string {
   return course.shortCode
     .replace(/([a-z])([A-Z])/g, "$1_$2")
@@ -40,32 +31,30 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
   const [status, setStatus] = useState<TogglStatus>(offlineStatus);
   const [busy, setBusy] = useState(false);
   const [commandError, setCommandError] = useState("");
+  const requestVersion = useRef(0);
+  const commandPending = useRef(false);
 
   const refresh = useCallback(async (force = false) => {
+    if (commandPending.current) return;
+    const version = ++requestVersion.current;
     const nextStatus = await fetchTogglStatus(force);
-    setStatus(nextStatus);
+    if (version === requestVersion.current) setStatus(nextStatus);
     return nextStatus;
   }, []);
 
   useEffect(() => {
-    const refreshScheduled = async () => {
-      const today = localDateToken();
-      const force = window.localStorage.getItem(DAILY_SYNC_STORAGE_KEY) !== today;
-      const nextStatus = await refresh(force);
-      if (
-        force &&
-        nextStatus.online &&
-        nextStatus.configured &&
-        !nextStatus.error
-      ) {
-        window.localStorage.setItem(DAILY_SYNC_STORAGE_KEY, today);
-      }
+    const refreshScheduled = () => {
+      if (document.visibilityState === "visible") void refresh();
     };
     const initial = window.setTimeout(() => void refreshScheduled(), 0);
     const interval = window.setInterval(() => void refreshScheduled(), 60_000);
+    window.addEventListener("focus", refreshScheduled);
+    document.addEventListener("visibilitychange", refreshScheduled);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(interval);
+      window.removeEventListener("focus", refreshScheduled);
+      document.removeEventListener("visibilitychange", refreshScheduled);
     };
   }, [refresh]);
 
@@ -94,7 +83,9 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
   );
 
   async function toggle() {
-    if (!course || !activeDay) return;
+    if (!course || !activeDay || commandPending.current) return;
+    commandPending.current = true;
+    requestVersion.current += 1;
     setBusy(true);
     setCommandError("");
     try {
@@ -113,6 +104,7 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
         caught instanceof Error ? caught.message : "Toggl command failed.",
       );
     } finally {
+      commandPending.current = false;
       setBusy(false);
     }
   }
@@ -122,7 +114,9 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
     task: Task,
     resources: Resource[],
   ) {
-    if (!course) return;
+    if (!course || commandPending.current) return;
+    commandPending.current = true;
+    requestVersion.current += 1;
     setBusy(true);
     setCommandError("");
     try {
@@ -144,6 +138,7 @@ export function useToggl(course: Course | null, activeDay?: StudyDay) {
         caught instanceof Error ? caught.message : "Toggl command failed.",
       );
     } finally {
+      commandPending.current = false;
       setBusy(false);
     }
   }

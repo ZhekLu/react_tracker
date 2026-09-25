@@ -4178,7 +4178,7 @@ def toggl_task_id(connection: Connection, external_id: str) -> str | None:
     )
 
 
-def toggl_task_totals(connection: Connection) -> dict[str, int]:
+def toggl_task_totals(connection: Connection, *, as_of: str | None = None) -> dict[str, int]:
     return {
         str(row["task_id"]): int(row["tracked_seconds"] or 0)
         for row in _rows(
@@ -4196,7 +4196,7 @@ def toggl_task_totals(connection: Connection) -> dict[str, int]:
                       AS INTEGER
                     ))
                     ELSE MAX(0, CAST(
-                      strftime('%s', 'now') - strftime('%s', started_at)
+                      strftime('%s', COALESCE(:as_of, 'now')) - strftime('%s', started_at)
                       AS INTEGER
                     ))
                   END
@@ -4206,6 +4206,7 @@ def toggl_task_totals(connection: Connection) -> dict[str, int]:
             WHERE task_id IS NOT NULL
             GROUP BY task_id
             """,
+            {"as_of": as_of},
         )
     }
 
@@ -4216,13 +4217,30 @@ def reconcile_toggl_entries(
     *,
     window_start: str,
 ) -> None:
-    """Refresh tracker-created Toggl mirrors from an authoritative API window."""
+    """Reconcile an authoritative project window, including external restarts.
+
+    Descriptions are intentionally exact. A reused generic title with multiple
+    task bindings is retained at day level instead of guessing a task.
+    """
     now = _now()
     remote_entries = {
         str(entry.get("external_id")): entry
         for entry in entries
         if str(entry.get("external_id") or "").strip()
     }
+    bindings = _rows(connection, """
+        SELECT DISTINCT te.description, te.course_id, te.day_id, te.task_id,
+               te.external_project_id, te.external_workspace_id
+        FROM time_entries te
+        JOIN courses c ON c.id=te.course_id AND c.deleted_at IS NULL
+        LEFT JOIN tasks t ON t.id=te.task_id
+        WHERE te.provider='toggl' AND (te.task_id IS NULL OR t.deleted_at IS NULL)
+    """)
+    days = _rows(connection, """
+        SELECT d.id, d.course_id, d.number, c.short_code
+        FROM study_days d JOIN courses c ON c.id=d.course_id
+        WHERE d.deleted_at IS NULL AND c.deleted_at IS NULL
+    """)
     local_entries = _rows(
         connection,
         """
@@ -4234,6 +4252,44 @@ def reconcile_toggl_entries(
         """,
         {"window_start": window_start},
     )
+    known_ids = {str(row["external_id"]) for row in _rows(
+        connection, "SELECT external_id FROM time_entries WHERE provider='toggl'"
+    )}
+    for external_id, remote in remote_entries.items():
+        if external_id in known_ids:
+            continue
+        description = str(remote.get("description") or "")
+        raw = remote.get("payload") or {}
+        project = raw.get("project_id") or raw.get("pid")
+        workspace = raw.get("workspace_id") or raw.get("wid")
+        matches = [row for row in bindings if row["description"] == description
+                   and (row["external_project_id"] is None or str(row["external_project_id"]) == str(project))
+                   and (row["external_workspace_id"] is None or str(row["external_workspace_id"]) == str(workspace))]
+        scopes = {(row["course_id"], row["day_id"]) for row in matches}
+        if len(scopes) != 1:
+            match = re.match(r"^\[([^\]]+)\]\s+Day\s+(\d+)\b", description, re.I)
+            scopes = {(row["course_id"], row["id"]) for row in days
+                      if match and str(row["short_code"]).casefold() == match[1].casefold()
+                      and int(row["number"]) == int(match[2])}
+        if len(scopes) != 1 or not remote.get("started_at"):
+            continue
+        course_id, day_id = next(iter(scopes))
+        task_ids = {row["task_id"] for row in matches if row["task_id"]
+                    and (row["course_id"], row["day_id"]) == (course_id, day_id)}
+        task_id = next(iter(task_ids)) if len(task_ids) == 1 else None
+        connection.execute(text("""
+            INSERT INTO time_entries (
+                id, course_id, day_id, task_id, provider, external_id, description,
+                started_at, stopped_at, duration_override_seconds,
+                external_workspace_id, external_project_id, last_synced_at,
+                sync_payload_json, created_at, updated_at
+            ) VALUES (:id,:course_id,:day_id,:task_id,'toggl',:external_id,:description,
+                      :started_at,:stopped_at,:duration,:workspace,:project,:now,:payload,:now,:now)
+        """), {"id": _new_id(), "course_id": course_id, "day_id": day_id,
+               "task_id": task_id, "external_id": external_id, "description": description,
+               "started_at": remote["started_at"], "stopped_at": remote.get("stopped_at"),
+               "duration": remote.get("duration_seconds"), "workspace": workspace,
+               "project": project, "now": now, "payload": _json_dumps(raw)})
     for local in local_entries:
         external_id = str(local["external_id"])
         remote = remote_entries.get(external_id)
@@ -4261,6 +4317,8 @@ def reconcile_toggl_entries(
                     duration_override_seconds = :duration_seconds,
                     last_synced_at = :now,
                     sync_payload_json = :sync_payload_json,
+                    external_workspace_id = COALESCE(:workspace, external_workspace_id),
+                    external_project_id = COALESCE(:project, external_project_id),
                     updated_at = :now
                 WHERE id = :id
                 """),
@@ -4272,6 +4330,8 @@ def reconcile_toggl_entries(
                 "started_at": started_at,
                 "stopped_at": stopped_at,
                 "sync_payload_json": _json_dumps(remote.get("payload")),
+                "workspace": (remote.get("payload") or {}).get("workspace_id") or (remote.get("payload") or {}).get("wid"),
+                "project": (remote.get("payload") or {}).get("project_id") or (remote.get("payload") or {}).get("pid"),
             },
         )
     connection.execute(

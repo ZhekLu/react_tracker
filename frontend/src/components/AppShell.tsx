@@ -41,7 +41,10 @@ type AppShellProps = {
   onCopyDayQuestions: (day: StudyDay) => void;
   onDayClosedChange: (day: StudyDay, closed: boolean) => void;
   onToggleToggl: () => void;
+  onSyncToggl: () => Promise<unknown>;
   toggl: {
+    syncedAt?: string | null;
+    syncIntervalSeconds?: number;
     activeTaskId?: string | null;
     activeForDay: boolean;
     busy: boolean;
@@ -79,6 +82,7 @@ export function AppShell({
   onCopyDayQuestions,
   onDayClosedChange,
   onToggleToggl,
+  onSyncToggl,
   onBack,
   onOpenDay,
   toggl,
@@ -165,6 +169,7 @@ export function AppShell({
               onDayClosedChange={onDayClosedChange}
               onOpenDay={onOpenDay}
               onToggleToggl={onToggleToggl}
+              onSyncToggl={onSyncToggl}
               onViewChange={onViewChange}
               toggl={toggl}
             />
