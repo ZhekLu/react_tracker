@@ -1,5 +1,12 @@
 # Tracker feature and maintenance log
 
+## 2026-09-25 — preserve time during API errors and zero-length entries
+
+- Non-quota HTTP failures now keep the last successful day/task snapshot, just
+  like network failures. A zero-second entry without a stop timestamp is treated
+  as finished, preventing phantom running time. Validation: 85 backend tests
+  covering synchronization, local integrations, workspace mutations, and reviews.
+
 ## 2026-09-25 — focused task-review copying and clearer task actions
 
 - **Copy for tutor** opens a preview with an editable review heading, whole-note

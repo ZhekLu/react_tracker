@@ -60,6 +60,28 @@ def test_force_cannot_bypass_402_pause_and_saved_totals_survive(monkeypatch):
     assert len(calls) == 1
 
 
+def test_non_quota_api_error_preserves_last_successful_totals(monkeypatch):
+    configure()
+    service._save_state({"status_cache": {"timestamp": 1, "payload": {
+        "configured": True, "running": False, "current": None,
+        "totals": {"torl": 600}, "days": {"torl": {"day-01": 600}},
+        "error": "", "synced_at": "2026-07-01T10:10:00Z"}}})
+    def request(*args):
+        raise service.TogglApiError(403, "Forbidden")
+    monkeypatch.setattr(service, "_toggl_request", request)
+    result = service.public_status(force=True)
+    assert result["totals"] == {"torl": 600}
+    assert result["days"] == {"torl": {"day-01": 600}}
+    assert result["synced_at"] == "2026-07-01T10:10:00Z"
+    assert "_entries" not in result
+
+
+def test_zero_duration_without_stop_is_finished_not_a_running_timer():
+    result = service._reconciliation_entry({**entry(), "duration": 0, "stop": None})
+    assert result["stopped_at"] == "2026-07-01T10:00:00+00:00"
+    assert result["duration_seconds"] == 0
+
+
 @pytest.mark.parametrize("response", [{"error": "bad"}, [{"id": 1}], [entry()] * 1000])
 def test_incomplete_snapshot_cannot_erase_local_records(monkeypatch, response):
     configure()

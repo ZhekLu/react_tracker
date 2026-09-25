@@ -445,7 +445,7 @@ def _rate_limit_message(until: float) -> str:
 
 def _reconciliation_entry(entry: dict[str, Any]) -> dict[str, Any]:
     stopped_at = entry.get("stop")
-    if not stopped_at and int(entry.get("duration") or -1) >= 0:
+    if not stopped_at and entry.get("duration") is not None and int(entry["duration"]) >= 0:
         stopped_at = (_parse_iso(str(entry["start"])) + timedelta(seconds=int(entry["duration"]))).isoformat()
     return {
         "description": str(entry.get("description") or ""),
@@ -551,7 +551,7 @@ def public_status(
                     {"totals": _legacy_totals(state), "days": {}},
                     message,
                 )
-            payload = _status_payload(
+            payload = _cached_status(state, config, stale=True, error=str(error)) or _status_payload(
                 config,
                 None,
                 {"totals": _legacy_totals(state), "days": {}},
