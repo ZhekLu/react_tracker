@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Annotation } from "../../types/tracker";
 import { AnnotationChapterGroups } from "./AnnotationChapterGroups";
 import { annotationReadingTop } from "./annotationDisplay";
+import { paragraphHighlightRanges } from "./paragraphHighlightRanges";
 
 Object.assign(globalThis, {IS_REACT_ACT_ENVIRONMENT: true});
 
@@ -14,9 +15,14 @@ const capture = (id: string, quote: string): Annotation => ({id, resourceId: "pa
 } as unknown as Annotation);
 
 describe("annotation reading", () => {
+  it("does not promote an unmatched phrase to a whole context sentence", () => {
+    const annotation = capture("a", "missing extraction");
+    annotation.anchor!.metadata = {contextSentence: "The entire context sentence."};
+    expect(paragraphHighlightRanges("The entire context sentence.", [annotation])).toEqual([]);
+  });
   it("normalizes Drawboard bottom-origin and local top-origin geometry", () => {
-    const cloud = {...capture("cloud", "text"), origin: "drawboard_cloud", anchor: {rect: [10, 480, 30, 500], metadata: {pageHeight: 648}}} as Annotation;
-    const local = {...capture("local", "text"), origin: "pdf", anchor: {rect: [10, 200, 30, 220]}} as Annotation;
+    const cloud = {...capture("cloud", "text"), origin: "drawboard_cloud", anchor: {anchorType: "pdf", rect: [10, 480, 30, 500], metadata: {pageHeight: 648}}} as Annotation;
+    const local = {...capture("local", "text"), origin: "pdf", anchor: {anchorType: "pdf", rect: [10, 200, 30, 220]}} as Annotation;
     expect(annotationReadingTop(cloud)).toBe(148);
     expect(annotationReadingTop(local)).toBe(200);
   });
@@ -32,6 +38,8 @@ describe("annotation reading", () => {
       const controls = group.querySelector<HTMLElement>(".annotationReadingControls")!;
       expect(controls.hidden).toBe(true);
       const overlap = [...group.querySelectorAll<HTMLElement>('mark[role="button"]')].find(e => e.textContent?.trim() === "useful")!;
+      expect(overlap.getAttribute("style")).not.toContain("linear-gradient");
+      expect(overlap.style.boxShadow).toBe("none");
       await act(async () => overlap.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true})));
       expect(controls.hidden).toBe(false);
       expect(controls.querySelectorAll(".compactCaptureCard")).toHaveLength(2);

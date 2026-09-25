@@ -1,5 +1,15 @@
 # Tracker feature and maintenance log
 
+## 2026-09-25 — overlapping highlight paint correction
+
+- The reported CQL paragraph has two genuinely overlapping blue captures. The
+  old opaque split-colour gradient drew dark bands through wrapped text. Overlaps
+  now use a single translucent blended fill, with no inset stripe; each capture
+  remains accessible by clicking the shared highlight.
+- Unmatched extracted quotes no longer paint an entire context sentence as if
+  it were highlighted. The capture-count control still exposes every capture.
+  Tests cover the overlap style and this conservative matching fallback.
+
 ## 2026-09-25 — read annotations as a highlighted document
 
 - Annotation shelves now default to **Reading**: full captured paragraph context,
