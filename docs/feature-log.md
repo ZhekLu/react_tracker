@@ -1,5 +1,18 @@
 # Tracker feature and maintenance log
 
+## 2026-09-26 — restore minimal task controls and fix title overlap
+
+- Fixed a class-name collision: the study toolbar inherited absolute positioning
+  from the existing corner Later/Skip controls. It now has its own class and sits
+  in normal flow below the title, alongside task facts.
+- User preference: keep this personal tool compact. Copy, Copy with notes,
+  Import review, rationale, and solution screenshots use small icons with
+  tooltips/accessibility labels; Q&A and remaining counts keep brief labels.
+  All shortcuts remain directly available. Completed titles allow two lines.
+- Validation: lint, TypeScript/build, browser checks at 1440px and 390px, measured
+  no task-title/control overlap, and opened/cancelled the copy preview via its
+  icon. Separate existing phone-width app-header crowding remains a layout TODO.
+
 ## 2026-09-25 — reading view for discussion answers
 
 - Discussions default to **Reading**, showing the original question/capture and

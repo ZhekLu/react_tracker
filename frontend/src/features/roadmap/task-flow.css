@@ -27,25 +27,23 @@
 
 /* Keep every established shortcut visible while separating facts from actions. */
 .taskRow .taskTitleRow { display: block; }
-.taskRow .taskFacts { gap: 5px; margin-top: 7px; }
-.taskRow .taskActions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
-.taskRow .taskActions > button { min-height: 28px; padding: 4px 9px; font-size: 10px; border-radius: 7px; text-transform: none; letter-spacing: normal; }
-.taskRow .taskActions .taskTutorAction { color: #486653; background: #f2f6ed; border-color: #d3dfcf; }
-.taskRow .taskActions [data-track="task.import"] { color: #786391; background: #f6f1fa; border-color: #e2d6eb; }
-.taskRow .taskActions .taskQaLaunch { color: #355e7a; background: #eef5f8; }
-.taskRow:not(.isCompactDone) { padding-top: 18px; padding-bottom: 18px; }
-.taskRow.isCompactDone .taskBody h3 { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.taskRow .taskTools { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 6px; }
+.taskRow .taskFacts, .taskRow .taskStudyActions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 0; }
+/* taskActions is reserved for the existing corner Later/Skip controls. */
+.taskRow .taskStudyActions { position: static; }
+.taskRow .taskStudyActions > button { min-height: 22px; padding: 2px 6px; font-size: 9px; border-radius: 6px; text-transform: none; letter-spacing: normal; background: transparent; color: var(--muted); }
+.taskRow .taskStudyActions > .taskIconAction { width: 24px; height: 24px; padding: 0; justify-content: center; }
+.taskRow .taskStudyActions > button:hover { color: var(--ink); background: #edf2e9; }
+.taskRow .taskStudyActions .taskQaLaunch { color: #517264; }
+.taskRow.isCompactDone .taskBody .taskTitleRow > h3 { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .taskRow.isCompactDone .taskFacts { display: flex; }
-.taskRow.isCompactDone .taskActions { margin-top: 5px; }
-.taskRow.isCompactDone .taskActions > button { min-height: 24px; }
-.taskRow .taskActions button:focus-visible, .dayMomentum button:focus-visible { outline: 2px solid #709b7a; outline-offset: 3px; }
+.taskRow.isCompactDone .taskTools { margin-top: 4px; }
+.taskRow .taskStudyActions button:focus-visible, .dayMomentum button:focus-visible { outline: 2px solid #709b7a; outline-offset: 3px; }
 .dayMomentum { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; background: linear-gradient(105deg, #edf4e9, #faf6e9); border-block: 1px solid #e1e8db; color: #466d53; }
 .dayMomentum > span { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
 .dayMomentum small { font-size: 11px; color: #748270; }
 .dayMomentum > button { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; border: 1px solid #ccd9c4; border-radius: 8px; padding: 7px 10px; background: #fffdf6; color: #4d6e50; font-size: 11px; cursor: pointer; }
 @media (max-width: 650px) {
-  .taskRow .taskTitleRow { padding-right: 0; }
-  .taskRow .taskActions > button { min-height: 31px; }
   .dayMomentum { padding-inline: 14px; }
   .dayMomentum small { flex-basis: 100%; }
 }

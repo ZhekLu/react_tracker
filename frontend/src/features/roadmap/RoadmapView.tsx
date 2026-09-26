@@ -403,6 +403,7 @@ function TaskRow({
       <div className="taskBody">
         <div className="taskTitleRow">
           <h3 title={task.title}>{task.title}</h3>
+          <div className="taskTools">
           <div className="taskBadges taskFacts">
             {task.isOptional ? <span className="taskMetaBadge">Optional</span> : null}
             {task.taskType ? <span className="taskMetaBadge">{task.taskType}</span> : null}
@@ -439,27 +440,28 @@ function TaskRow({
               </span>
             ) : null}
           </div>
-          <div className="taskBadges taskActions" role="group" aria-label={`Study actions for ${task.title}`}>
-            <button className="taskMetaBadge taskTutorAction" disabled={noteDirty}
+          <div className="taskBadges taskStudyActions" role="group" aria-label={`Study actions for ${task.title}`}>
+            <button className="taskMetaBadge taskTutorAction taskIconAction" disabled={noteDirty} aria-label="Copy for tutor"
               data-track="task.copy" onClick={() => onCopyTask(dayId, task)}
-              title={noteDirty ? "Save the task note before copying" : "Choose note sections and preview your tutor prompt"} type="button">
-              <Copy size={11}/> Copy for tutor
+              title={noteDirty ? "Save the task note before copying" : "Copy for tutor · choose note sections and preview"} type="button">
+              <Copy size={12}/>
             </button>
             {taskResourceNotes.length ? (
-              <button className="taskMetaBadge taskTutorAction" disabled={noteDirty}
+              <button className="taskMetaBadge taskTutorAction taskIconAction" disabled={noteDirty} aria-label={`Copy with ${taskResourceNotes.length} resource notes`}
                 data-track="task.copy-notes" onClick={() => onCopyTaskWithNotes(dayId, task)}
                 title={noteDirty ? "Save the task note before copying" : "Copy the task with linked questions and resource notes, including their screenshots"} type="button">
-                <NotebookPen size={11}/> Copy + notes {taskResourceNotes.length}
+                <NotebookPen size={12}/>
               </button>
             ) : null}
-            <button className="taskMetaBadge taskTutorAction" disabled={noteDirty}
+            <button className="taskMetaBadge taskTutorAction taskIconAction" disabled={noteDirty} aria-label="Import review"
               data-track="task.import" onClick={() => onInsertTaskReview(dayId, task)}
-              title={noteDirty ? "Save the task note before inserting a review" : "Append tutor review and open Q&A"} type="button">
-              <ClipboardPaste size={11}/> Import review
+              title={noteDirty ? "Save the task note before inserting a review" : "Import tutor review and open Q&A"} type="button">
+              <ClipboardPaste size={12}/>
             </button>
             {nextTaskQuestions.length ? (
               <button
                 className="taskMetaBadge copyNextQuestions"
+                aria-label={`Copy next ${nextTaskQuestions.length} questions`}
                 data-track="task.next" onClick={() => onCopyNextQuestions(dayId, task)}
                 title={
                   copiedUnansweredCount
@@ -468,7 +470,7 @@ function TaskRow({
                 }
                 type="button"
               >
-                <Copy size={11} /> Copy next {nextTaskQuestions.length}
+                <Copy size={11} /> Next {nextTaskQuestions.length}
               </button>
             ) : null}
             {mappedTaskQuestions.length || taskNote?.document.markdown?.includes("<!-- tutor-review:") ? (
@@ -511,31 +513,34 @@ function TaskRow({
             {task.rationale?.plainText ? (
               <button
                 aria-expanded={rationaleOpen}
-                className={`taskMetaBadge taskRationaleToggle ${rationaleOpen ? "active" : ""}`}
+                className={`taskMetaBadge taskRationaleToggle taskIconAction ${rationaleOpen ? "active" : ""}`}
+                aria-label="Why this task"
+                title="Why this task"
                 onClick={() => setRationaleOpen((current) => !current)}
                 type="button"
               >
-                <Info size={11} /> Why this
+                <Info size={12} />
               </button>
             ) : null}
             {exerciseNumbers.length ? (
               <button
-                className="taskMetaBadge exerciseScreenshots"
+                className="taskMetaBadge exerciseScreenshots taskIconAction"
+                aria-label="Screenshot exercise solutions"
                 onClick={() => onPrepareExerciseScreenshots(task)}
                 title={`Render grouped handwritten solutions from the chapter containing Exercises ${exerciseNumbers.join(", ")} into the ChatGPT attachment folder`}
                 type="button"
               >
-                <Images size={11} /> Screenshot solutions
+                <Images size={12} />
               </button>
             ) : null}
             {exerciseNumbers.length && exerciseBook ? (
               <button
                 className="taskMetaBadge exerciseQaLaunch"
                 onClick={() => setExerciseQaOpen(true)}
-                title="Review book exercises, paste tutor answers, or add a solution manually"
+                title={`Review book exercises · ${exerciseStats.requiredReviewed}/${exerciseStats.requiredTotal} required · ${exerciseStats.totalReviewed}/${exerciseStats.total} chapter`}
                 type="button"
               >
-                <Sparkles size={11} /> Q&A {exerciseStats.requiredReviewed}/{exerciseStats.requiredTotal} required · {exerciseStats.totalReviewed}/{exerciseStats.total} chapter
+                <Sparkles size={11} /> Exercises {exerciseStats.requiredReviewed}/{exerciseStats.requiredTotal}
               </button>
             ) : null}
             {shouldCompact ? (
@@ -550,6 +555,7 @@ function TaskRow({
                 {showTaskDetails ? "Less" : "Details"}
               </button>
             ) : null}
+          </div>
           </div>
         </div>
         {showTaskDetails ? (
