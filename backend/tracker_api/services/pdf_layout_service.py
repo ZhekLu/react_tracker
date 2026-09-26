@@ -18,6 +18,7 @@ class PdfPageLayout:
     left_line_count: int
     right_line_count: int
     crossing_line_count: int
+    spanning_bands: tuple[tuple[float, float], ...] = ()
 
     @property
     def gutter_midpoint(self) -> float:
@@ -101,6 +102,14 @@ def _page_layout(page_number: int, page: Any) -> PdfPageLayout:
     if not two_column:
         left_edge = midpoint
         right_edge = midpoint
+    spanning_bands = tuple(
+        sorted(
+            (line[1], line[3])
+            for line in lines
+            if line[0] < left_edge - width * 0.08
+            and line[2] > right_edge + width * 0.08
+        )
+    )
     return PdfPageLayout(
         page=page_number,
         width=width,
@@ -111,6 +120,7 @@ def _page_layout(page_number: int, page: Any) -> PdfPageLayout:
         left_line_count=len(left),
         right_line_count=len(right),
         crossing_line_count=len(crossing),
+        spanning_bands=spanning_bands,
     )
 
 
@@ -127,7 +137,12 @@ def analyze_pdf_page_layouts(path: Path) -> dict[int, PdfPageLayout]:
             document.close()
 
 
-def region_layout_column(rect: list[float], layout: PdfPageLayout | None) -> str:
+def region_layout_column(
+    rect: list[float],
+    layout: PdfPageLayout | None,
+    *,
+    drawboard_coordinates: bool = False,
+) -> str:
     if layout is None or layout.mode != "two_column" or len(rect) != 4:
         return "full"
     x0, x1 = sorted((float(rect[0]), float(rect[2])))
@@ -138,6 +153,16 @@ def region_layout_column(rect: list[float], layout: PdfPageLayout | None) -> str
         x0 < layout.gutter_left - layout.width * 0.08
         and x1 > layout.gutter_right + layout.width * 0.08
     ):
+        return "full"
+    raw_y0, raw_y1 = sorted((float(rect[1]), float(rect[3])))
+    if drawboard_coordinates:
+        y0, y1 = layout.height - raw_y1, layout.height - raw_y0
+    else:
+        y0, y1 = raw_y0, raw_y1
+    if any(y0 <= band_y1 and band_y0 <= y1 for band_y0, band_y1 in layout.spanning_bands):
+        # Page-level two-column detection is intentionally conservative. A
+        # table, figure, or full-width paragraph can still occupy one local
+        # vertical band; marks beside that band belong to the same full lane.
         return "full"
     return "left" if (x0 + x1) / 2 < midpoint else "right"
 

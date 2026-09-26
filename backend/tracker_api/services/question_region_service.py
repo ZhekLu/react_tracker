@@ -20,43 +20,69 @@ class QuestionRegion(Protocol):
 def question_region_groups[Region: QuestionRegion](
     regions: Iterable[Region],
     page_layouts: Mapping[int, PdfPageLayout] | None = None,
+    *,
+    drawboard_coordinates: bool = False,
 ) -> list[list[Region]]:
-    """Connected Y intervals in a page-layout lane.
+    """Connected Y intervals constrained by page-layout lanes.
 
     A confidently detected two-column page has independent left and right lanes.
     Single-column/full-page layouts deliberately ignore X, preserving the rule
     that vertically overlapping handwriting belongs to one note. Spanning marks
-    form their own full-width lane. Tiny gaps between PDF ink fragments are
-    normalized before the same transitive interval grouping is applied. Marks
-    wholly around a detected gutter inherit the nearest overlapping lane so one
-    handwritten phrase crossing the gutter is not split into two screenshots.
+    bridge overlapping left/right marks because they prove that the annotated
+    content itself spans the page; left and right marks never bridge directly.
+    Tiny gaps between PDF ink fragments are normalized before the same transitive
+    interval grouping is applied. Marks wholly around a detected gutter inherit
+    the nearest overlapping lane so one handwritten phrase crossing the gutter
+    is not split into two screenshots.
     """
     regions = list(regions)
-    groups: list[list[Region]] = []
     valid = [region for region in regions if len(region.rect) == 4]
-    lanes = _logical_lanes(valid, page_layouts)
-    valid = sorted(
+    lanes = _logical_lanes(
+        valid,
+        page_layouts,
+        drawboard_coordinates=drawboard_coordinates,
+    )
+    ordered = sorted(
         valid,
         key=lambda region: (
             region.page,
             lanes[id(region)],
             min(region.rect[1::2]),
+            min(region.rect[::2]),
         ),
     )
-    lane_groups: dict[tuple[int, str], list[list[Region]]] = {}
-    lane_ends: dict[tuple[int, str], float] = {}
-    for region in valid:
-        lane = (region.page, lanes[id(region)])
-        low, high = sorted(region.rect[1::2])
-        lane_result = lane_groups.setdefault(lane, [])
-        if not lane_result or low > lane_ends[lane] + _Y_JOIN_TOLERANCE:
-            lane_result.append([region])
-            lane_ends[lane] = high
-        else:
-            lane_result[-1].append(region)
-            lane_ends[lane] = max(lane_ends[lane], high)
-    for lane in sorted(lane_groups):
-        groups.extend(lane_groups[lane])
+
+    parents = list(range(len(ordered)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(first: int, second: int) -> None:
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parents[second_root] = first_root
+
+    for first_index, first in enumerate(ordered):
+        for second_index in range(first_index + 1, len(ordered)):
+            second = ordered[second_index]
+            if second.page != first.page:
+                continue
+            first_lane = lanes[id(first)]
+            second_lane = lanes[id(second)]
+            if (
+                (first_lane == second_lane or "full" in {first_lane, second_lane})
+                and _y_intervals_connect(first.rect, second.rect)
+            ):
+                union(first_index, second_index)
+
+    groups_by_root: dict[int, list[Region]] = {}
+    for index, region in enumerate(ordered):
+        groups_by_root.setdefault(find(index), []).append(region)
+    groups = list(groups_by_root.values())
     # Text comments without geometry still import; they cannot join a Y group.
     return groups + [[region] for region in regions if len(region.rect) != 4]
 
@@ -64,13 +90,19 @@ def question_region_groups[Region: QuestionRegion](
 def _logical_lanes[Region: QuestionRegion](
     regions: list[Region],
     page_layouts: Mapping[int, PdfPageLayout] | None,
+    *,
+    drawboard_coordinates: bool = False,
 ) -> dict[int, str]:
     lanes: dict[int, str] = {}
     stable: list[Region] = []
     gutter_fragments: list[Region] = []
     for region in regions:
         layout = page_layouts.get(region.page) if page_layouts else None
-        lane = region_layout_column(region.rect, layout)
+        lane = region_layout_column(
+            region.rect,
+            layout,
+            drawboard_coordinates=drawboard_coordinates,
+        )
         if _is_gutter_fragment(region.rect, layout):
             gutter_fragments.append(region)
         else:
@@ -83,7 +115,11 @@ def _logical_lanes[Region: QuestionRegion](
         key=lambda item: (item.page, min(item.rect[1::2]), min(item.rect[::2])),
     ):
         layout = page_layouts.get(region.page) if page_layouts else None
-        fallback = region_layout_column(region.rect, layout)
+        fallback = region_layout_column(
+            region.rect,
+            layout,
+            drawboard_coordinates=drawboard_coordinates,
+        )
         candidates = [
             candidate
             for candidate in assigned

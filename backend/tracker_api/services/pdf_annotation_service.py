@@ -658,7 +658,12 @@ def _classify_question_annotations(
             result.append(classified)
     by_id = {capture.fingerprint: capture for capture in questions}
     claimed: set[str] = set()
-    for members in question_region_groups(questions, page_layouts):
+    drawboard_coordinates = extraction.cloud_source is not None
+    for members in question_region_groups(
+        questions,
+        page_layouts,
+        drawboard_coordinates=drawboard_coordinates,
+    ):
         combined = merge_ink_annotation_groups([_capture_as_ink(member) for member in members])
         visuals = [member for member in members if member.annotation_kind in VISUAL_KINDS]
         anchor = merge_ink_annotation_groups(
@@ -677,7 +682,11 @@ def _classify_question_annotations(
         )
         claimed.add(fingerprint)
         layout = page_layouts.get(anchor.page) if page_layouts else None
-        layout_column = region_layout_column(combined.rect, layout)
+        layout_column = region_layout_column(
+            combined.rect,
+            layout,
+            drawboard_coordinates=drawboard_coordinates,
+        )
         proposed_rect: list[float] = []
         final_rect: list[float] = []
         if layout is not None:
@@ -787,7 +796,7 @@ def _annotation_command(
         "syncRevision": sync_revision,
         "sourceRevision": capture.source_revision,
         "colorRoleRevision": f"question-policy-v1:{capture.is_question}",
-        "questionGrouping": "layout-lanes-y-overlap-v2",
+        "questionGrouping": "layout-lanes-y-overlap-v3",
         "highlightedText": capture.quote,
         "sourceContent": capture.comment or (capture.quote if text_question else ""),
         "sourceVisual": capture.annotation_kind in VISUAL_KINDS,

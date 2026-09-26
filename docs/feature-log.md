@@ -188,6 +188,22 @@
 - Validation: all 225 frontend tests (43 editor/integrity), TypeScript and ESLint. Architecture,
   syntax and remaining limits: [editor audit](editor-audit-2026-09.md).
 
+## 2026-09-26 — make PDF question grouping span-aware
+
+- Fixed a recurring duplicate-question failure on confidently detected two-column
+  pages: full-width PDF text/table bands now make overlapping margin marks share a
+  local `full` lane, even without a highlight between them. A full-width question
+  mark can also bridge left/right marks transitively, while direct overlap in a
+  true two-column band remains separate. This makes a spanning highlight plus its
+  bracket and handwriting one screenshot.
+- Added geometry fixtures for the real CQL page-8 regression and the inverse
+  invariants: overlapping marks on different pages or opposite columns must not
+  merge. Existing question IDs and tutor answers remain preserved during repair.
+- Validation: all 262 backend tests and scoped Ruff; the real iCloud PDF also
+  groups correctly with its highlight removed, and repeat live collection is a
+  39-existing/zero-change no-op. Repository-wide Ruff/mypy still report unrelated
+  pre-existing Toggl/workspace diagnostics.
+
 ## 2026-09-20 — prioritize QA answers and tame follow-ups
 
 - Tutor answers now receive conservative Core/High/Medium/Low badges from

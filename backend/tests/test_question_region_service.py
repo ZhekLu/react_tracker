@@ -1,4 +1,8 @@
+import json
 from dataclasses import dataclass
+from pathlib import Path
+
+import pytest
 
 from tracker_api.services.pdf_layout_service import PdfPageLayout
 from tracker_api.services.question_region_service import question_region_groups
@@ -9,6 +13,41 @@ class Region:
     name: str
     page: int
     rect: list[float]
+
+
+REGRESSION_CASES = json.loads(
+    (Path(__file__).parent / "fixtures" / "pdf_question_region_cases.json").read_text(
+        encoding="utf-8"
+    )
+)["cases"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    REGRESSION_CASES,
+    ids=[case["name"] for case in REGRESSION_CASES],
+)
+def test_question_region_regression_fixtures(case):
+    layouts = {
+        int(page): PdfPageLayout(
+            page=int(page),
+            **{
+                **layout,
+                "spanning_bands": tuple(
+                    tuple(band) for band in layout.get("spanning_bands", [])
+                ),
+            },
+        )
+        for page, layout in case["layouts"].items()
+    }
+    regions = [Region(**region) for region in case["regions"]]
+
+    actual = [
+        sorted(region.name for region in group)
+        for group in question_region_groups(regions, layouts)
+    ]
+
+    assert sorted(actual) == sorted(sorted(group) for group in case["expectedGroups"])
 
 
 def test_exact_transitive_y_overlap_is_independent_of_x_order_and_page():

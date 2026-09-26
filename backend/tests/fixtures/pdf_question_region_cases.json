@@ -1,0 +1,117 @@
+{
+  "cases": [
+    {
+      "name": "same_height_on_different_pages_stays_separate",
+      "layouts": {
+        "4": {
+          "width": 612.0,
+          "height": 792.0,
+          "mode": "single",
+          "gutter_left": 306.0,
+          "gutter_right": 306.0,
+          "left_line_count": 0,
+          "right_line_count": 0,
+          "crossing_line_count": 20
+        },
+        "5": {
+          "width": 612.0,
+          "height": 792.0,
+          "mode": "single",
+          "gutter_left": 306.0,
+          "gutter_right": 306.0,
+          "left_line_count": 0,
+          "right_line_count": 0,
+          "crossing_line_count": 20
+        }
+      },
+      "regions": [
+        {"name": "page-4-note", "page": 4, "rect": [72.0, 220.0, 260.0, 310.0]},
+        {"name": "page-5-note", "page": 5, "rect": [72.0, 220.0, 260.0, 310.0]}
+      ],
+      "expectedGroups": [["page-4-note"], ["page-5-note"]]
+    },
+    {
+      "name": "overlapping_left_and_right_columns_stay_separate",
+      "layouts": {
+        "6": {
+          "width": 612.0,
+          "height": 792.0,
+          "mode": "two_column",
+          "gutter_left": 294.0,
+          "gutter_right": 318.0,
+          "left_line_count": 45,
+          "right_line_count": 43,
+          "crossing_line_count": 1
+        }
+      },
+      "regions": [
+        {"name": "left-question", "page": 6, "rect": [60.0, 235.0, 275.0, 390.0]},
+        {"name": "right-question", "page": 6, "rect": [340.0, 250.0, 575.0, 380.0]}
+      ],
+      "expectedGroups": [["left-question"], ["right-question"]]
+    },
+    {
+      "name": "cql_page_8_spanning_highlight_bridges_bracket_and_handwriting",
+      "layouts": {
+        "8": {
+          "width": 612.0,
+          "height": 792.0,
+          "mode": "two_column",
+          "gutter_left": 294.0,
+          "gutter_right": 318.0,
+          "left_line_count": 32,
+          "right_line_count": 30,
+          "crossing_line_count": 3,
+          "spanning_bands": [[229.5, 301.8], [454.2, 473.2]]
+        }
+      },
+      "regions": [
+        {
+          "name": "left-bracket",
+          "page": 8,
+          "rect": [87.42880249023438, 223.74700927734375, 106.05000305175781, 449.5039978027344]
+        },
+        {
+          "name": "spanning-highlight",
+          "page": 8,
+          "rect": [107.12999725341797, 269.70001220703125, 506.05999755859375, 291.67999267578125]
+        },
+        {
+          "name": "right-handwriting",
+          "page": 8,
+          "rect": [504.2569885253906, 235.67901611328125, 605.5339965820312, 386.2340087890625]
+        }
+      ],
+      "expectedGroups": [["left-bracket", "spanning-highlight", "right-handwriting"]]
+    },
+    {
+      "name": "cql_page_8_local_spanning_band_merges_without_highlight",
+      "layouts": {
+        "8": {
+          "width": 612.0,
+          "height": 792.0,
+          "mode": "two_column",
+          "gutter_left": 294.0,
+          "gutter_right": 318.0,
+          "left_line_count": 32,
+          "right_line_count": 30,
+          "crossing_line_count": 3,
+          "spanning_bands": [[229.5, 301.8], [454.2, 473.2]]
+        }
+      },
+      "regions": [
+        {
+          "name": "left-bracket",
+          "page": 8,
+          "rect": [87.42880249023438, 223.74700927734375, 106.05000305175781, 449.5039978027344]
+        },
+        {
+          "name": "right-handwriting",
+          "page": 8,
+          "rect": [504.2569885253906, 235.67901611328125, 605.5339965820312, 386.2340087890625]
+        }
+      ],
+      "expectedGroups": [["left-bracket", "right-handwriting"]]
+    }
+  ]
+}
