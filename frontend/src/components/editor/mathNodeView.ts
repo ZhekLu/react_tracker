@@ -1,6 +1,6 @@
 import type { NodeViewRenderer } from "@tiptap/core";
 import katex, { type KatexOptions } from "katex";
-import { changeFormula } from "./editorInteractions";
+import { changeFormula, formulaLayoutError } from "./editorInteractions";
 
 /** Leave formula contents atomic; selection/undo remain native ProseMirror operations. */
 export function mathNodeView(kind: "inline" | "block", options: KatexOptions | undefined,
@@ -28,9 +28,15 @@ export function mathNodeView(kind: "inline" | "block", options: KatexOptions | u
       dom.title = editor.isEditable ? "Click to select · Enter or double-click to edit · Delete to remove" : "";
       layoutToggle.hidden = !editor.isEditable;
       layoutToggle.textContent = kind === "block" ? "I" : "D";
-      layoutToggle.title = kind === "block"
+      const targetKind = kind === "block" ? "inline" : "block";
+      const position = getPos();
+      const conversionError = typeof position === "number"
+        ? formulaLayoutError(editor, position, targetKind, String(node.attrs.latex))
+        : "The document changed. Select the formula again.";
+      layoutToggle.disabled = Boolean(conversionError);
+      layoutToggle.title = conversionError || (kind === "block"
         ? "Make inline (⌘/Ctrl Shift M)"
-        : "Make display (⌘/Ctrl Shift M)";
+        : "Make display (⌘/Ctrl Shift M)");
       layoutToggle.setAttribute(
         "aria-label",
         kind === "block" ? "Convert formula to inline" : "Convert formula to display",

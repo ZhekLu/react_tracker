@@ -30,6 +30,7 @@ import type {
   MarkdownToken,
   JSONContent,
 } from "@tiptap/core";
+import { inlineLatexForMarkdown } from "./inlineMathSource";
 
 export const PRIMARY_DISCUSSION_HIGHLIGHT = "#fff0a8";
 export const SECONDARY_DISCUSSION_HIGHLIGHT = "#cfe8ff";
@@ -135,7 +136,7 @@ const DiscussionHighlight = Highlight.extend({
 // inline mark run. A standalone atom renderer emits only its formula body.
 const DiscussionInlineMath = InlineMath.extend({
   renderMarkdown(node: JSONContent): string {
-    return `$${node.attrs?.latex ?? ""}$`;
+    return `$${inlineLatexForMarkdown(String(node.attrs?.latex ?? ""))}$`;
   },
   markdownTokenizer: {
     name: "inlineMath",

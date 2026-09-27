@@ -1,5 +1,25 @@
 # Tracker feature and maintenance log
 
+## 2026-09-27 — keep converted inline formulas valid after save
+
+- Fixed display-to-inline conversion saving multiline LaTeX inside a single
+  `$…$` span. The visual editor could reopen that nonstandard source, but the
+  normal Markdown/KaTeX reader split it into prose after save. Inline conversion
+  and serialization now put whitespace-only LaTeX line boundaries on one source
+  line while preserving commands, braces, and `\\` row separators.
+- Conversion refuses source forms that cannot be flattened losslessly: blank
+  paragraphs, raw nested `$` delimiters, and unescaped `%` comments. The attached
+  layout button is disabled with the same explanatory tooltip; escaped `\%`
+  remains valid. Existing ordinary multiline-inline nodes are normalized as soon
+  as the edited document is serialized again.
+- Reproduced the bug from Q-p77f70c-00-002's saved revision history. Regression
+  coverage converts all twelve formula shapes from that answer through the real
+  attached button, saves them, and verifies the read-only Markdown renderer emits
+  twelve KaTeX formulas; lower-level tests cover boxed fractions, aligned rows,
+  comments, delimiters, highlights, surrounding prose, and repeat reopen.
+- Validation: all 271 frontend tests, ESLint, TypeScript, and production build.
+  The existing Vite large-chunk warning remains.
+
 ## 2026-09-27 — stabilize gutter brackets and reject duplicate captures
 
 - Fixed the Day 17 doubly-robust paper regression at the shared geometry layer.

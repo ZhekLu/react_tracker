@@ -1,4 +1,5 @@
 import type { JSONContent, MarkdownRendererHelpers } from "@tiptap/core";
+import { inlineLatexForMarkdown } from "./inlineMathSource";
 
 type Mark = NonNullable<JSONContent["marks"]>[number];
 const markKey = (mark: Mark) => JSON.stringify([mark.type, mark.attrs ?? {}]);
@@ -52,7 +53,7 @@ export function serializeDiscussionDocument(node: JSONContent, helpers: Markdown
         index = end;
       } else {
         if (child.type === "inlineMath") {
-          const latex = String(child.attrs?.latex ?? "");
+          const latex = inlineLatexForMarkdown(String(child.attrs?.latex ?? ""));
           output += `$${inTable ? latex.replace(/\|/g, "\\|") : latex}$`;
         } else if (child.type === "text") {
           output += literal ? child.text ?? "" : helpers.renderChildren([{...child, marks: []}])

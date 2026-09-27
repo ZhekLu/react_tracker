@@ -1,6 +1,10 @@
 import type { Editor } from "@tiptap/core";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
+import {
+  inlineLatexSourceError,
+  latexForFormulaLayout,
+} from "./inlineMathSource";
 
 /** One transaction for text, formula atoms, and whole literal blocks. */
 export function highlightSelection(editor: Editor, color: string, toggle = true) {
@@ -51,7 +55,10 @@ export function formulaLayoutError(editor: Editor, position: number, kind: "inli
   const inTable = Array.from({length: $pos.depth + 1}, (_, depth) => $pos.node(depth).type.name)
     .some(type => type === "tableCell" || type === "tableHeader");
   if (kind === "block" && inTable) return "Markdown tables support inline formulas. Move this formula outside the table to use display layout.";
-  if (kind === "inline" && /\n\s*\n/.test(latex)) return "Remove blank lines inside this formula before using inline layout.";
+  if (kind === "inline") {
+    const sourceError = inlineLatexSourceError(latex);
+    if (sourceError) return sourceError;
+  }
   if (inTable && /\n/.test(latex)) return "Keep formulas in Markdown tables on one source line.";
   return "";
 }
@@ -86,14 +93,15 @@ export function changeFormula(editor: Editor, position: number, kind: "inline" |
   const node = editor.state.doc.nodeAt(position);
   if (!node || !["inlineMath", "blockMath"].includes(node.type.name) || !latex.trim()) return false;
   const type = editor.schema.nodes[kind === "inline" ? "inlineMath" : "blockMath"];
+  const normalizedLatex = latexForFormulaLayout(kind, latex);
   const tr = editor.state.tr;
   if (node.type === type) {
-    tr.setNodeMarkup(position, type, {...node.attrs, latex: latex.trim()}, node.marks);
+    tr.setNodeMarkup(position, type, {...node.attrs, latex: normalizedLatex}, node.marks);
     tr.setSelection(NodeSelection.create(tr.doc, position));
   }
   else if (kind === "inline") {
     const marks = node.attrs.blockHighlight ? [editor.schema.marks.highlight.create({color: node.attrs.blockHighlight})] : [];
-    const inlineFormula = type.create({latex: latex.trim()}, null, marks);
+    const inlineFormula = type.create({latex: normalizedLatex}, null, marks);
     const $position = editor.state.doc.resolve(position);
     const previous = $position.index() > 0
       ? $position.parent.child($position.index() - 1)
@@ -140,7 +148,7 @@ export function changeFormula(editor: Editor, position: number, kind: "inline" |
     const blocks: ProseMirrorNode[] = [];
     if (before.size) blocks.push(parent.type.create(parent.attrs, before));
     const formulaPosition = parentStart + (before.size ? blocks[0].nodeSize : 0);
-    blocks.push(type.create({latex: latex.trim(), blockHighlight: color}));
+    blocks.push(type.create({latex: normalizedLatex, blockHighlight: color}));
     if (after.size) blocks.push(parent.type.create(parent.attrs, after));
     try {
       tr.replaceWith(parentStart, parentEnd, Fragment.fromArray(blocks));

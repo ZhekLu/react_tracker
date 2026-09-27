@@ -6,6 +6,7 @@ import type * as TiptapReact from '@tiptap/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiscussionMarkdownSurfaceImpl } from './DiscussionMarkdownSurfaceImpl';
 import { NoteWorkspace } from '../notes/NoteWorkspace';
+import { MarkdownMathRenderer } from '../content/MarkdownMathRenderer';
 
 const state = vi.hoisted(() => ({editor: null as Editor | null}));
 vi.mock('@tiptap/react', async (importOriginal) => {
@@ -76,6 +77,59 @@ describe('controlled editor lifecycle', () => {
       key: 'M', metaKey: true, shiftKey: true, bubbles: true, cancelable: true,
     })));
     expect(state.editor!.getMarkdown()).toMatch(/^Before\.\n\n\$\$\nx=1\n\$\$/);
+  });
+
+  it('saves every converted multiline formula on one source line and renders the result', async () => {
+    const formulaBodies = [
+      '\\boxed{\n\\frac{(r_a-\\hat\\rho_a(x)) I[\\pi(x)=a]}{\\hat p(a|x,h)}\n+ \\hat\\rho_{\\pi(x)}(x)\n}',
+      '\\boxed{\n\\text{prediction for target action}\n+ \\text{correction if observed}\n}',
+      '\\hat\\rho_{\\pi(x)}(x)',
+      '\\boxed{\n\\Delta_a\n=\n\\hat\\rho_a-\\rho_a\n}',
+      'r_a-\\hat\\rho_a\n=\nr_a-\\rho_a-\\Delta_a',
+      'E[r_a-\\rho_a\\mid x,a]=0',
+      'a=\\pi(x)',
+      'E_a\\left[\\frac{I[a=\\pi(x)]}{\\hat p(a|x,h)}\\right]\n=\n\\frac{p(\\pi(x)|x,h)}{\\hat p(\\pi(x)|x,h)}',
+      '\\delta=1-\\frac{p}{\\hat p}',
+      '\\boxed{\nE[\\text{DR estimate}]\n=\nV^\\pi+E[\\Delta\\delta]\n}',
+      '\\boxed{\nV^\\pi\n=\nE_x[\\rho_{\\pi(x)}(x)]\n}',
+      '\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}',
+    ];
+    const markdown = [
+      ...formulaBodies.flatMap((body, index) => [
+        `Formula ${index + 1}`,
+        '',
+        '$$',
+        body,
+        '$$',
+        '',
+      ]),
+      'Continue.',
+    ].join('\n');
+    const save = vi.fn();
+    await act(async () => root.render(
+      <DiscussionMarkdownSurfaceImpl editable markdown={markdown} onSave={save} />,
+    ));
+    while (host.querySelector('[aria-label="Convert formula to inline"]')) {
+      await act(async () => host.querySelector<HTMLButtonElement>(
+        '[aria-label="Convert formula to inline"]',
+      )!.click());
+    }
+    const saved = state.editor!.getMarkdown();
+    expect(saved).not.toContain('$$');
+    expect([...saved.matchAll(/(?<!\$)\$(?!\$)((?:\\.|[^$\n\\])+)\$(?!\$)/g)])
+      .toHaveLength(formulaBodies.length);
+    expect(saved.match(/\$/g)).toHaveLength(formulaBodies.length * 2);
+    expect(host.querySelectorAll('[data-type="inline-math"]')).toHaveLength(formulaBodies.length);
+    await act(async () => [...host.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === 'Save')!.click());
+    expect(save).toHaveBeenCalledWith(saved, []);
+
+    await act(async () => root.render(
+      <MarkdownMathRenderer>{saved}</MarkdownMathRenderer>,
+    ));
+    expect(host.querySelectorAll('.katex')).toHaveLength(formulaBodies.length);
+    expect(host.textContent).not.toContain('$r_a');
+    expect(host.textContent).toContain('Continue.');
   });
 
   it('edits by double-click, previews conversion, cancels safely, applies and deletes from the dialog', async () => {

@@ -3,6 +3,7 @@ import { Editor, type JSONContent } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
 import { discussionEditorExtensions } from "./discussionEditorExtensions";
 import { changeFormula, highlightSelection } from "./editorInteractions";
+import { inlineLatexSourceError } from "./inlineMathSource";
 
 document.elementFromPoint = () => null;
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
@@ -89,14 +90,54 @@ describe("formula and boxed-content interactions", () => {
     expect(changeFormula(e, pos(e, 'inlineMath'), 'block', 'x')).toBe(false);
     expect(e.getJSON()).toEqual(before); e.destroy();
   });
-  it("converts multiline display LaTeX to inline without changing comments or row separators", () => {
-    let e = editor('$$\n\\begin{aligned}\na &= b \\\\\nc &= d % keep this comment\n\\end{aligned}\n$$');
+  it("converts multiline display LaTeX to one-line inline source without changing row separators", () => {
+    let e = editor('$$\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n$$');
     const latex = nodes(e.getJSON(), 'blockMath')[0].attrs?.latex as string;
     e.commands.setNodeSelection(pos(e, 'blockMath')); highlightSelection(e, blue);
-    changeFormula(e, pos(e, 'blockMath'), 'inline', latex);
+    expect(changeFormula(e, pos(e, 'blockMath'), 'inline', latex)).toBe(true);
+    expect(nodes(e.getJSON(), 'inlineMath')[0].attrs?.latex).toBe('\\begin{aligned} a &= b \\\\ c &= d \\end{aligned}');
     e = reopen(e);
-    expect(nodes(e.getJSON(), 'inlineMath')[0].attrs?.latex).toBe(latex);
     expect(nodes(e.getJSON(), 'inlineMath')[0].marks).toContainEqual({type: 'highlight', attrs: {color: blue}});
+    e.destroy();
+  });
+  it("rejects lossy inline source but accepts escaped percent signs", () => {
+    for (const latex of ["x % source note\n+ y", "x\n\n+ y"]) {
+      const e = editor(`$$\n${latex}\n$$`);
+      expect(changeFormula(e, pos(e, "blockMath"), "inline", latex)).toBe(false);
+      expect(nodes(e.getJSON(), "blockMath")).toHaveLength(1);
+      e.destroy();
+    }
+    expect(inlineLatexSourceError("x $ y")).toContain("$ delimiters");
+    const e = editor("$$\n\\text{success rate}=95\\%\n$$");
+    expect(changeFormula(e, pos(e, "blockMath"), "inline", "\\text{success rate}=95\\%")).toBe(true);
+    expect(e.getMarkdown()).toContain("$\\text{success rate}=95\\%$");
+    e.destroy();
+  });
+  it.each([
+    [
+      "ordinary multiline equality",
+      "The residual becomes\n\n$$\nr_a-\\hat\\rho_a\n\\=\nr_a-\\rho_a-\\Delta_a.\n$$\n\nNow the key expectation.",
+      "Now the key expectation.",
+    ],
+    [
+      "boxed multiline fraction",
+      "The estimator is\n\n$$\n\\boxed{\n\\frac{\n(r_a-\\hat\\rho_a(x)) I[\\pi(x)=a]\n}{\n\\hat p(a|x,h)\n}\n\\+\n\\hat\\rho_{\\pi(x)}(x).\n}\n$$\n\nIgnore notation first.",
+      "Ignore notation first.",
+    ],
+    [
+      "aligned rows",
+      "The derivation is\n\n$$\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n$$\n\nContinue.",
+      "Continue.",
+    ],
+  ])("round-trips prose after converting %s to inline", (_name, source, followingText) => {
+    let e = editor(source);
+    const originalLatex = nodes(e.getJSON(), "blockMath")[0].attrs?.latex;
+    expect(changeFormula(e, pos(e, "blockMath"), "inline", String(originalLatex))).toBe(true);
+    expect(String(nodes(e.getJSON(), "inlineMath")[0].attrs?.latex)).not.toContain("\n");
+    expect(e.getMarkdown()).not.toMatch(/\$(?!\$)[^$]*\n[^$]*\$(?!\$)/);
+    e = reopen(e);
+    expect(nodes(e.getJSON(), "inlineMath")).toHaveLength(1);
+    expect(e.getText()).toContain(followingText);
     e.destroy();
   });
 });

@@ -17,6 +17,7 @@ import {
 } from "./discussionEditorExtensions";
 import { importWithDebug } from "../../lib/insertDebug";
 import { changeFormula, formulaLayoutError, highlightSelection, selectedFormula } from "./editorInteractions";
+import { latexForFormulaLayout, normalizeInlineLatex } from "./inlineMathSource";
 import katex from "katex";
 import type { DiscussionMarkdownSurfaceProps } from "./DiscussionMarkdownSurface";
 import type { DiscussionReviewItem } from "./DiscussionMarkdownSurface";
@@ -49,7 +50,7 @@ function structuredSelectionMarkdown(
   const blocks: string[] = [];
   editor.state.doc.nodesBetween(from, to, (node) => {
     if (node.type.name === "inlineMath") {
-      blocks.push(`$${String(node.attrs.latex ?? "").trim()}$`);
+      blocks.push(`$${normalizeInlineLatex(String(node.attrs.latex ?? ""))}$`);
       return false;
     }
     if (node.type.name === "blockMath") {
@@ -66,7 +67,7 @@ function structuredSelectionMarkdown(
   const plainText = editor.state.doc
     .textBetween(from, to, "\n", (node) => {
       if (node.type.name === "inlineMath") {
-        return `$${String(node.attrs.latex ?? "").trim()}$`;
+        return `$${normalizeInlineLatex(String(node.attrs.latex ?? ""))}$`;
       }
       if (node.type.name === "blockMath") {
         return `$$\n${String(node.attrs.latex ?? "").trim()}\n$$`;
@@ -412,7 +413,10 @@ export function DiscussionMarkdownSurfaceImpl({
     if (!formulaDraft?.latex.trim() || formulaError) return;
     const chain = activeEditor.chain().focus();
     if (formulaDraft.position === undefined) {
-      chain.insertContent({type: formulaDraft.kind === "inline" ? "inlineMath" : "blockMath", attrs: {latex: formulaDraft.latex.trim()}}).run();
+      chain.insertContent({
+        type: formulaDraft.kind === "inline" ? "inlineMath" : "blockMath",
+        attrs: {latex: latexForFormulaLayout(formulaDraft.kind, formulaDraft.latex)},
+      }).run();
     } else {
       changeFormula(activeEditor, formulaDraft.position, formulaDraft.kind, formulaDraft.latex);
     }
