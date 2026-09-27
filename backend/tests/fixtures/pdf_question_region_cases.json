@@ -112,6 +112,43 @@
         }
       ],
       "expectedGroups": [["left-bracket", "right-handwriting"]]
+    },
+    {
+      "name": "doubly_robust_page_3_gutter_guide_unifies_right_fragments",
+      "layouts": {
+        "3": {
+          "width": 612.0,
+          "height": 792.0,
+          "mode": "two_column",
+          "gutter_left": 289.5175,
+          "gutter_right": 307.4402,
+          "left_line_count": 58,
+          "right_line_count": 61,
+          "crossing_line_count": 1,
+          "spanning_bands": [[47.16, 56.13]]
+        }
+      },
+      "regions": [
+        {"name": "left-highlight", "page": 3, "rect": [54.7, 373.4, 290.6, 409.0]},
+        {"name": "left-guide", "page": 3, "rect": [33.2, 375.1, 41.8, 495.7]},
+        {"name": "right-gutter-guide", "page": 3, "rect": [300.1, 339.4, 309.4, 544.8]},
+        {"name": "right-upper-handwriting", "page": 3, "rect": [510.55, 336.845, 607.192, 390.34]},
+        {"name": "right-first-underline", "page": 3, "rect": [500.877, 417.14, 550.39, 420.218]},
+        {"name": "right-handwriting", "page": 3, "rect": [480.784, 423.077, 596.632, 459.917]},
+        {"name": "right-second-underline", "page": 3, "rect": [539.549, 463.29, 589.707, 472.97]},
+        {"name": "right-third-underline", "page": 3, "rect": [461.16, 475.871, 507.63, 477.85]}
+      ],
+      "expectedGroups": [
+        ["left-highlight", "left-guide"],
+        [
+          "right-gutter-guide",
+          "right-upper-handwriting",
+          "right-first-underline",
+          "right-handwriting",
+          "right-second-underline",
+          "right-third-underline"
+        ]
+      ]
     }
   ]
 }

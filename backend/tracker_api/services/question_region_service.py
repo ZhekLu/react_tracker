@@ -7,6 +7,8 @@ from .pdf_layout_service import PdfPageLayout, region_layout_column
 
 _Y_JOIN_TOLERANCE = 2.0
 _GUTTER_FRAGMENT_PADDING_RATIO = 0.03
+VERTICAL_GUIDE_MIN_HEIGHT = 36.0
+VERTICAL_GUIDE_ASPECT_RATIO = 3.0
 
 
 class QuestionRegion(Protocol):
@@ -126,7 +128,14 @@ def _logical_lanes[Region: QuestionRegion](
             if candidate.page == region.page
             and _y_intervals_connect(candidate.rect, region.rect)
         ]
-        if candidates:
+        # A long margin bracket is an intentional group spine. Around a narrow
+        # gutter it can overlap text on both sides, so nearest-neighbour
+        # assignment is unstable and may steal the bracket for the wrong
+        # column. Its own centre is the reliable side signal. Small words and
+        # stroke fragments still inherit the nearest overlapping note below.
+        if is_vertical_guide_rect(region.rect):
+            lanes[id(region)] = fallback
+        elif candidates:
             nearest = min(
                 candidates,
                 key=lambda candidate: (
@@ -147,6 +156,18 @@ def _is_gutter_fragment(rect: list[float], layout: PdfPageLayout | None) -> bool
     x0, x1 = sorted((float(rect[0]), float(rect[2])))
     padding = layout.width * _GUTTER_FRAGMENT_PADDING_RATIO
     return x0 >= layout.gutter_left - padding and x1 <= layout.gutter_right + padding
+
+
+def is_vertical_guide_rect(rect: list[float]) -> bool:
+    """Return whether a rectangle is shaped like a deliberate margin guide."""
+    if len(rect) != 4:
+        return False
+    width = abs(float(rect[2]) - float(rect[0]))
+    height = abs(float(rect[3]) - float(rect[1]))
+    return (
+        height >= VERTICAL_GUIDE_MIN_HEIGHT
+        and height >= max(width, 1.0) * VERTICAL_GUIDE_ASPECT_RATIO
+    )
 
 
 def _y_intervals_connect(first: list[float], second: list[float]) -> bool:

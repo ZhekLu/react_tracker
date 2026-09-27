@@ -5089,7 +5089,7 @@ button.taskMetaBadge:disabled {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: auto;
+  margin-left: 0;
   padding: 6px 9px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -5097,6 +5097,55 @@ button.taskMetaBadge:disabled {
   color: var(--muted-strong);
   font: inherit;
   font-weight: 750;
+}
+
+.captureReviewToolbar strong + button {
+  margin-left: auto;
+}
+
+.captureReviewToolbar .captureRejectButton {
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--line));
+  color: var(--danger);
+}
+
+.captureReviewToolbar .captureKeepButton {
+  border-color: color-mix(in srgb, var(--success) 32%, var(--line));
+  color: var(--success);
+}
+
+.captureRejectionPanel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--line));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface));
+  color: var(--muted-strong);
+  font-size: 0.75rem;
+}
+
+.captureRejectionPanel strong {
+  color: var(--danger);
+}
+
+.captureRejectionPanel label {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 5px;
+  margin-top: 5px;
+  font-weight: 700;
+}
+
+.captureRejectionPanel select {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
 }
 
 .captureReviewStage {
@@ -5112,6 +5161,17 @@ button.taskMetaBadge:disabled {
   background: #d8d8d5;
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 35%);
   touch-action: none;
+}
+
+.captureReviewStage.rejected {
+  filter: grayscale(0.7);
+  opacity: 0.68;
+}
+
+.captureReviewStage.rejected .captureReviewCrop {
+  border-color: var(--danger);
+  cursor: default;
+  pointer-events: none;
 }
 
 .captureReviewStage > img {

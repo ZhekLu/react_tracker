@@ -484,6 +484,14 @@ def collect_resource_annotations(
                 resource_id,
                 source_day_id=source_day_id,
                 capture_overrides=(command.capture_overrides if command else None),
+                capture_rejections=(
+                    {
+                        fingerprint: rejection.target_source_fingerprint
+                        for fingerprint, rejection in command.capture_rejections.items()
+                    }
+                    if command
+                    else None
+                ),
             )
         finally:
             if preview is not None:
@@ -533,6 +541,16 @@ def collect_resource_annotations(
                     "layout_mode": item.layout_mode,
                     "layout_column": item.layout_column,
                     "requires_capture_review": item.requires_capture_review,
+                    "attachment_candidates": [
+                        {
+                            "source_fingerprint": candidate.source_fingerprint,
+                            "page": candidate.page,
+                            "layout_column": candidate.layout_column,
+                            "text": candidate.text,
+                            "existing": candidate.existing,
+                        }
+                        for candidate in item.attachment_candidates
+                    ],
                 }
                 for item in result.changed_items
             ],

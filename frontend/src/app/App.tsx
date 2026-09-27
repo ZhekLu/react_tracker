@@ -1820,7 +1820,10 @@ export function App() {
     });
   }
 
-  function handleCollectReviewedCaptureRegions(overrides: Record<string, number[]>) {
+  function handleCollectReviewedCaptureRegions(decision: {
+    overrides: Record<string, number[]>;
+    rejections: Record<string, { targetSourceFingerprint: string | null }>;
+  }) {
     if (!captureReviewDraft) return;
     const draft = captureReviewDraft;
     setCaptureReviewDraft(null);
@@ -1828,7 +1831,10 @@ export function App() {
       const imported = await collectResourcePdfAnnotations(
         draft.resourceId,
         draft.sourceDayId,
-        { captureOverrides: overrides },
+        {
+          captureOverrides: decision.overrides,
+          captureRejections: decision.rejections,
+        },
       );
       if (imported.changedItems.length) {
         setPdfImportOverview({

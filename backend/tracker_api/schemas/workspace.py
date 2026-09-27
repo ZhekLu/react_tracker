@@ -375,8 +375,21 @@ class ZoteroExportResponse(StrictModel):
     message: str
 
 
+class PdfCaptureRejection(StrictModel):
+    target_source_fingerprint: str | None = None
+
+
 class PdfAnnotationCollectionCommand(StrictModel):
     capture_overrides: dict[str, list[float]] = Field(default_factory=dict)
+    capture_rejections: dict[str, PdfCaptureRejection] = Field(default_factory=dict)
+
+
+class PdfCaptureAttachmentCandidateResponse(StrictModel):
+    source_fingerprint: str
+    page: int
+    layout_column: Literal["full", "left", "right"] = "full"
+    text: str = ""
+    existing: bool = False
 
 
 class PdfAnnotationCollectionItemResponse(StrictModel):
@@ -396,6 +409,9 @@ class PdfAnnotationCollectionItemResponse(StrictModel):
     layout_mode: Literal["single", "two_column"] = "single"
     layout_column: Literal["full", "left", "right"] = "full"
     requires_capture_review: bool = False
+    attachment_candidates: list[PdfCaptureAttachmentCandidateResponse] = Field(
+        default_factory=list
+    )
 
 
 class PdfAnnotationCollectionResponse(StrictModel):

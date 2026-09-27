@@ -741,6 +741,97 @@ def test_collection_preview_rolls_back_all_study_data_then_normal_import_persist
         assert correction["proposed_rect_json"] != correction["final_rect_json"]
 
 
+def test_capture_review_can_suppress_a_group_and_reuses_the_bug_log_decision(tmp_path):
+    from tracker_api.api.routes import collect_resource_annotations
+    from tracker_api.schemas.workspace import (
+        PdfAnnotationCollectionCommand,
+        PdfCaptureRejection,
+    )
+
+    resource_id = _seed_pdf_resource(tmp_path)
+    _add_local_marks(tmp_path / "annotated.pdf")
+    with transaction() as connection:
+        preview = collect_resource_annotations(resource_id, connection, dry_run=True)
+        rejected = next(item for item in preview.changed_items if item.requires_capture_review)
+    with transaction() as connection:
+        saved = collect_resource_annotations(
+            resource_id,
+            connection,
+            command=PdfAnnotationCollectionCommand(
+                capture_rejections={
+                    rejected.source_fingerprint: PdfCaptureRejection()
+                }
+            ),
+        )
+        assert saved.ignored["manual_capture_suppressed"] == 1
+        assert connection.execute(
+            text("SELECT decision FROM capture_group_decisions")
+        ).scalar_one() == "suppress"
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM annotations WHERE kind='question' AND deleted_at IS NULL")
+        ).scalar_one() == 1
+    with transaction() as connection:
+        repeated = collect_resource_annotations(resource_id, connection)
+        assert repeated.created_count == 0
+        assert repeated.ignored["manual_capture_suppressed"] == 1
+
+
+def test_capture_review_can_attach_a_duplicate_group_to_same_page_target(tmp_path):
+    from tracker_api.api.routes import collect_resource_annotations
+    from tracker_api.schemas.workspace import (
+        PdfAnnotationCollectionCommand,
+        PdfCaptureRejection,
+    )
+
+    resource_id = _seed_pdf_resource(tmp_path)
+    _add_local_marks(tmp_path / "annotated.pdf")
+    with pymupdf.open(tmp_path / "annotated.pdf") as document:
+        duplicate = document[0].add_ink_annot([[(410, 430), (430, 450), (455, 425)]])
+        duplicate.set_colors(stroke=(1, 0, 0))
+        duplicate.update()
+        document.saveIncr()
+    with transaction() as connection:
+        preview = collect_resource_annotations(resource_id, connection, dry_run=True)
+        review_items = [item for item in preview.changed_items if item.requires_capture_review]
+        assert len(review_items) == 2
+        source = review_items[0]
+        target = next(
+            candidate
+            for candidate in source.attachment_candidates
+            if candidate.source_fingerprint == review_items[1].source_fingerprint
+        )
+    with transaction() as connection:
+        saved = collect_resource_annotations(
+            resource_id,
+            connection,
+            command=PdfAnnotationCollectionCommand(
+                capture_rejections={
+                    source.source_fingerprint: PdfCaptureRejection(
+                        target_source_fingerprint=target.source_fingerprint
+                    )
+                }
+            ),
+        )
+        assert connection.execute(
+            text("SELECT decision FROM capture_group_decisions")
+        ).scalar_one() == "attach"
+        visual_questions = connection.execute(
+            text("""
+                SELECT COUNT(*)
+                FROM annotations a
+                JOIN annotation_anchors aa ON aa.annotation_id = a.id
+                WHERE a.kind='question' AND a.deleted_at IS NULL
+                  AND aa.annotation_kind='Ink'
+            """)
+        ).scalar_one()
+        assert visual_questions == 1
+        assert saved.created_count >= 1
+    with transaction() as connection:
+        repeated = collect_resource_annotations(resource_id, connection)
+        assert repeated.created_count == 0
+        assert repeated.removed_count == 0
+
+
 def test_failed_collection_preview_rolls_back_partial_writes(tmp_path, monkeypatch):
     from fastapi import HTTPException
 

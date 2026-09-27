@@ -17,7 +17,7 @@ import httpx
 
 from ..config import get_settings
 from .annotation_color_service import annotation_color_name
-from .question_region_service import question_region_groups
+from .question_region_service import is_vertical_guide_rect, question_region_groups
 
 DRAWBOARD_API_BASE = "https://us-prod-prod.dbpdf.drawboard.com/api/v1"
 DRAWBOARD_IDENTITY_BASE = "https://sso.drawboard.com/api/v1"
@@ -26,8 +26,6 @@ DRAWBOARD_SHARE_PATH = re.compile(r"^/documents/links/([a-f0-9]+)/consume/?$")
 DRAWBOARD_DOCUMENT_PATH = re.compile(r"^/documents/([a-f0-9]+)")
 TEXT_MARKUP_TYPES = {"TextHighlight", "TextUnderline"}
 TEXT_ANNOTATION_TYPES = TEXT_MARKUP_TYPES | {"TextInsert"}
-INK_VERTICAL_GUIDE_MIN_HEIGHT = 36.0
-INK_VERTICAL_GUIDE_ASPECT_RATIO = 3.0
 _STATE_LOCK = threading.Lock()
 logger = logging.getLogger("uvicorn.error")
 
@@ -555,12 +553,7 @@ def _ink_vertical_span(ink: DrawboardInk) -> float:
 
 
 def _is_vertical_guide(ink: DrawboardInk) -> bool:
-    height = _ink_vertical_span(ink)
-    width = _ink_horizontal_span(ink)
-    return (
-        height >= INK_VERTICAL_GUIDE_MIN_HEIGHT
-        and height >= max(width, 1.0) * INK_VERTICAL_GUIDE_ASPECT_RATIO
-    )
+    return is_vertical_guide_rect(ink.rect)
 
 
 def _group_anchor(members: list[DrawboardInk]) -> DrawboardInk:

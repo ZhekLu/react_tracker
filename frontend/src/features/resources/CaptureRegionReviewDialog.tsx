@@ -1,11 +1,14 @@
-import { Check, ChevronLeft, ChevronRight, RotateCcw, X } from "lucide-react";
+import { Ban, Check, ChevronLeft, ChevronRight, RotateCcw, Undo2, X } from "lucide-react";
 import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { PdfAnnotationCollectionItem } from "../../api/trackerApi";
 
 type CaptureRegionReviewDialogProps = {
   items: PdfAnnotationCollectionItem[];
   onClose: () => void;
-  onCollect: (overrides: Record<string, number[]>) => void;
+  onCollect: (decision: {
+    overrides: Record<string, number[]>;
+    rejections: Record<string, { targetSourceFingerprint: string | null }>;
+  }) => void;
   resourceTitle: string;
 };
 
@@ -46,6 +49,9 @@ export function CaptureRegionReviewDialog({
     ),
   );
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [rejections, setRejections] = useState<
+    Record<string, { targetSourceFingerprint: string | null }>
+  >({});
   const stageRef = useRef<HTMLDivElement>(null);
   const item = reviewItems[index];
 
@@ -54,11 +60,13 @@ export function CaptureRegionReviewDialog({
   const [x0, y0, x1, y1] = rect;
   const width = Math.max(1, item.pageWidth);
   const height = Math.max(1, item.pageHeight);
+  const rejection = rejections[item.sourceFingerprint];
 
   function beginDrag(
     event: ReactPointerEvent<HTMLElement>,
     kind: DragState["kind"],
   ) {
+    if (rejection) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({
@@ -158,10 +166,67 @@ export function CaptureRegionReviewDialog({
           >
             <RotateCcw size={14} /> Reset suggestion
           </button>
+          <button
+            className={rejection ? "captureKeepButton" : "captureRejectButton"}
+            onClick={() =>
+              setRejections((current) => {
+                if (current[item.sourceFingerprint]) {
+                  const next = { ...current };
+                  delete next[item.sourceFingerprint];
+                  return next;
+                }
+                return {
+                  ...current,
+                  [item.sourceFingerprint]: { targetSourceFingerprint: null },
+                };
+              })
+            }
+            type="button"
+          >
+            {rejection ? <Undo2 size={14} /> : <Ban size={14} />}
+            {rejection ? "Keep screenshot" : "Screenshot should not exist"}
+          </button>
         </div>
 
+        {rejection ? (
+          <div className="captureRejectionPanel">
+            <strong>This capture will not be created.</strong>
+            <span>
+              It will be recorded in the capture bug log so the same decision is
+              reused on later collections.
+            </span>
+            <label>
+              <span>Attach its source marks to an existing question group (optional)</span>
+              <select
+                aria-label="Duplicate target question group"
+                onChange={(event) =>
+                  setRejections((current) => ({
+                    ...current,
+                    [item.sourceFingerprint]: {
+                      targetSourceFingerprint: event.target.value || null,
+                    },
+                  }))
+                }
+                value={rejection.targetSourceFingerprint ?? ""}
+              >
+                <option value="">No target — suppress this capture</option>
+                {item.attachmentCandidates.map((candidate) => (
+                  <option
+                    key={candidate.sourceFingerprint}
+                    value={candidate.sourceFingerprint}
+                  >
+                    {`Page ${candidate.page} · ${candidate.layoutColumn}${
+                      candidate.existing ? " · existing" : " · new"
+                    } · ${candidate.text || "Screenshot"}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
+
         <div
-          className="captureReviewStage"
+          className={`captureReviewStage${rejection ? " rejected" : ""}`}
           ref={stageRef}
           style={{ aspectRatio: `${width} / ${height}` }}
         >
@@ -207,6 +272,7 @@ export function CaptureRegionReviewDialog({
             <label key={String(label)}>
               <span>{label}</span>
               <input
+                disabled={Boolean(rejection)}
                 max={position === 0 || position === 2 ? width : height}
                 min={0}
                 onChange={(event) =>
@@ -240,7 +306,16 @@ export function CaptureRegionReviewDialog({
           ) : (
             <button
               className="commandButton"
-              onClick={() => onCollect(rects)}
+              onClick={() =>
+                onCollect({
+                  overrides: Object.fromEntries(
+                    Object.entries(rects).filter(
+                      ([fingerprint]) => !rejections[fingerprint],
+                    ),
+                  ),
+                  rejections,
+                })
+              }
               type="button"
             >
               <Check size={15} /> Save regions &amp; collect

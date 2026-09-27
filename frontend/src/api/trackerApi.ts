@@ -451,6 +451,15 @@ export type PdfAnnotationCollectionItem = {
   layoutMode: "single" | "two_column";
   layoutColumn: "full" | "left" | "right";
   requiresCaptureReview: boolean;
+  attachmentCandidates: PdfCaptureAttachmentCandidate[];
+};
+
+export type PdfCaptureAttachmentCandidate = {
+  sourceFingerprint: string;
+  page: number;
+  layoutColumn: "full" | "left" | "right";
+  text: string;
+  existing: boolean;
 };
 
 export type DrawboardColorRole = "question" | "regular";
@@ -1497,6 +1506,7 @@ export async function collectResourcePdfAnnotations(
   options: {
     dryRun?: boolean;
     captureOverrides?: Record<string, number[]>;
+    captureRejections?: Record<string, { targetSourceFingerprint: string | null }>;
   } = {},
 ): Promise<PdfAnnotationCollectionResult> {
   const query = new URLSearchParams();
@@ -1539,12 +1549,25 @@ export async function collectResourcePdfAnnotations(
       layout_mode: "single" | "two_column";
       layout_column: "full" | "left" | "right";
       requires_capture_review: boolean;
+      attachment_candidates: Array<{
+        source_fingerprint: string;
+        page: number;
+        layout_column: "full" | "left" | "right";
+        text: string;
+        existing: boolean;
+      }>;
     }>;
   }>(`/resources/${resourceId}/pdf-annotations/collect${
     query.size ? `?${query.toString()}` : ""
   }`, {
     body: JSON.stringify({
       capture_overrides: options.captureOverrides ?? {},
+      capture_rejections: Object.fromEntries(
+        Object.entries(options.captureRejections ?? {}).map(([fingerprint, rejection]) => [
+          fingerprint,
+          { target_source_fingerprint: rejection.targetSourceFingerprint },
+        ]),
+      ),
     }),
     method: "POST",
   });
@@ -1583,6 +1606,13 @@ export async function collectResourcePdfAnnotations(
       layoutMode: item.layout_mode,
       layoutColumn: item.layout_column,
       requiresCaptureReview: item.requires_capture_review,
+      attachmentCandidates: (item.attachment_candidates ?? []).map((candidate) => ({
+        sourceFingerprint: candidate.source_fingerprint,
+        page: candidate.page,
+        layoutColumn: candidate.layout_column,
+        text: candidate.text,
+        existing: candidate.existing,
+      })),
     })),
     path: result.path,
     resourceId: result.resource_id,

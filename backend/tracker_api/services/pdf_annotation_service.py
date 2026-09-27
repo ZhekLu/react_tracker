@@ -138,6 +138,16 @@ class PdfCollectionItem:
     layout_mode: str = "single"
     layout_column: str = "full"
     requires_capture_review: bool = False
+    attachment_candidates: list[PdfCaptureAttachmentCandidate] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class PdfCaptureAttachmentCandidate:
+    source_fingerprint: str
+    page: int
+    layout_column: str
+    text: str
+    existing: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +191,7 @@ def _collection_item(
     command: AnnotationCreateCommand,
     outcome: str,
     source_day_id: str | None,
+    attachment_candidates: list[PdfCaptureAttachmentCandidate] | None = None,
 ) -> PdfCollectionItem:
     anchor = command.anchor
     text_value = (
@@ -210,6 +221,7 @@ def _collection_item(
             (anchor.metadata if anchor else {}).get("contextImageUrl")
             and command.kind in {"question", "todo"}
         ),
+        attachment_candidates=attachment_candidates or [],
     )
 
 
@@ -741,6 +753,253 @@ def _classify_question_annotations(
     )
 
 
+def _capture_member_fingerprints(capture: PdfCapture) -> set[str]:
+    return set(capture.member_fingerprints or (capture.fingerprint,))
+
+
+def _capture_text(capture: PdfCapture) -> str:
+    value = capture.comment or capture.quote or "Screenshot"
+    return " ".join(value.split())[:180]
+
+
+def _merge_review_capture(source: PdfCapture, target: PdfCapture) -> PdfCapture:
+    """Attach a rejected duplicate's source marks to one canonical capture."""
+    combined = merge_ink_annotation_groups(
+        [_capture_as_ink(target), _capture_as_ink(source)]
+    )
+    members = _capture_member_fingerprints(source) | _capture_member_fingerprints(target)
+    return replace(
+        target,
+        rect=combined.rect,
+        source_revision=combined.source_revision,
+        ink_vertex_sets=combined.ink_vertex_sets,
+        member_fingerprints=tuple(sorted(members)),
+        quote="\n\n".join(
+            dict.fromkeys(value for value in (target.quote, source.quote) if value)
+        ),
+        comment="\n\n".join(
+            dict.fromkeys(value for value in (target.comment, source.comment) if value)
+        ),
+    )
+
+
+def _decision_capture_index(
+    captures: list[PdfCapture],
+    fingerprint: str,
+    stored_members: set[str],
+) -> int | None:
+    for index, capture in enumerate(captures):
+        if (
+            capture.fingerprint == fingerprint
+            and (
+                not stored_members
+                or _capture_member_fingerprints(capture) == stored_members
+            )
+        ):
+            return index
+    if stored_members:
+        for index, capture in enumerate(captures):
+            if _capture_member_fingerprints(capture) == stored_members:
+                return index
+    return None
+
+
+def _capture_group_decisions(
+    connection: Connection,
+    resource_id: str,
+) -> dict[str, dict[str, Any]]:
+    return {
+        str(row["source_fingerprint"]): {
+            "target": row["target_source_fingerprint"],
+            "source_members": set(json.loads(row["source_member_fingerprints_json"])),
+            "target_members": set(json.loads(row["target_member_fingerprints_json"] or "[]")),
+        }
+        for row in connection.execute(
+            text("""
+                SELECT source_fingerprint, target_source_fingerprint,
+                       source_member_fingerprints_json,
+                       target_member_fingerprints_json
+                FROM capture_group_decisions
+                WHERE resource_id = :resource_id
+                ORDER BY updated_at, id
+                """),
+            {"resource_id": resource_id},
+        ).mappings()
+    }
+
+
+def _save_capture_group_decision(
+    connection: Connection,
+    resource_id: str,
+    source: PdfCapture,
+    target: PdfCapture | None,
+) -> None:
+    now = _utc_now_iso()
+    connection.execute(
+        text("""
+            INSERT INTO capture_group_decisions (
+              id, resource_id, source_fingerprint, target_source_fingerprint,
+              source_member_fingerprints_json, target_member_fingerprints_json,
+              page_number, layout_mode, layout_column, proposed_rect_json,
+              decision, created_at, updated_at
+            ) VALUES (
+              :id, :resource_id, :source_fingerprint, :target_source_fingerprint,
+              :source_members, :target_members, :page_number, :layout_mode,
+              :layout_column, :proposed_rect, :decision, :created_at, :updated_at
+            )
+            ON CONFLICT(resource_id, source_fingerprint) DO UPDATE SET
+              target_source_fingerprint = excluded.target_source_fingerprint,
+              source_member_fingerprints_json = excluded.source_member_fingerprints_json,
+              target_member_fingerprints_json = excluded.target_member_fingerprints_json,
+              page_number = excluded.page_number,
+              layout_mode = excluded.layout_mode,
+              layout_column = excluded.layout_column,
+              proposed_rect_json = excluded.proposed_rect_json,
+              decision = excluded.decision,
+              updated_at = excluded.updated_at
+            """),
+        {
+            "id": str(uuid.uuid4()),
+            "resource_id": resource_id,
+            "source_fingerprint": source.fingerprint,
+            "target_source_fingerprint": target.fingerprint if target else None,
+            "source_members": json.dumps(sorted(_capture_member_fingerprints(source))),
+            "target_members": (
+                json.dumps(sorted(_capture_member_fingerprints(target))) if target else None
+            ),
+            "page_number": source.page,
+            "layout_mode": source.layout_mode,
+            "layout_column": source.layout_column,
+            "proposed_rect": json.dumps(source.proposed_capture_rect),
+            "decision": "attach" if target else "suppress",
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
+
+
+def _apply_capture_group_decisions(
+    connection: Connection,
+    resource_id: str,
+    extraction: PdfExtraction,
+    requested: Mapping[str, str | None] | None,
+) -> PdfExtraction:
+    captures = list(extraction.captures)
+    decisions = _capture_group_decisions(connection, resource_id)
+    requested_keys = set(requested or {})
+    for fingerprint, requested_target in (requested or {}).items():
+        decisions[fingerprint] = {
+            "target": requested_target,
+            "source_members": set(),
+            "target_members": set(),
+        }
+
+    suppressed_members: set[str] = set()
+    ignored = dict(extraction.ignored)
+    for fingerprint, decision in decisions.items():
+        source_index = _decision_capture_index(
+            captures,
+            fingerprint,
+            decision["source_members"],
+        )
+        if source_index is None:
+            if fingerprint in requested_keys:
+                raise PdfAnnotationError(
+                    "The screenshot selected for removal is no longer in this PDF preview."
+                )
+            continue
+        source = captures[source_index]
+        target_fingerprint = decision["target"]
+        if target_fingerprint is None:
+            if fingerprint in requested_keys:
+                _save_capture_group_decision(connection, resource_id, source, None)
+            suppressed_members.update(_capture_member_fingerprints(source))
+            captures.pop(source_index)
+            ignored["manual_capture_suppressed"] = (
+                ignored.get("manual_capture_suppressed", 0) + 1
+            )
+            continue
+
+        target_index = _decision_capture_index(
+            captures,
+            str(target_fingerprint),
+            decision["target_members"],
+        )
+        if target_index is None:
+            if fingerprint in requested_keys:
+                raise PdfAnnotationError(
+                    "The question group selected as the duplicate target is no longer available."
+                )
+            continue
+        if source_index == target_index:
+            # The automatic grouping has learned this case since the override
+            # was recorded; the persisted decision is already satisfied.
+            continue
+        target = captures[target_index]
+        if source.page != target.page:
+            if fingerprint in requested_keys:
+                raise PdfAnnotationError("Duplicate screenshots can only attach on the same page.")
+            continue
+        if fingerprint in requested_keys:
+            _save_capture_group_decision(connection, resource_id, source, target)
+        merged = _merge_review_capture(source, target)
+        for index in sorted((source_index, target_index), reverse=True):
+            captures.pop(index)
+        captures.append(merged)
+
+    captures.sort(
+        key=lambda item: (
+            item.page,
+            item.rect[1] if len(item.rect) == 4 else 0,
+            item.rect[0] if len(item.rect) == 4 else 0,
+        )
+    )
+    remaining_members = {
+        member for capture in captures for member in _capture_member_fingerprints(capture)
+    }
+    source_fingerprints = extraction.source_fingerprints
+    if source_fingerprints is not None:
+        source_fingerprints = set(source_fingerprints) - (
+            suppressed_members - remaining_members
+        )
+    return replace(
+        extraction,
+        captures=captures,
+        ignored=ignored,
+        source_fingerprints=source_fingerprints,
+    )
+
+
+def _attachment_candidates(
+    captures: list[PdfCapture],
+    states: Mapping[str, dict[str, Any]],
+) -> dict[str, list[PdfCaptureAttachmentCandidate]]:
+    existing_members = {
+        member
+        for fingerprint, state in states.items()
+        for member in state["metadata"].get("inkMemberFingerprints", [fingerprint])
+    }
+    questions = [
+        capture
+        for capture in captures
+        if capture.is_question and capture.annotation_kind in VISUAL_KINDS
+    ]
+    return {
+        capture.fingerprint: [
+            PdfCaptureAttachmentCandidate(
+                source_fingerprint=other.fingerprint,
+                page=other.page,
+                layout_column=other.layout_column,
+                text=_capture_text(other),
+                existing=bool(_capture_member_fingerprints(other) & existing_members),
+            )
+            for other in questions
+            if other.page == capture.page and other.fingerprint != capture.fingerprint
+        ]
+        for capture in questions
+    }
+
+
 def _validated_capture_rect(rect: list[float], layout: PdfPageLayout) -> list[float]:
     if len(rect) != 4:
         raise PdfAnnotationError("A capture correction must contain four coordinates.")
@@ -880,6 +1139,7 @@ def collect_resource_pdf_annotations(
     resource_id: str,
     source_day_id: str | None = None,
     capture_overrides: Mapping[str, list[float]] | None = None,
+    capture_rejections: Mapping[str, str | None] | None = None,
 ) -> PdfCollection:
     with _COLLECTION_LOCK:
         return _collect_resource_pdf_annotations(
@@ -887,6 +1147,7 @@ def collect_resource_pdf_annotations(
             resource_id,
             source_day_id,
             capture_overrides=capture_overrides,
+            capture_rejections=capture_rejections,
         )
 
 
@@ -896,6 +1157,7 @@ def _collect_resource_pdf_annotations(
     source_day_id: str | None = None,
     *,
     capture_overrides: Mapping[str, list[float]] | None = None,
+    capture_rejections: Mapping[str, str | None] | None = None,
 ) -> PdfCollection:
     global _PENDING_PALETTE
     logger.debug(
@@ -987,6 +1249,13 @@ def _collect_resource_pdf_annotations(
         page_layouts,
         capture_overrides,
     )
+    extraction = _apply_capture_group_decisions(
+        connection,
+        resource_id,
+        extraction,
+        capture_rejections,
+    )
+    attachment_candidates = _attachment_candidates(extraction.captures, states)
     # Closed questions retain their saved screenshots. New/open captures follow
     # the PDF currently synced to disk, with immutable snapshots for old answers.
     preview_captures = [
@@ -1144,7 +1413,14 @@ def _collect_resource_pdf_annotations(
             )
         counts[outcome] += 1
         if outcome in {"created", "updated"}:
-            changed_items.append(_collection_item(command, outcome, capture_day_id))
+            changed_items.append(
+                _collection_item(
+                    command,
+                    outcome,
+                    capture_day_id,
+                    attachment_candidates.get(capture.fingerprint),
+                )
+            )
         if capture.fingerprint in (capture_overrides or {}) and capture.capture_rect:
             _log_capture_review(connection, resource_id, capture)
     return _logged_collection(

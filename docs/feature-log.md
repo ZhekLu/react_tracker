@@ -1,5 +1,23 @@
 # Tracker feature and maintenance log
 
+## 2026-09-27 — stabilize gutter brackets and reject duplicate captures
+
+- Fixed the Day 17 doubly-robust paper regression at the shared geometry layer.
+  Long vertical brackets that sit inside a detected two-column gutter now keep
+  the side indicated by their own centre; small gutter handwriting still follows
+  its nearest overlapping note. The real page-3 bracket consequently joins all
+  five right-column fragments transitively into one capture while the overlapping
+  left-column question remains separate.
+- Capture debug review now has **Screenshot should not exist**. A rejected crop
+  can be suppressed or explicitly attached to another question group on the same
+  page. The decision and source-member geometry are stored in a bug log and
+  reapplied during future collections; if automatic grouping later learns the
+  same merge, the override safely becomes a no-op.
+- Added a fixture from the real Day 17 page plus backend persistence/recollection
+  and frontend interaction regressions. Validation: all backend tests, all 266
+  frontend tests, backend Ruff, frontend ESLint, TypeScript, and production build.
+  The existing Vite large-chunk and PyMuPDF binding warnings remain.
+
 ## 2026-09-26 — restore minimal task controls and fix title overlap
 
 - Fixed a class-name collision: the study toolbar inherited absolute positioning
