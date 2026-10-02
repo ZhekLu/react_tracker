@@ -156,9 +156,12 @@ describe("discussion study overview", () => {
 
   it("shows resource names only on history groups and opens exact answers from compact image rows", async () => {
     Object.assign(globalThis, {IS_REACT_ACT_ENVIRONMENT: true});
+    // jsdom has no viewport hit testing; the real read-only editor uses it.
+    document.elementFromPoint = () => null;
     const {course, discussion} = studyFixture();
     course.annotations[0].anchor = {anchorType: "text", pageNumber: 3, metadata: {contextImageUrl:"/capture.png"}};
-    discussion.messages[0].body.markdown = discussion.messages[0].body.markdown!.replace("Useful explanation.", "Ignore the preamble. ==Remember this.==");
+    discussion.messages[0].body.markdown = discussion.messages[0].body.markdown!.replace("Useful explanation.", () => "Ignore the preamble. ==Remember this.== ^^And this.^^\n\n<!-- note-highlight:blue -->\n\n$$\n\\boxed{x=1}\n$$\n\n<!-- note-highlight:yellow -->\n\n```python\nx = 1\n```");
+    const original = JSON.stringify(course);
     const onReview = vi.fn(), onHistory = vi.fn();
     const host = document.createElement("div"); document.body.append(host);
     const root = createRoot(host);
@@ -176,7 +179,14 @@ describe("discussion study overview", () => {
       await act(async () => (row.querySelector('[title="Full response & editing"]') as HTMLButtonElement).click());
       expect(onHistory).toHaveBeenCalledWith("message", "discussion");
       await act(async () => (row.querySelector('[title="Read full answer"]') as HTMLButtonElement).click());
+      await act(async () => { await import("../../components/editor/DiscussionMarkdownSurfaceImpl"); });
       expect(row.querySelector(".studyAnswerBody")?.textContent).toContain("Ignore the preamble");
+      expect([...row.querySelectorAll(".studyAnswerBody mark")].map(mark => mark.textContent)).toEqual(["Remember this.", "And this."]);
+      expect(row.querySelector<HTMLElement>('.studyAnswerBody [data-type="block-math"]')?.style.backgroundColor).toBe("rgb(207, 232, 255)");
+      expect(row.querySelector('.studyAnswerBody [data-type="block-math"] .katex')).not.toBeNull();
+      expect(row.querySelector('.studyAnswerBody pre[data-block-highlight="#fff0a8"]')?.textContent).toContain("x = 1");
+      expect(row.querySelector('.studyAnswerBody [contenteditable="true"]')).toBeNull();
+      expect(JSON.stringify(course)).toBe(original);
       await act(async () => root.render(<DiscussionResponseHistory course={course} discussion={discussion} highlightsOnly
         onReview={onReview} onHistory={onHistory} onToggleImportantAnswer={vi.fn()}/>));
       expect(host.querySelectorAll(".studyAnswer")).toHaveLength(1);

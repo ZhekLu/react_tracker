@@ -1,5 +1,17 @@
 # Tracker feature and maintenance log
 
+## 2026-10-02 — preserve highlights when expanding answer cards
+
+- Fixed expanded Study overview/history cards losing highlight colors and
+  exposing inline highlight delimiters. Full answers now use the existing
+  read-only discussion renderer, including highlighted boxed formulas and code
+  blocks. The renderer loads on expansion; compact previews stay lightweight.
+- Regression coverage expands a real card through its control and checks both
+  text colors, formula/code highlights, read-only mode, and unchanged source.
+  Validation: all 278 frontend tests, ESLint, TypeScript/production build, and
+  read-only browser verification with a saved Day 17 answer. Existing Vite
+  large-chunk warning remains.
+
 ## 2026-10-02 — compact answer previews and resource history
 
 - Kept the Study overview welcome/progress and resource/chapter tiles. Answer

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowUpRight, CheckCircle2, ChevronDown, History, Pin } from "lucide-react";
 import type { Course, ImportantAnswerInput } from "../../types/tracker";
-import { MarkdownMath } from "../../components/content/MarkdownMath";
+import { DiscussionMarkdownSurface } from "../../components/editor/DiscussionMarkdownSurface";
 import { annotationIsScreenshot, metadataText } from "../../components/annotations/annotationDisplay";
 import { discussionPriorityLabel } from "../../lib/discussionPriority";
 import type { StudyAnswer } from "./discussionStudyModel";
@@ -41,7 +41,7 @@ export function DiscussionAnswerCard({answer, course, history = false, onReview,
       </div>
     </div>
     {title && <h4 className="studyAnswerHeading"><button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} title={title}>{title}</button></h4>}
-    {expanded ? <div className="studyAnswerBody"><MarkdownMath>{section?.bodyMarkdown || ""}</MarkdownMath></div> :
+    {expanded ? <div className="studyAnswerBody"><DiscussionMarkdownSurface markdown={section?.bodyMarkdown || ""}/></div> :
       <div className={`studyAnswerContent${sourceImage ? " hasImage" : ""}`}>
         {sourceImage && <button className="studySourceThumbnail" type="button" onClick={questions.length ? qa : () => setExpanded(true)} aria-label={`Open source · ${title || label}`} title="Open source in Q&A">
           <img src={sourceImage} loading="lazy" alt={`Question context · ${title || label}`}/>
