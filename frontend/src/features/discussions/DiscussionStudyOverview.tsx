@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
-import { ArrowUpRight, BookOpen, CheckCircle2, ChevronDown, Pin, Search } from "lucide-react";
+import { ArrowUpRight, BookOpen, CheckCircle2, Pin, Search } from "lucide-react";
 import type { Course, Discussion, ImportantAnswerInput } from "../../types/tracker";
-import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { discussionPriorityLabel, type DiscussionPriority } from "../../lib/discussionPriority";
-import { buildDiscussionStudy, sortStudyAnswers, studyResourceGroups, studyReadingExcerpt, type StudyAnswer } from "./discussionStudyModel";
-import { annotationIsScreenshot, metadataText } from "../../components/annotations/annotationDisplay";
+import { buildDiscussionStudy, sortStudyAnswers, studyResourceGroups } from "./discussionStudyModel";
+import { DiscussionAnswerCard } from "./DiscussionAnswerCard";
 import "./discussion-study.css";
 
 type Props = {
@@ -13,42 +12,6 @@ type Props = {
   onHistory: (messageId?: string, discussionId?: string) => void;
   onToggleImportantAnswer: (input: ImportantAnswerInput) => void;
 };
-
-function AnswerCard({answer, reading, onReview, onHistory, onToggleImportantAnswer}: Pick<Props, "onReview" | "onHistory" | "onToggleImportantAnswer"> & {answer: StudyAnswer; reading: boolean}) {
-  const [expanded, setExpanded] = useState(false);
-  const section = answer.item.section;
-  const questions = answer.item.questions.filter(q => q.status !== "archived");
-  const source = (answer.item.rootQuestions ?? questions)[0];
-  const sourceImage = source ? metadataText(source, "contextImageUrl") || (annotationIsScreenshot(source) ? metadataText(source, "annotatedPageImageUrl") : "") : "";
-  const sourceMarkdown = source?.body?.markdown || source?.body?.plainText || source?.anchor?.quote || "";
-  const sourceExcerpt = studyReadingExcerpt(sourceMarkdown);
-  const answerExcerpt = studyReadingExcerpt(section?.bodyMarkdown || "");
-  return <article className={`studyAnswer priority-${answer.priority}${answer.importantNote ? " isPinned" : ""}`}>
-    <div className="studyAnswerTop">
-      <span className={`qaPriorityBadge priority-${answer.priority}`}>{discussionPriorityLabel(answer.priority)}</span>
-      {answer.importantNote && <span className="studyPinnedLabel"><Pin size={11}/> Pinned</span>}
-      <span className="studyAnswerState">{answer.understood ? <><CheckCircle2 size={12}/> Understood</> : section ? "Ready to review" : "Awaiting a response"}</span>
-      {section && <button className="studyPinButton" type="button" aria-pressed={Boolean(answer.importantNote)}
-        aria-label={`${answer.importantNote ? "Unpin" : "Pin"} ${answer.title}`}
-        title={answer.importantNote ? "Remove from important notes" : "Save as an important study note"}
-        onClick={() => onToggleImportantAnswer({existingNote: answer.importantNote, messageId: section.messageId,
-          sectionLabel: section.label, markdown: section.bodyMarkdown, title: answer.title, questionIds: questions.map(q => q.id)})}><Pin size={15}/></button>}
-    </div>
-    <h4><button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{answer.title}<ChevronDown size={14}/></button></h4>
-    {reading && (sourceExcerpt || sourceImage) && <details className="studyQuestionSource" open>
-      <summary>{source?.anchor?.metadata?.taskId ? "My task & work" : "Original question"}{source?.anchor?.pageNumber ? ` · p. ${source.anchor.pageNumber}` : ""}</summary>
-      <div className="studyQuestionExcerpt">{sourceImage ? <img src={sourceImage} loading="lazy" alt={`Question context · ${answer.title}`}/> : <MarkdownMath>{sourceExcerpt}</MarkdownMath>}</div>
-    </details>}
-    {!expanded && (reading && answerExcerpt ? <div className="studyAnswerExcerpt"><small>Tutor explanation</small><div><MarkdownMath>{answerExcerpt}</MarkdownMath></div>
-      <button type="button" onClick={() => setExpanded(true)}>Read full answer <ChevronDown size={12}/></button></div> : <p className="studyAnswerPreview">{answer.preview}</p>)}
-    {expanded && <div className="studyAnswerBody"><MarkdownMath>{section?.bodyMarkdown || questions[0]?.body?.markdown || "Open Q&A to see the source capture."}</MarkdownMath></div>}
-    <footer>
-      <span title={answer.groupTitle}>{answer.importantNote ? answer.groupTitle : questions[0]?.stableLabel || section?.label || "Question"}{(answer.item.answers?.length ?? 0) > 1 ? ` · ${answer.item.answers!.length} responses` : ""}</span>
-      {questions.length > 0 && <button type="button" onClick={() => onReview(questions.map(q => q.id), answer.title)}>Open Q&A <ArrowUpRight size={13}/></button>}
-      {section && <button type="button" onClick={() => onHistory(section.messageId, answer.item.sectionDiscussionId)}>Full response</button>}
-    </footer>
-  </article>;
-}
 
 export function DiscussionStudyOverview({course, discussion, questionIds, ...actions}: Props) {
   const [query, setQuery] = useState("");
@@ -64,7 +27,7 @@ export function DiscussionStudyOverview({course, discussion, questionIds, ...act
       .join(" ").toLowerCase().includes(query.toLowerCase())));
   const visible = matches.slice(0, limit);
   const pinned = visible.filter(answer => answer.importantNote);
-  const visibleGroups = studyResourceGroups(visible.filter(answer => !answer.importantNote));
+  const unpinned = visible.filter(answer => !answer.importantNote);
   const reviewable = answers.filter(answer => answer.item.questions.length > 0);
   const understood = reviewable.filter(answer => answer.understood).length;
   const ready = reviewable.filter(answer => answer.item.section && !answer.understood).length;
@@ -104,11 +67,8 @@ export function DiscussionStudyOverview({course, discussion, questionIds, ...act
       </button>)}
     </div>
     <p className="studySortHint" role="status">{matches.length} threads & notes · pinned first, then priority · Q&A keeps its usual order</p>
-    {pinned.length > 0 && <section className="studyPinnedShelf"><header><Pin size={16}/><h3>Your important notes</h3><span>Keep the ideas worth returning to</span></header><div className="studyAnswerList">{pinned.map(answer => <AnswerCard key={answer.id} answer={answer} reading={reading} {...actions}/>)}</div></section>}
-    {visibleGroups.map(group => <section className="studyAnswerGroup" key={group.id}>
-      <header><BookOpen size={15}/><h3>{group.title}</h3><span>{group.answers.length}</span></header>
-      <div className="studyAnswerList">{group.answers.map(answer => <AnswerCard key={answer.id} answer={answer} reading={reading} {...actions}/>)}</div>
-    </section>)}
+    {pinned.length > 0 && <section className="studyPinnedShelf"><header><Pin size={16}/><h3>Your important notes</h3><span>Keep the ideas worth returning to</span></header><div className="studyAnswerList">{pinned.map(answer => <DiscussionAnswerCard key={answer.id} answer={answer} course={course} {...actions}/>)}</div></section>}
+    <div className="studyAnswerList">{unpinned.map(answer => <DiscussionAnswerCard key={answer.id} answer={answer} course={course} {...actions}/>)}</div>
     {!matches.length && <div className="studyEmpty"><BookOpen size={24}/><h3>{answers.length ? "No notes match these filters" : "A home for your next discoveries"}</h3>
       <p>{answers.length ? "Try another priority or a few fewer words." : "Paste a tutor response to start collecting answers here."}</p>
       {answers.length > 0 ? <button type="button" className="commandButton subtle" onClick={() => {setQuery("");setSourceId("");setPriority("all");}}>Clear filters</button> : <button type="button" className="commandButton subtle" onClick={() => actions.onHistory()}>Write a message</button>}

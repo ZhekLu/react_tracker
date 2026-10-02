@@ -3,6 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import { DiscussionStudyOverview } from "./DiscussionStudyOverview";
+import { DiscussionResponseHistory } from "./DiscussionResponseHistory";
+import { buildDiscussionHistory } from "./discussionHistoryModel";
 import type { Annotation, Course, Discussion, Note } from "../../types/tracker";
 import { buildDiscussionStudy, sortStudyAnswers, studyPreview, studyResourceGroups, studyReadingExcerpt } from "./discussionStudyModel";
 import { qaReviewThreads } from "./discussionQaReviewModel";
@@ -119,14 +121,14 @@ describe("discussion study overview", () => {
     try {
       await act(async () => root.render(<DiscussionStudyOverview course={course} discussion={discussion} onReview={onReview} onHistory={vi.fn()} onToggleImportantAnswer={onToggleImportantAnswer}/>));
       expect(host.querySelector(".studyAnswer")?.textContent).toContain("Bellman intuition");
-      expect(host.querySelector(".studyQuestionExcerpt")?.textContent).toContain("Question one");
-      expect(host.querySelector(".studyAnswerExcerpt")?.textContent).toContain("Useful explanation.");
+      expect(host.querySelector(".studyAnswer")?.textContent).not.toContain("Question one");
+      expect(host.querySelector(".answerPreviewClip")?.textContent).toContain("Useful explanation.");
       const displayButtons = host.querySelectorAll<HTMLButtonElement>(".studyDisplaySwitch button");
       await act(async () => displayButtons[1].click());
       expect(host.querySelector(".studyQuestionExcerpt")).toBeNull();
-      expect(host.querySelector(".studyAnswerPreview")).not.toBeNull();
+      expect(host.querySelector(".answerPreviewClip")).not.toBeNull();
       await act(async () => displayButtons[0].click());
-      expect(host.querySelector(".studyQuestionExcerpt")).not.toBeNull();
+      expect(host.querySelector(".studyQuestionExcerpt")).toBeNull();
       await act(async () => (host.querySelector(".studyResourceTile") as HTMLButtonElement).click());
       expect(onReview).toHaveBeenCalledWith(["one", "three"], "Textbook");
       await act(async () => (host.querySelector('.studyPinButton[aria-pressed="true"]') as HTMLButtonElement).click());
@@ -134,6 +136,50 @@ describe("discussion study overview", () => {
       await act(async () => (host.querySelector('.studyPriorityFilters .priority-core') as HTMLButtonElement).click());
       expect(host.querySelectorAll(".studyAnswer")).toHaveLength(1);
       expect(host.querySelector(".studyAnswer")?.textContent).toContain("Policy gradient");
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it("indexes all response rounds exactly once under the original resource", () => {
+    const {course, discussion} = studyFixture();
+    course.annotations.push({...course.annotations[0], id: "followup", resourceId: discussion.resourceId, origin: "discussion_review_followup",
+      anchor: {anchorType: "text", metadata: {rootQuestionIds: ["one"], promptLabel: "Q-001-F1"}, discussionMessageId: "message"}});
+    discussion.messages.push({...discussion.messages[0], id: "reply", sequenceNumber: 2,
+      annotationLinks: [{annotationId: "followup", relation: "answers"}],
+      body: {...discussion.messages[0].body, markdown: "## Q-001-F1 — Clarification\n\n==Keep this idea.=="}});
+    const history = buildDiscussionHistory(course, discussion);
+    expect(history).toHaveLength(4);
+    expect(new Set(history.map(a => a.id)).size).toBe(4);
+    expect(history[0].item.section?.messageId).toBe("reply");
+    expect(history[0].groupTitle).toBe("Textbook");
+    expect(history.filter(a => a.groupTitle === "Textbook")).toHaveLength(3);
+  });
+
+  it("shows resource names only on history groups and opens exact answers from compact image rows", async () => {
+    Object.assign(globalThis, {IS_REACT_ACT_ENVIRONMENT: true});
+    const {course, discussion} = studyFixture();
+    course.annotations[0].anchor = {anchorType: "text", pageNumber: 3, metadata: {contextImageUrl:"/capture.png"}};
+    discussion.messages[0].body.markdown = discussion.messages[0].body.markdown!.replace("Useful explanation.", "Ignore the preamble. ==Remember this.==");
+    const onReview = vi.fn(), onHistory = vi.fn();
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<DiscussionResponseHistory course={course} discussion={discussion} highlightsOnly={false}
+        onReview={onReview} onHistory={onHistory} onToggleImportantAnswer={vi.fn()}/>));
+      expect(host.querySelectorAll(".studySourceTag")).toHaveLength(0);
+      expect([...host.querySelectorAll(".studyAnswerGroup > header h3")].map(h => h.textContent)).toEqual(["Textbook", "Lecture"]);
+      const row = host.querySelector(".studyAnswer")!;
+      expect(row.querySelector(".studyAnswerContent.hasImage")).not.toBeNull();
+      expect(row.querySelector(".answerPreviewClip")?.textContent).toContain("Remember this.");
+      expect(row.querySelector(".answerPreviewClip")?.textContent).not.toContain("Ignore the preamble");
+      await act(async () => (row.querySelector(".studySourceThumbnail") as HTMLButtonElement).click());
+      expect(onReview).toHaveBeenCalledWith(["one"], "Bellman intuition");
+      await act(async () => (row.querySelector('[title="Full response & editing"]') as HTMLButtonElement).click());
+      expect(onHistory).toHaveBeenCalledWith("message", "discussion");
+      await act(async () => (row.querySelector('[title="Read full answer"]') as HTMLButtonElement).click());
+      expect(row.querySelector(".studyAnswerBody")?.textContent).toContain("Ignore the preamble");
+      await act(async () => root.render(<DiscussionResponseHistory course={course} discussion={discussion} highlightsOnly
+        onReview={onReview} onHistory={onHistory} onToggleImportantAnswer={vi.fn()}/>));
+      expect(host.querySelectorAll(".studyAnswer")).toHaveLength(1);
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 });

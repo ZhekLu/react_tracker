@@ -13,6 +13,7 @@ type Node = {type: string; value?: string; lang?: string | null; children?: Node
 
 export function discussionHighlights(
   markdown: string,
+  options: { selectedTextOnly?: boolean } = {},
 ): DiscussionHighlightExcerpt[] {
   const masked = markdown.split("");
   const blockHighlights: (DiscussionHighlightExcerpt & {start: number})[] = [];
@@ -49,6 +50,7 @@ export function discussionHighlights(
       };
     })
     .filter((highlight) => highlight.markdown.length > 0);
+  if (options.selectedTextOnly) return [...highlights, ...blockHighlights].sort((a, b) => a.start - b.start);
   return [
     ...new Map(
       [...highlights, ...blockHighlights].sort((a, b) => a.start - b.start).map((highlight) => [

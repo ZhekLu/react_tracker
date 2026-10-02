@@ -1,5 +1,6 @@
 import { QuestionFinder } from "./QuestionFinder";
 import { DiscussionStudyOverview } from "./DiscussionStudyOverview";
+import { DiscussionResponseHistory } from "./DiscussionResponseHistory";
 import type { FinderEntry } from "./questionSearchModel";
 import { useMemo, useState, type CSSProperties } from "react";
 import {
@@ -751,6 +752,7 @@ export function DiscussionsView({
 }: DiscussionsViewProps) {
   const [mode, setMode] = useState<"questions" | "conversations">("conversations");
   const [contentMode, setContentMode] = useState<"study" | "history">("study");
+  const [historyMessages, setHistoryMessages] = useState(false);
   const [conversationQuery, setConversationQuery] = useState("");
   const [includeArchived, setIncludeArchived] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Discussion | null>(null);
@@ -1000,6 +1002,7 @@ export function DiscussionsView({
       setQaReviewScope(null);
       setMode("conversations");
       setContentMode("history");
+      setHistoryMessages(true);
       setMessageExpansion(previous => new Map(previous).set(answer.section.messageId, true));
       window.setTimeout(() => document.getElementById(`discussion-message-${answer.section.messageId}`)?.scrollIntoView({block: "center", behavior: "smooth"}), 100);
     }
@@ -1280,6 +1283,7 @@ export function DiscussionsView({
                     }
                     onClick={() => {
                       setContentMode("history");
+                      setHistoryMessages(false);
                       setHighlightOnlyDiscussionId(
                         highlightsOnly ? "" : discussion.id,
                       );
@@ -1311,7 +1315,7 @@ export function DiscussionsView({
 
           {discussion ? <nav className="discussionContentModes" aria-label="Discussion content">
             <button type="button" aria-pressed={contentMode === "study"} onClick={() => setContentMode("study")}><BookOpen size={15}/> Study overview</button>
-            <button type="button" aria-pressed={contentMode === "history"} onClick={() => setContentMode("history")}><MessageSquareText size={15}/> Response history <span>{discussion.messages.length}</span></button>
+            <button type="button" aria-pressed={contentMode === "history"} onClick={() => {setContentMode("history"); setHistoryMessages(false);}}><MessageSquareText size={15}/> Response history <span>{discussion.messages.length}</span></button>
           </nav> : null}
 
           {contentMode === "study" && discussion?.scopeType === "resource" && resourceChapterGroups.length ? (
@@ -1383,7 +1387,7 @@ export function DiscussionsView({
             </section>
           ) : null}
 
-          {contentMode === "history" && taskContext ? (
+          {contentMode === "history" && historyMessages && taskContext ? (
             <section className="discussionTaskPin">
               <Pin aria-hidden="true" size={16} />
               <div className="discussionTaskPinBody">
@@ -1427,7 +1431,7 @@ export function DiscussionsView({
               }}
               onHistory={(messageId, targetDiscussionId) => {
                 if (targetDiscussionId && targetDiscussionId !== discussion.id) onFocusResource(targetDiscussionId);
-                setContentMode("history"); setHighlightOnlyDiscussionId("");
+                setContentMode("history"); setHistoryMessages(true); setHighlightOnlyDiscussionId("");
                 if (messageId) {
                   setMessageExpansion(previous => new Map(previous).set(messageId, true));
                   window.setTimeout(() => document.getElementById(`discussion-message-${messageId}`)?.scrollIntoView({block: "start", behavior: "smooth"}), 100);
@@ -1438,7 +1442,26 @@ export function DiscussionsView({
           {discussion ? (
             <div className="discussionContentGrid" hidden={contentMode !== "history"}>
               <div>
-                <div className="messageStream">
+                <nav className="historyDisplaySwitch" aria-label="Response history display">
+                  <button type="button" aria-pressed={!historyMessages} onClick={() => setHistoryMessages(false)}>By resource</button>
+                  <button type="button" aria-pressed={historyMessages} onClick={() => setHistoryMessages(true)}>Full messages</button>
+                </nav>
+                <div hidden={historyMessages}>
+                  <DiscussionResponseHistory key={discussion.id} course={course} discussion={discussion} highlightsOnly={highlightsOnly}
+                    onToggleImportantAnswer={onToggleImportantAnswer}
+                    onReview={(questionIds, label) => {
+                      onTaskQaClose?.();
+                      setQaReviewScope({discussionId: discussion.id, questionIds, label, initialFilter: "all", scopeKind: "resource"});
+                    }}
+                    onHistory={messageId => {
+                      setHistoryMessages(true); setHighlightOnlyDiscussionId("");
+                      if (messageId) {
+                        setMessageExpansion(previous => new Map(previous).set(messageId, true));
+                        window.setTimeout(() => document.getElementById(`discussion-message-${messageId}`)?.scrollIntoView({block: "start", behavior: "smooth"}), 100);
+                      }
+                    }}/>
+                </div>
+                <div className="messageStream" hidden={!historyMessages}>
                   {visibleMessages.map((message, messageIndex) => {
                     const messageOpen = highlightsOnly || editingMessageId === message.id ||
                       (messageExpansion.get(message.id) ?? messageIndex === visibleMessages.length - 1);

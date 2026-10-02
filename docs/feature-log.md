@@ -1,5 +1,28 @@
 # Tracker feature and maintenance log
 
+## 2026-10-02 — compact answer previews and resource history
+
+- Kept the Study overview welcome/progress and resource/chapter tiles. Answer
+  cards now place a small source image beside the answer; text-only sources omit
+  repeated context. Priority, status, resource, and page share a quiet header,
+  with small pin, Q&A, full-message, and expand controls. Pins and global priority
+  ordering remain; Q&A order is unchanged.
+- Previews show selected passages only when highlights exist, including boxed
+  formulas and block highlights. Otherwise they show a short answer excerpt.
+  Complete Markdown and reference-link definitions are retained; up to four
+  selections are rendered and cropped visually, without altering saved content.
+  Reading/Compact control preview height; expansion restores the complete answer.
+- Response history defaults to a compact index grouped across all messages by
+  resource, named once per group. Every response round remains accessible,
+  newest first within its group. Search and Highlights filter the index; Full
+  messages retains editing, deletion, source tagging, and the existing composer.
+  Legacy unscoped highlights are not copied into unrelated answer sections.
+- Validation: all 278 frontend tests, ESLint, TypeScript/production build;
+  live read-only browser checks of Day 17, resource groups, exact-message jumps,
+  search, expansion, formulas, and image/text layout at 1440, 650, and 390px.
+  No study data or backend schema changes. Existing large-bundle warning and
+  separate phone-width app-header crowding remain.
+
 ## 2026-09-27 — keep converted inline formulas valid after save
 
 - Fixed display-to-inline conversion saving multiline LaTeX inside a single

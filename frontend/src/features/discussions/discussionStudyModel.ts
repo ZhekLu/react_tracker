@@ -8,6 +8,10 @@ import remarkMath from "remark-math";
 import type { Root } from "mdast";
 
 const parser = unified().use(remarkParse).use(remarkMath);
+export function studyReferenceDefinitions(markdown: string): string {
+  return (parser.parse(markdown) as Root).children.filter(node => node.type === "definition")
+    .map(node => markdown.slice(node.position?.start.offset, node.position?.end.offset)).join("\n\n");
+}
 type Node = { type: string; value?: string; children?: Node[] };
 /** A preview is text, never truncated Markdown (which can break math/fences). */
 export function studyPreview(markdown: string, limit = 180): string {
