@@ -1,0 +1,30 @@
+.squeezeReview { max-width: 1400px; margin: auto; }
+.squeezeReview > header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.squeezeReview > header > div { flex: 1; min-width: 240px; }
+.squeezeReview h1, .squeezeReview h2 { margin: 6px 0; }
+.squeezeNotice { color: var(--muted, #687084); font-size: 13px; line-height: 1.5; }
+.squeezeResponseNav, .squeezeStatus, .squeezeCommands, .squeezeKeyGuide { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.squeezeResponseNav { margin: 16px 0; }
+.squeezeResponseNav label { flex: 1; min-width: 200px; }
+.squeezeResponseNav select { width: 100%; max-width: 100%; }
+.squeezeWorkbench { border: 1px solid var(--line, #ddd); border-radius: 8px; padding: 12px; }
+.squeezeWorkbench:focus-visible { outline: 2px solid #9470bd; outline-offset: 3px; }
+.squeezeKeyGuide { font-size: 13px; padding-bottom: 10px; border-bottom: 1px solid var(--line, #ddd); }
+.squeezeKeyGuide kbd { background: #f1edf5; border: 1px solid #d8cede; padding: 1px 5px; border-radius: 3px; }
+.squeezeStatus { padding: 10px 0; font-size: 13px; }
+.squeezeStatus [role=status] { margin-right: auto; }
+.squeezeColumns { display: grid; grid-template-columns: minmax(200px, .8fr) minmax(0, 1.6fr); gap: 16px; }
+.squeezeFragments { max-height: 65vh; overflow-y: auto; overscroll-behavior: contain; }
+.squeezeFragment { display: block; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid transparent; border-bottom-color: #e5e0e8; background: transparent; cursor: pointer; }
+.squeezeFragment.selected { background: #f3edf8; border-color: #b59dc7; border-radius: 4px; }
+.squeezeFragmentMeta { display: block; color: #76538f; font-size: 12px; margin-bottom: 3px; }
+.squeezeFragmentSource { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 ui-monospace, monospace; }
+.squeezeDetail { min-width: 0; }
+.squeezeCommands { margin: 12px 0; }
+.squeezeCommands button { font-size: 12px; }
+.squeezePreview { padding: 10px 14px; background: #fff; border: 1px solid var(--line, #ddd); border-radius: 6px; max-height: 48vh; overflow: auto; }
+.squeezeReview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; max-height: 50vh; overflow-y: auto; }
+.squeezeEdit textarea, .squeezeAdd textarea, .squeezeAdd input { display: block; width: 100%; box-sizing: border-box; margin: 6px 0 12px; }
+.squeezeFull, .squeezeAdd { margin-top: 16px; }
+.squeezeAdd summary, .squeezeFull summary, .squeezeDetail summary { cursor: pointer; padding: 8px 0; }
+@media (max-width: 760px) { .squeezeColumns { grid-template-columns: minmax(0, 1fr); } .squeezeFragments { max-height: 25vh; } .squeezePreview { max-height: 45vh; } }

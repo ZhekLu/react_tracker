@@ -79,15 +79,20 @@ describe('editor document integrity', () => {
     ]);
     e.destroy(); reopened.destroy();
   });
-  it('imports the full Day 10 note with five list items and every display formula', () => {
+  it('squeezes the full Day 10 note while preserving five list items and every formula', () => {
     const imported = importPastedMarkdown(day10Note);
     const e = editor(imported);
     const json: JSONContent = e.getJSON();
     expect(json.content?.[0].type).toBe('paragraph');
     expect(json.content?.[0].content?.[0].text).toMatch(/^Yes\. Day 8–9/);
-    const expected = [...day10Note.matchAll(/\$\$([\s\S]*?)\$\$/g)].map(m => m[1].trim());
+    const original = editor(importPastedMarkdown(day10Note, {squeeze: false}));
+    function formulas(doc: JSONContent): string[] {
+      return [...(['inlineMath', 'blockMath'].includes(doc.type ?? '') ? [String(doc.attrs?.latex).replace(/\s+/g, ' ').trim()] : []), ...(doc.content ?? []).flatMap(formulas)];
+    }
+    expect(formulas(json)).toEqual(formulas(original.getJSON()));
+    expect(nodes(json, 'blockMath').length).toBeLessThan(nodes(original.getJSON(), 'blockMath').length);
+    original.destroy();
     const math = nodes(json, 'blockMath').map(n => String(n.attrs?.latex));
-    expect(math.map(value => value.replace(/\n[ \t]+/g, "\n"))).toEqual(expected.map(value => value.replace(/\n[ \t]+/g, "\n")));
     expect(nodes(json, 'orderedList')[0]?.content).toHaveLength(5);
     expect(nodes(json, 'blockquote')).toHaveLength(1);
     for (const latex of math) expect(() => renderToString(latex, {throwOnError:true})).not.toThrow();
@@ -122,7 +127,7 @@ describe('editor document integrity', () => {
     expect(nodes(e.getJSON(), 'image')).toHaveLength(1);
     expect(nodes(e.getJSON(), 'heading')[0].attrs?.level).toBe(6);
     expect(nodes(e.getJSON(), 'blockMath')[0].attrs?.latex).toContain('a\\\\b');
-    expect(nodes(e.getJSON(), 'codeBlock')[0].content?.[0].text).toBe('keep  two spaces');
+    expect(nodes(e.getJSON(), 'text').find(node => node.marks?.some(mark => mark.type === 'code'))?.text).toBe('keep  two spaces');
     e.destroy();
   });
 });

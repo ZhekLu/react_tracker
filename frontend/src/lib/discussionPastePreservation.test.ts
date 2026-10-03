@@ -5,14 +5,14 @@ import { responseQuestionIds, normalizeTutorAnswerInstances } from './discussion
 import type { Discussion, Annotation } from '../types/tracker';
 
 describe('non-destructive Markdown boundaries', () => {
-  it('keeps display layout, paragraph breaks, quotes, repeated text and hard breaks by default', () => {
+  it('offers an unsqueezed import and preserves authored layout on saves', () => {
     const source = 'Before.\n\n$$\nx*{y}\n$$\n\n> A quotation.\n\nRepeat.\n\nRepeat.\n\nHard  \nbreak.';
-    const imported = importPastedMarkdown(source);
+    const imported = importPastedMarkdown(source, {squeeze: false});
     expect(imported).toContain('$$\nx*{y}\n$$');
     expect(imported).toContain('> A quotation.');
     expect(imported).toContain('Repeat.\n\nRepeat.');
     expect(imported).toMatch(/Hard(?: {2}|\\)\nbreak\./);
-    expect(importPastedMarkdown(imported)).toBe(imported);
+    expect(importPastedMarkdown(imported, {squeeze: false})).toBe(imported);
     expect(normalizeDiscussionMarkdown(source)).toBe(source);
   });
   it('protects URLs, code and explicit formulas from legacy math repair', () => {

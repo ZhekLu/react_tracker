@@ -42,7 +42,7 @@ export function recordInsert(input: string, parsed: string, source: string, outc
   });
 }
 
-export function importWithDebug(value: string, options: {compact?: boolean} = {}, source = "Paste") {
+export function importWithDebug(value: string, options: {compact?: boolean; squeeze?: boolean} = {}, source = "Paste") {
   const parsed = importPastedMarkdown(value, options);
   recordInsert(value, parsed, source);
   return parsed;

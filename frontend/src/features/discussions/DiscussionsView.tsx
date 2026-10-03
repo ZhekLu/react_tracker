@@ -1799,7 +1799,7 @@ function DiscussionComposer({
       {saveError ? <p className="editorSaveError" role="alert">{saveError}</p> : null}
       <div className="noteActions">
         <button type="button" className="commandButton subtle" disabled={!draft.trim() || saving}
-          onClick={() => setDraft(importWithDebug(draft, {compact: true}))}>Compact layout</button>
+          onClick={() => setDraft(importWithDebug(draft))}>Squeeze layout</button>
         <button
           className="commandButton"
           disabled={!draft.trim() || saving}

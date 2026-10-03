@@ -60,9 +60,9 @@
     "expected": "1. First line  \n   Second **line**.\n\n   Next paragraph."
   },
   {
-    "title": "Direct note paste: inline and display formulas remain single after reopen",
+    "title": "Direct note paste: short formulas become inline and remain single after reopen",
     "kind": "paste",
     "input": "Compare $G_1$ with the baseline.\n\n$$\n\\gamma=0.9\n$$",
-    "expected": "Compare $G_1$ with the baseline.\n\n$$\n\\gamma=0.9\n$$"
+    "expected": "Compare $G_1$ with the baseline. $\\gamma=0.9$"
   }
 ]

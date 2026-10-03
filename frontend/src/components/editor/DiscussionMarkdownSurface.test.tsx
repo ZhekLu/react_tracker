@@ -155,11 +155,11 @@ describe('controlled editor lifecycle', () => {
     Object.defineProperty(paste, 'clipboardData', {value: {getData: (type: string) => type === 'text/plain' ? 'Compare $G_1$.\n\n$$\n\\gamma=0.9\n$$' : ''}});
     await act(async () => host.querySelector('.ProseMirror')!.dispatchEvent(paste));
     const saved = state.editor!.getMarkdown();
-    expect(host.querySelectorAll('[data-type="inline-math"]')).toHaveLength(1);
-    expect(host.querySelectorAll('[data-type="block-math"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[data-type="inline-math"]')).toHaveLength(2);
+    expect(host.querySelectorAll('[data-type="block-math"]')).toHaveLength(0);
     await act(async () => root.render(<DiscussionMarkdownSurfaceImpl key="reopened" markdown={saved} />));
-    expect(host.querySelectorAll('[data-type="inline-math"]')).toHaveLength(1);
-    expect(host.querySelectorAll('[data-type="block-math"]')).toHaveLength(1);
+    expect(host.querySelectorAll('[data-type="inline-math"]')).toHaveLength(2);
+    expect(host.querySelectorAll('[data-type="block-math"]')).toHaveLength(0);
   });
 
   it('keeps drafts and undo when resizing the note workspace', async () => {

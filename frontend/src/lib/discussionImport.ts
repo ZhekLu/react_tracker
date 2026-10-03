@@ -14,6 +14,7 @@ import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import { unified } from "unified";
 import { normalizeMathMarkdown } from "./mathMarkdown";
+import { squeezeMarkdown } from "./squeezeMarkdown";
 
 type ProtectedMarkdown = {
   markdown: string;
@@ -64,7 +65,7 @@ function protectFencedCode(value: string): ProtectedMarkdown {
     }
     const token = `@@TRACKER_PASTED_CODE_${blocks.length}@@`;
     blocks.push(block.join("\n"));
-    output.push("", token, "");
+    output.push(token);
   }
 
   return {
@@ -562,13 +563,13 @@ function compactChildren(children: BlockContent[]): BlockContent[] {
 
 export function importPastedMarkdown(
   value: string,
-  options: { compact?: boolean } = {},
+  options: { compact?: boolean; squeeze?: boolean } = {},
 ): string {
   const canonical = canonicalizeExternalMarkdown(value);
   if (!canonical) return "";
-  // A normal paste has already been canonicalized. Re-stringifying it with
-  // remark erases custom highlights and escapes otherwise valid source.
-  if (!options.compact) return canonical;
+  // Squeezing edits source ranges, so custom marks, links and code stay intact.
+  // The legacy formatter remains available only through explicit compact mode.
+  if (!options.compact) return options.squeeze === false ? canonical : squeezeMarkdown(canonical);
   const protectedExports = protectDiscussionExportTags(canonical);
   const tree = parser.parse(protectedExports.markdown) as Root;
   if (options.compact) tree.children = compactChildren(tree.children as BlockContent[]);

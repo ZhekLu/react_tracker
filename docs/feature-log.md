@@ -729,3 +729,23 @@ Keep a concise record of behavior, special handling, known gaps, and validation.
 - Added source/priority/pinned filters and consistent cues in course-wide search. Plain-text previews avoid broken truncated formulas; full content remains rendered in Q&A/history. Unified exact section-pin recognition. Fixed scoped Q&A admitting unrelated follow-ups from other questions.
 - API defaults now use same-origin `/api` so separately served previews cannot silently target the live database; explicit overrides and Vite's development proxy remain supported.
 - Validation: full frontend suite, lint, TypeScript/build; backend workspace mutation suite; isolated-database browser checks for persistent priority/pins, resource/chapter scopes and responsive layout. See [design/audit notes](discussions-design.md) for behavior and known limits (heuristic priorities, snapshot notes, image-only titles, performance follow-ups).
+
+## 2026-10-03 — Automatic squeezing and keyboard parser review
+
+- New external pastes inline short formulas without fractions (including checks
+  for unbraced `\frac12`), inline short `text` fields, and attach short sentence
+  fragments. Source edits preserve highlights, code, lists, quotes, tables,
+  repeated text and internal hard breaks; normal saves respect manual spacing.
+  Fixed fenced-code protection adding blank lines on each repeated import.
+- Added Debug → Squeeze review, loading three recent distinct raw pastes per
+  course, with historical-input import, live paragraph/full previews, fragment
+  edits, arrows, W/S joins/separation, A/D inline/block, Enter acceptance and undo.
+  Original inputs, suggestions, reviewed labels and commands persist separately
+  from study content, with revision-checked autosave, recovery drafts and exports.
+- No ML model has been trained; heuristic thresholds and protected boundaries
+  remain explicit. Full raw review examples have no automatic expiry and are
+  excluded from study backups. See [workflow and limits](squeeze-review.md).
+- Validation: all 296 frontend tests and eight focused backend tests, frontend
+  lint/typecheck/build, targeted backend Ruff/mypy, and isolated-data browser
+  checks for keyboard commands, edits, persistence and desktop/mobile layout.
+  Deployed to the local tracker; three real September 28 raw pastes are loaded.
