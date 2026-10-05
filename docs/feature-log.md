@@ -749,3 +749,21 @@ Keep a concise record of behavior, special handling, known gaps, and validation.
   lint/typecheck/build, targeted backend Ruff/mypy, and isolated-data browser
   checks for keyboard commands, edits, persistence and desktop/mobile layout.
   Deployed to the local tracker; three real September 28 raw pastes are loaded.
+
+## 2026-10-05 — Squeezing calibrated against the first reviewed response
+
+- New pastes/review drafts inline compact boxed formulas up to 80 LaTeX
+  characters and introduced single-line code comparisons. Next-step/code
+  introductions and `versus` comparisons retain their own paragraphs. Short
+  explanations after inline math can finish up to a 780-character paragraph.
+  Calls, assignments, multiline programs and automatic fractions stay protected.
+- The revised rules match 182/183 explicitly reviewed boundaries and 54/55
+  formula layouts, up from 173/183 and 51/55, without new disagreements on this
+  response. The remaining numeric-fraction vector is a manual exception pending
+  clarification. This is calibration on one response; the other two examples
+  remain unreviewed and no ML model has been trained. Existing reviews retain
+  their original suggestions and decisions. See [rules/results](squeeze-review.md).
+- Validation: all 307 frontend tests, lint and production TypeScript/build;
+  repeated-import stability on the reviewed response, valid KaTeX for all 48
+  automatically inlined formulas, and live static-build verification. Existing
+  unrelated lint and large-chunk advisories remain.

@@ -4,7 +4,7 @@ import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
-export const SQUEEZE_VERSION = "source-squeeze-v1";
+export const SQUEEZE_VERSION = "source-squeeze-v2";
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
 export type SqueezeUnit = {
   id: string; source: string; text: string; gap: string;
@@ -23,11 +23,20 @@ export type SqueezeAction = {
 export type SqueezeDraft = {version: string; canonical: string; suggested: string; units: SqueezeUnit[]; actions: SqueezeAction[]};
 
 function shortFormula(latex: string): boolean {
-  return latex.replace(/\s+/g, " ").trim().length <= 56 &&
+  const compact = latex.replace(/\s+/g, " ").trim();
+  // Box and spacing markup make compact tuples look longer in source.
+  const limit = /^\\boxed\{/.test(compact) ? 80 : 56;
+  return compact.length <= limit &&
     !/^\s*=/.test(latex) && !/\\(?:[dct]?frac|genfrac|[dt]?binom|over|begin|end|tag|label)(?![A-Za-z])|\\\\/.test(latex);
 }
 function shortText(text: string): boolean {
   return text.length <= 160 && !text.includes("\n") && !/[┌┐└┘├┤┬┴┼│─]|\+[-+]+\+/.test(text);
+}
+function shortCodeExpression(text: string): boolean {
+  // Only simple comparisons; statements, calls and assignments stay fenced.
+  const identifier = "[A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*";
+  return text.length <= 80 && !text.includes("\n") &&
+    new RegExp(`^${identifier}\\s*(?:==|!=|<=|>=|<|>)\\s*(?:${identifier}|[-+]?\\d+(?:\\.\\d+)?)$`).test(text.trim());
 }
 function renderedSource(unit: SqueezeUnit): string {
   if (unit.layout === "block" || unit.kind === "paragraph" || unit.kind === "structure") return unit.text;
@@ -86,24 +95,45 @@ export function createSqueezeDraft(canonical: string): SqueezeDraft {
   let end = 0;
   let paragraphLength = 0;
   const units: SqueezeUnit[] = [];
-  function visit(node: RootContent, container: string) {
+  function visit(node: RootContent, container: string, next?: RootContent) {
     // List item prefixes stay in source gaps; distinct items never join.
-    if (node.type === "list") {node.children.forEach(item => item.children.forEach(child => visit(child, `item-${item.position!.start.offset}`))); return;}
+    if (node.type === "list") {node.children.forEach(item => item.children.forEach((child, at) => visit(child, `item-${item.position!.start.offset}`, item.children[at + 1]))); return;}
     const index = units.length;
     const start = node.position!.start.offset!;
     const unit = unitFromNode(node, canonical, index, canonical.slice(end, start), container);
     end = node.position!.end.offset!;
+    const previous = units[index - 1];
+    const introduced = previous?.container === container && previous.kind === "paragraph" && /:\s*$/.test(previous.text);
+    if (node.type === "code" && node.lang && introduced && shortCodeExpression(node.value)) {
+      unit.kind = "text"; unit.layout = "inline"; unit.suggestedLayout = "inline";
+      unit.reason = "Short code expression after an introduction";
+    }
     const content = renderedSource(unit).trim();
     const shortParagraph = unit.kind === "paragraph" && content.length <= 220 &&
       (content.match(/[.!?](?=\s|$)/g) ?? []).length <= 1 && !/\n|(?: {2}|\\)$/.test(content);
     units.push(unit);
+    const inlineCodeIntroduction = node.type === "paragraph" && node.children.some(child =>
+      child.type === "inlineCode" && shortCodeExpression(child.value) &&
+      /:\s*$/.test(canonical.slice(start, child.position!.start.offset)));
+    const codeIntroduction = /:\s*$/.test(content) && next?.type === "code" && !!next.lang &&
+      (next.lang.toLowerCase() !== "text" || shortCodeExpression(next.value));
+    const topicIntroduction = unit.kind === "paragraph" && /[.!?]\s*$/.test(previous?.text ?? "") &&
+      (/^Next\b[^:\n]*:/i.test(content) || codeIntroduction || inlineCodeIntroduction);
+    const inlineComparison = node.type === "paragraph" && node.children[0]?.type === "inlineMath" && node.children.some((child, at) =>
+      child.type === "text" && /^versus$/i.test(child.value.trim()) && node.children[at + 1]?.type === "inlineMath");
+    const comparison = introduced && (inlineComparison || (unit.kind === "math" && next?.type === "paragraph" &&
+      /^versus$/i.test(canonical.slice(next.position!.start.offset, next.position!.end.offset).trim())));
+    // Let a short explanation finish its formula instead of stranding the tail.
+    const paragraphLimit = shortParagraph && content.length <= 80 && previous?.kind === "math" && previous.layout === "inline" ? 780 : 700;
     unit.join = canJoinUnit(units, index) && (shortParagraph || unit.layout === "inline") &&
-      paragraphLength + content.length < 700;
+      !topicIntroduction && !comparison && paragraphLength + content.length < paragraphLimit;
+    if (topicIntroduction) unit.reason = "Start a new topic";
+    if (comparison) unit.reason += " · start a comparison paragraph";
     unit.suggestedJoin = unit.join;
     if (unit.join) unit.reason += " · attach short fragment to previous paragraph";
     paragraphLength = unit.join ? paragraphLength + content.length + 1 : content.length;
   }
-  root.children.forEach(node => visit(node, "root"));
+  root.children.forEach((node, at) => visit(node, "root", root.children[at + 1]));
   return {version: SQUEEZE_VERSION, canonical, suggested: renderSqueezeUnits(units), units, actions: []};
 }
 export function squeezeMarkdown(canonical: string): string {return createSqueezeDraft(canonical).suggested;}
