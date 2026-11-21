@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Check, Copy, History, Settings2, ShieldCheck, Trash2, X } from "lucide-react";
+import { BookOpen, Check, Copy, Download, History, Settings2, ShieldCheck, Trash2, X } from "lucide-react";
 import { changeAdminTask, fetchPatchingGuide, fetchTaskAdministration } from "../../api/trackerApi";
 import { MarkdownMath } from "../../components/content/MarkdownMath";
 import { adminChanges, adminDayContext, type AdminChanges, type AdminCommand, type AdminOverview, type AdminTask } from "../../lib/taskAdmin";
 import type { Course, Resource, TaskStatus } from "../../types/tracker";
+import { CourseProgressExport } from "../progress/CourseProgressExport";
 import "./task-administration.css";
 
 const statusNames: Record<TaskStatus, string> = {
@@ -119,7 +120,7 @@ export function TaskAdministration({ course, initialDayId, onClose, onChanged }:
   const [selectedId, setSelectedId] = useState("");
   const [query, setQuery] = useState("");
   const [removed, setRemoved] = useState(false);
-  const [tab, setTab] = useState<"tasks" | "history" | "guide">("tasks");
+  const [tab, setTab] = useState<"tasks" | "history" | "guide" | "progress">("tasks");
   const [guide, setGuide] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -159,7 +160,7 @@ export function TaskAdministration({ course, initialDayId, onClose, onChanged }:
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (discard) setDiscard(null); else navigate(onClose); }
       if (event.key !== "Tab") return;
       const scope = discard ? dialog.current?.querySelector(".adminDiscard") : dialog.current;
-      const controls = [...(scope?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select, summary, [tabindex="0"]') ?? [])].filter(el => el.getClientRects().length);
+      const controls = [...(scope?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select, summary, [tabindex="0"]') ?? [])].filter(el => el.getClientRects().length);
       const first = controls[0], last = controls.at(-1);
       if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -195,6 +196,7 @@ export function TaskAdministration({ course, initialDayId, onClose, onChanged }:
       <button className="commandButton subtle" disabled={saving} onClick={() => navigate(onClose)} type="button" aria-label="Exit task administration"><X size={17}/> Exit mode</button></header>
     <nav className="adminNav" aria-label="Administration sections">{(["tasks", "history", "guide"] as const).map(value => <button className="commandButton subtle" aria-pressed={tab === value} key={value} onClick={() => navigate(() => { setTab(value); setDirty(false); })} type="button">
       {value === "tasks" ? <Settings2 size={15}/> : value === "history" ? <History size={15}/> : <BookOpen size={15}/>}{value === "tasks" ? "Tasks" : value === "history" ? "Change history" : "Patch guide"}</button>)}
+      <button className="commandButton subtle" aria-pressed={tab === "progress"} type="button" onClick={() => navigate(() => setTab("progress"))}><Download size={15}/> Course progress</button>
       <button className="commandButton subtle" disabled={saving} type="button" onClick={() => navigate(() => { void reload(); })}>Reload latest</button>
       <span><ShieldCheck size={14}/> Backed up · revision checked · recoverable</span></nav>
     {error && <p className="adminError" role="alert">{error}</p>}{notice && <p className="adminNotice" role="status">{notice}</p>}
@@ -215,6 +217,7 @@ export function TaskAdministration({ course, initialDayId, onClose, onChanged }:
         <dl>{["title", "status", "resource_ids", "estimated_minutes", "is_optional", "deleted_at", "protected_fields"].filter(key => JSON.stringify(event.before[key as keyof AdminTask]) !== JSON.stringify(event.after[key as keyof AdminTask])).map(key => <div key={key}><dt>{fieldNames[key]}</dt><dd>{displayValue(key, event.before[key as keyof AdminTask], course.resources)} → {displayValue(key, event.after[key as keyof AdminTask], course.resources)}</dd></div>)}</dl>
         <small>Backup: {event.backup_path}</small><small>Receipt: {event.id}</small></details>)}</div>}
     {tab === "guide" && <div className="adminGuide"><button className="commandButton" disabled={!guide} type="button" onClick={() => void copy(guide, "Complete patch guide copied.")}><Copy size={15}/> Copy guide</button><MarkdownMath>{guide || "Loading guide…"}</MarkdownMath></div>}
+    {tab === "progress" && <CourseProgressExport courseId={course.id}/>}
     {discard && <div className="adminDiscardBackdrop"><div className="adminDiscard" role="alertdialog" aria-modal="true" aria-label="Discard unsaved administration changes"><h3>Leave these unsaved changes?</h3><p>Your saved task is unchanged.</p><button className="commandButton subtle" autoFocus onClick={() => setDiscard(null)} type="button">Keep editing</button><button className="commandButton danger" type="button" onClick={() => { const action = discard; setDiscard(null); setDirty(false); action(); }}>Discard changes</button></div></div>}
   </section></div>, document.body);
 }

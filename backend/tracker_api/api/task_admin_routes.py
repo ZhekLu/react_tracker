@@ -1,15 +1,29 @@
 from pathlib import Path
 from typing import Annotated, Any
+from zoneinfo import ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Connection
 
 from ..repositories.workspace_repository import EntityNotFoundError, RevisionConflictError
 from ..services import task_admin_service as service
+from ..services.course_progress_service import CourseProgressExport, export_course_progress
 from .deps import db_connection
 
 router = APIRouter(prefix="/api")
 Database = Annotated[Connection, Depends(db_connection)]
+
+
+@router.get("/courses/{course_id}/progress-export", response_model=CourseProgressExport)
+def progress_export(
+    course_id: str, connection: Database, time_zone: str = "UTC",
+) -> CourseProgressExport:
+    try:
+        return export_course_progress(connection, course_id, time_zone=time_zone)
+    except EntityNotFoundError as error:
+        raise HTTPException(404, str(error)) from error
+    except (ZoneInfoNotFoundError, ValueError) as error:
+        raise HTTPException(422, "Unknown time zone.") from error
 
 
 @router.get("/plan-patching-guide")

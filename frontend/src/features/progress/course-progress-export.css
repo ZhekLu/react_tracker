@@ -1,0 +1,10 @@
+.courseProgressExport { max-width: 1200px; min-width: 0; margin: 0 auto; padding: 20px; }
+.courseProgressExport h2 { margin: 0 0 8px; }
+.courseProgressExport header p, .courseProgressTimestamp { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.courseProgressActions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.courseProgressExport label { display: block; font-size: 13px; font-weight: 650; margin: 16px 0 8px; }
+.courseProgressExport textarea { display: block; box-sizing: border-box; width: 100%; min-height: 440px; max-height: 65vh; resize: vertical; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); font: 12px/1.7 ui-monospace, monospace; overflow-wrap: anywhere; }
+.courseProgressExport textarea:focus-visible { outline: 3px solid #9675c8; outline-offset: 2px; }
+.courseProgressExport [role=alert] { color: #a23e39; font-size: 13px; }
+.courseProgressExport [role=status] { color: #43674c; font-size: 13px; }
+@media (max-width: 800px) { .courseProgressExport { padding: 14px; } .courseProgressExport textarea { min-height: 320px; } }

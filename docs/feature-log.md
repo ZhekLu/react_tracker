@@ -767,3 +767,23 @@ Keep a concise record of behavior, special handling, known gaps, and validation.
   repeated-import stability on the reviewed response, valid KaTeX for all 48
   automatically inlined formulas, and live static-build verification. Existing
   unrelated lint and large-chunk advisories remain.
+
+## 2026-11-21 — Course progress outline export
+
+- Added Course progress to Debug and Task administration, with a selectable
+  preview, clipboard copy, Markdown download and explicit refresh. Exports show
+  material/chapter reading progress, logical question counts by saved status,
+  dated days/tasks, optional/cancelled statuses, estimates and recorded timing.
+  Notes, question/answer bodies, discussions and file paths are excluded.
+- The read-only course-scoped endpoint retains time from removed/unassigned
+  tasks, infers missing day links from active tasks, respects duration overrides,
+  and freezes running timers at export. Calendar activity uses the browser's
+  time zone and session start date. This is a snapshot using saved time records;
+  no external sync or historical status reconstruction is performed. Details:
+  [course progress export](course-progress-export.md).
+- Validation: all 313 frontend tests and 47 focused backend tests, frontend
+  lint/TypeScript/build, targeted backend Ruff/mypy, and isolated-data browser
+  checks for both entry points, copy/download controls and desktop/mobile
+  Roadmap/Resources/Exams layouts. Full import-following mypy still reports three
+  pre-existing errors in `workspace_repository.py`; targeted changed-file mypy
+  passes. Existing unrelated lint, chunk-size and dependency advisories remain.

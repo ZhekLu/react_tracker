@@ -6,8 +6,8 @@ import { TaskAdministration } from "./TaskAdministration";
 import { adminDayContext, type AdminCommand, type AdminOverview } from "../../lib/taskAdmin";
 import type { Course } from "../../types/tracker";
 
-const api = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), guide: vi.fn() }));
-vi.mock("../../api/trackerApi", () => ({fetchTaskAdministration: api.load, changeAdminTask: api.save, fetchPatchingGuide: api.guide}));
+const api = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), guide: vi.fn(), progress: vi.fn() }));
+vi.mock("../../api/trackerApi", () => ({fetchTaskAdministration: api.load, changeAdminTask: api.save, fetchPatchingGuide: api.guide, fetchCourseProgressExport: api.progress}));
 vi.mock("../../components/content/MarkdownMath", () => ({MarkdownMath: ({children}: {children: string}) => <article>{children}</article>}));
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -26,6 +26,7 @@ beforeEach(() => {
     protected_fields: [], note_count: 1, running_timer: false }]};
   api.load.mockImplementation(async () => structuredClone(overview));
   api.guide.mockResolvedValue({markdown: "# Complete guide\nUse delete=true."});
+  api.progress.mockResolvedValue({filename: "course-progress.md", markdown: "# Course progress\n", exported_at: "2026-11-21T12:30:00Z"});
   api.save.mockImplementation(async (_id: string, command: AdminCommand) => {
     const task = overview.tasks[0];
     const {action, ...fields} = command;
@@ -145,4 +146,17 @@ it("copies the selected day identity even when it has no remaining tasks", async
   const context = JSON.parse(vi.mocked(navigator.clipboard.writeText).mock.calls[0][0]);
   expect(context.day).toEqual({id: "d", number: 11, title: "Policy gradients"});
   expect(context.tasks).toEqual([]);
+});
+
+it("opens course export through the existing unsaved-draft guard", async () => {
+  await render(); await input("Task title", "Still editing");
+  await click("Course progress");
+  expect(api.progress).not.toHaveBeenCalled();
+  await click("Keep editing");
+  expect(document.querySelector<HTMLInputElement>('[aria-label="Task title"]')?.value).toBe("Still editing");
+  await click("Course progress"); await click("Discard changes");
+  expect(api.progress).toHaveBeenCalledWith("c");
+  await click("Copy report");
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith("# Course progress\n");
+  expect(api.save).not.toHaveBeenCalled();
 });

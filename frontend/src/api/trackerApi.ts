@@ -1071,6 +1071,11 @@ export async function fetchCourseWorkspace(courseId: string): Promise<Course> {
 export function fetchTaskAdministration(courseId: string): Promise<AdminOverview> {
   return requestJson(`/courses/${courseId}/task-admin`);
 }
+export type CourseProgressExport = { filename: string; markdown: string; exported_at: string };
+export function fetchCourseProgressExport(courseId: string): Promise<CourseProgressExport> {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return requestJson(`/courses/${encodeURIComponent(courseId)}/progress-export?time_zone=${encodeURIComponent(timeZone)}`);
+}
 export function changeAdminTask(taskId: string, command: AdminCommand): Promise<AdminResult> {
   return requestJson(`/tasks/${taskId}/admin`, { method: "POST", body: JSON.stringify(command) });
 }
