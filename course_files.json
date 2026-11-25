@@ -1,5 +1,6 @@
 {
   "resource_file_roots": [
+    "~/Personal/uni_thesis/dsb",
     "~/Library/Mobile Documents/com~apple~CloudDocs/uni/thesis/papers"
   ],
   "course_file_roots": {

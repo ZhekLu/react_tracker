@@ -1,5 +1,23 @@
 # Tracker feature and maintenance log
 
+## 2026-11-25 — thesis literature and research planning course
+
+- Imported **MSc Thesis - Literature and Research Plan** (`THESIS-LIT`) from the
+  canonical plan in `../study_plans/thesis/`: 12 weekdays, 26 Nov–11 Dec 2026,
+  47 work tasks plus 12 completion gates, 14 resources, and five skills.
+- Normalized the source plan's bold `Purpose` labels to parser-supported plain
+  `Purpose:` so daily objectives appear in Roadmap. Preserved existing day/task
+  IDs, wording, guidance, estimates, and dates. Linked the supporting decision
+  worksheet to six planning tasks as a Markdown resource.
+- Added the thesis-pitch PDF's DSB directory to trusted resource roots so the
+  original referenced file is readable. General sprint guidance and conditional
+  future milestones stay in the source plan. Import/update commands and source
+  locations: [thesis course notes](../study_plans/thesis/README.md).
+- Validation: zero parser diagnostics; rollback-only import preview; successful
+  backed-up import; live API and browser Roadmap verification; all seven local
+  resources readable; foreign keys valid; fingerprints of 17 existing-course
+  tables unchanged immediately after import. No application code changes.
+
 ## 2026-10-02 — preserve highlights when expanding answer cards
 
 - Fixed expanded Study overview/history cards losing highlight colors and
